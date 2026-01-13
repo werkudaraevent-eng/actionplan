@@ -198,9 +198,9 @@ export default function DepartmentView({ departmentCode }) {
   };
 
   return (
-    <div className="flex-1 bg-gray-50 min-h-screen">
+    <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header - Clean, only title and Add button */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-20">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">{currentDept?.name}</h1>

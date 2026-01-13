@@ -172,12 +172,14 @@ function AppContent() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar
         currentView={currentView}
         onNavigate={handleNavigate}
       />
-      {renderContent()}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        {renderContent()}
+      </main>
     </div>
   );
 }

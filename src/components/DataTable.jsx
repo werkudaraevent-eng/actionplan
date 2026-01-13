@@ -53,8 +53,8 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, load
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full">
+        <div className="overflow-x-auto scrollbar-thin max-w-full">
+          <table className="w-full min-w-[1200px]">
             <thead>
               <tr className="bg-teal-700 text-white">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider sticky left-0 bg-teal-700 z-10">#</th>

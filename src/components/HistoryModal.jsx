@@ -138,7 +138,39 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                           </span>
                         </div>
                         
-                        <p className="text-sm text-gray-700 mb-2">{log.description}</p>
+                        {/* Description - render as list if array, otherwise as text */}
+                        {(() => {
+                          // Parse description - could be JSON array or plain string
+                          let descriptionItems = [];
+                          try {
+                            const parsed = typeof log.description === 'string' 
+                              ? JSON.parse(log.description) 
+                              : log.description;
+                            if (Array.isArray(parsed)) {
+                              descriptionItems = parsed;
+                            } else {
+                              descriptionItems = [log.description];
+                            }
+                          } catch {
+                            // Not JSON, treat as plain string
+                            descriptionItems = [log.description];
+                          }
+
+                          if (descriptionItems.length === 1) {
+                            return <p className="text-sm text-gray-700 mb-2">{descriptionItems[0]}</p>;
+                          }
+
+                          return (
+                            <ul className="text-sm text-gray-700 mb-2 space-y-1">
+                              {descriptionItems.map((item, idx) => (
+                                <li key={idx} className="flex items-start gap-2">
+                                  <span className="text-teal-500 mt-1">•</span>
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          );
+                        })()}
                         
                         <div className="flex items-center gap-2 text-xs text-gray-500">
                           <User className="w-3.5 h-3.5" />

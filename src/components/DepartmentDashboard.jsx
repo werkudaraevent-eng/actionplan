@@ -5,6 +5,7 @@ import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
 import { DEPARTMENTS, supabase } from '../lib/supabase';
 import PerformanceChart from './PerformanceChart';
+import PriorityFocusWidget from './PriorityFocusWidget';
 
 // Sort months chronologically
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
@@ -613,6 +614,13 @@ export default function DepartmentDashboard({ departmentCode }) {
             </div>
           </div>
         </div>
+
+        {/* Priority Focus Widget - Only show for current year with real data */}
+        {selectedYear === CURRENT_YEAR && yearFilteredPlans.length > 0 && (
+          <div className="mb-6">
+            <PriorityFocusWidget plans={yearFilteredPlans} />
+          </div>
+        )}
 
         {/* Charts Section with Dimension Switching */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

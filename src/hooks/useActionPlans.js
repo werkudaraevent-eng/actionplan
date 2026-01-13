@@ -18,6 +18,60 @@ async function createAuditLog(actionPlanId, userId, changeType, previousValue, n
   }
 }
 
+// Utility for shortening long text
+const truncateText = (text, maxLength = 30) => {
+  if (!text) return 'Empty';
+  const str = String(text);
+  if (str.length <= maxLength) return str;
+  return str.substring(0, maxLength) + '...';
+};
+
+// Helper to generate detailed change description using config map (returns array)
+function generateChangeDescription(original, updated) {
+  if (!original) return ['Updated record details'];
+  
+  const changes = [];
+
+  // Configuration: Map DB columns to Human Labels & Rules
+  const fieldsToTrack = {
+    // Dropdowns / Short Text
+    month:         { label: 'Month', isLong: false },
+    status:        { label: 'Status', isLong: false },
+    pic:           { label: 'PIC', isLong: false },
+    report_format: { label: 'Report Format', isLong: false },
+    indicator:     { label: 'KPI', isLong: false },
+    // Long Text / Areas
+    goal_strategy: { label: 'Strategy', isLong: true },
+    action_plan:   { label: 'Action Plan', isLong: true },
+    outcome_link:  { label: 'Outcome/URL', isLong: true },
+    remark:        { label: 'Remark', isLong: true },
+  };
+
+  // Loop through every field in the config
+  Object.keys(fieldsToTrack).forEach((key) => {
+    const config = fieldsToTrack[key];
+    const oldVal = original[key];
+    const newVal = updated[key];
+
+    // Compare values (loose equality to handle null vs undefined vs "")
+    if (oldVal != newVal) {
+      let fromText = oldVal ? oldVal : 'Empty';
+      let toText = newVal ? newVal : 'Empty';
+
+      // Apply truncation if it's a long field
+      if (config.isLong) {
+        fromText = truncateText(fromText);
+        toText = truncateText(toText);
+      }
+
+      changes.push(`Changed ${config.label} from '${fromText}' to '${toText}'`);
+    }
+  });
+
+  if (changes.length === 0) return ['Updated record (No specific changes detected)'];
+  return changes; // Return array, don't join
+}
+
 export function useActionPlans(departmentCode = null) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -185,8 +239,11 @@ export function useActionPlans(departmentCode = null) {
     return data;
   };
 
-  // Update plan with audit logging
+  // Update plan with detailed audit logging
   const updatePlan = async (id, updates, previousData = null) => {
+    // Get previous data from state if not provided
+    const original = previousData || plans.find((p) => p.id === id);
+    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
@@ -209,33 +266,30 @@ export function useActionPlans(departmentCode = null) {
         prev.map((p) => (p.id === id ? data : p))
       );
 
-      // Audit log
+      // Audit log with detailed change description
       const userId = await getCurrentUserId();
       if (userId) {
-        // Determine change type and description
+        // Determine change type based on what was updated
         let changeType = 'FULL_UPDATE';
-        let description = 'Updated action plan';
+        const updateKeys = Object.keys(updates);
         
-        if (Object.keys(updates).length === 1) {
-          if (updates.status) {
-            changeType = 'STATUS_UPDATE';
-            description = `Changed status from "${previousData?.status || 'Unknown'}" to "${updates.status}"`;
-          } else if (updates.remark !== undefined) {
-            changeType = 'REMARK_UPDATE';
-            description = `Updated remark`;
-          } else if (updates.outcome_link !== undefined) {
-            changeType = 'OUTCOME_UPDATE';
-            description = `Updated outcome link`;
-          }
+        if (updateKeys.length === 1) {
+          if (updates.status !== undefined) changeType = 'STATUS_UPDATE';
+          else if (updates.remark !== undefined) changeType = 'REMARK_UPDATE';
+          else if (updates.outcome_link !== undefined) changeType = 'OUTCOME_UPDATE';
         }
+
+        // Generate detailed description (returns array)
+        const mergedUpdate = { ...original, ...updates };
+        const descriptionArray = generateChangeDescription(original, mergedUpdate);
 
         await createAuditLog(
           id,
           userId,
           changeType,
-          previousData ? { status: previousData.status, remark: previousData.remark, outcome_link: previousData.outcome_link } : null,
+          original,
           updates,
-          description
+          JSON.stringify(descriptionArray) // Store as JSON array
         );
       }
 

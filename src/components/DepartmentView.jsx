@@ -27,7 +27,7 @@ const jsonToCSV = (data, columns) => {
 
 export default function DepartmentView({ departmentCode }) {
   const { isAdmin } = useAuth();
-  const { plans, loading, createPlan, updatePlan, deletePlan, updateStatus } = useActionPlans(departmentCode);
+  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, updateStatus } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   
@@ -127,7 +127,7 @@ export default function DepartmentView({ departmentCode }) {
     }
   };
 
-  const handleSave = async (formData) => {
+  const handleSave = async (formData, isBulk = false) => {
     try {
       if (editData) {
         // Update existing plan
@@ -151,8 +151,15 @@ export default function DepartmentView({ departmentCode }) {
             };
         
         await updatePlan(editData.id, updateFields);
+      } else if (isBulk && Array.isArray(formData)) {
+        // Bulk create (recurring task)
+        const plansWithDept = formData.map(plan => ({
+          ...plan,
+          department_code: departmentCode,
+        }));
+        await bulkCreatePlans(plansWithDept);
       } else {
-        // Create new plan (admin only)
+        // Create single new plan (admin only)
         await createPlan({
           ...formData,
           department_code: departmentCode,

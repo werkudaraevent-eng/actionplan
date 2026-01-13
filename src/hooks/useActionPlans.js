@@ -128,6 +128,36 @@ export function useActionPlans(departmentCode = null) {
     return data;
   };
 
+  // Bulk create plans (for recurring tasks)
+  const bulkCreatePlans = async (plansData) => {
+    const { data, error } = await supabase
+      .from('action_plans')
+      .insert(plansData)
+      .select();
+
+    if (error) throw error;
+    
+    // Optimistic update
+    setPlans((prev) => [...prev, ...data]);
+    
+    // Audit log for each created plan
+    const userId = await getCurrentUserId();
+    if (userId && data) {
+      for (const plan of data) {
+        await createAuditLog(
+          plan.id,
+          userId,
+          'CREATED',
+          null,
+          { ...plan, bulk_created: true },
+          `Created action plan (bulk): "${plan.action_plan?.substring(0, 50)}..." for ${plan.month}`
+        );
+      }
+    }
+    
+    return data;
+  };
+
   // Update plan with audit logging
   const updatePlan = async (id, updates, previousData = null) => {
     // Optimistic update
@@ -274,6 +304,7 @@ export function useActionPlans(departmentCode = null) {
     error,
     refetch: fetchPlans,
     createPlan,
+    bulkCreatePlans,
     updatePlan,
     deletePlan,
     updateStatus,

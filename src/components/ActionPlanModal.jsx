@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
-import { X, Save, Loader2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Save, Loader2, Repeat, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode }) {
   const { isAdmin } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [selectedMonths, setSelectedMonths] = useState([]);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [formData, setFormData] = useState({
     department_code: departmentCode || '',
     month: 'Jan',
@@ -19,9 +22,17 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     remark: '',
   });
 
+  // Get remaining months (excluding the selected month)
+  const remainingMonths = useMemo(() => {
+    return MONTHS.filter(m => m !== formData.month);
+  }, [formData.month]);
+
+  // Reset repeat state when month changes or modal opens
   useEffect(() => {
     if (editData) {
       setFormData(editData);
+      setRepeatEnabled(false);
+      setSelectedMonths([]);
     } else {
       setFormData({
         department_code: departmentCode || '',
@@ -35,22 +46,71 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         outcome_link: '',
         remark: '',
       });
+      setRepeatEnabled(false);
+      setSelectedMonths([]);
     }
+    setShowConfirm(false);
   }, [editData, isOpen, departmentCode]);
+
+  // When repeat is enabled, select all remaining months by default
+  useEffect(() => {
+    if (repeatEnabled) {
+      setSelectedMonths(remainingMonths);
+    } else {
+      setSelectedMonths([]);
+    }
+  }, [repeatEnabled, remainingMonths]);
 
   if (!isOpen) return null;
 
+  const toggleMonth = (month) => {
+    setSelectedMonths(prev => 
+      prev.includes(month) 
+        ? prev.filter(m => m !== month)
+        : [...prev, month]
+    );
+  };
+
+  const selectAllMonths = () => setSelectedMonths(remainingMonths);
+  const clearAllMonths = () => setSelectedMonths([]);
+
+  const totalPlansToCreate = repeatEnabled ? 1 + selectedMonths.length : 1;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Show confirmation if creating multiple plans
+    if (repeatEnabled && selectedMonths.length > 0 && !showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
+
     setLoading(true);
     try {
-      await onSave(formData);
+      if (repeatEnabled && selectedMonths.length > 0 && !editData) {
+        // Bulk create: main month + selected months
+        const allMonths = [formData.month, ...selectedMonths];
+        const payloads = allMonths.map(month => ({
+          ...formData,
+          month,
+          // Reset status to Pending for all copies
+          status: 'Pending',
+          outcome_link: '',
+          remark: '',
+        }));
+        
+        await onSave(payloads, true); // Pass true to indicate bulk insert
+      } else {
+        // Single create/update
+        await onSave(formData);
+      }
       onClose();
     } catch (error) {
       console.error('Error saving:', error);
       alert('Failed to save. Please try again.');
     } finally {
       setLoading(false);
+      setShowConfirm(false);
     }
   };
 
@@ -205,10 +265,97 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             />
           </div>
 
+          {/* Recurring Task Option - Only show for new plans, not edits */}
+          {!editData && isAdmin && (
+            <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={repeatEnabled}
+                  onChange={(e) => setRepeatEnabled(e.target.checked)}
+                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                />
+                <div className="flex items-center gap-2">
+                  <Repeat className="w-4 h-4 text-teal-600" />
+                  <span className="text-sm font-medium text-gray-700">Repeat this Action Plan for other months?</span>
+                </div>
+              </label>
+
+              {repeatEnabled && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500">Select months to duplicate this task:</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllMonths}
+                        className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        type="button"
+                        onClick={clearAllMonths}
+                        className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {remainingMonths.map((month) => (
+                      <button
+                        key={month}
+                        type="button"
+                        onClick={() => toggleMonth(month)}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                          selectedMonths.includes(month)
+                            ? 'bg-teal-600 text-white border-teal-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+                        }`}
+                      >
+                        {month}
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedMonths.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>
+                        This will create <strong>{totalPlansToCreate}</strong> action plans 
+                        ({formData.month}{selectedMonths.length > 0 ? `, ${selectedMonths.join(', ')}` : ''})
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Confirmation Dialog */}
+          {showConfirm && (
+            <div className="border-2 border-amber-400 rounded-lg p-4 bg-amber-50">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800">Confirm Bulk Creation</p>
+                  <p className="text-sm text-amber-700 mt-1">
+                    You are about to create <strong>{totalPlansToCreate}</strong> separate action plans 
+                    for months: <strong>{formData.month}, {selectedMonths.join(', ')}</strong>.
+                  </p>
+                  <p className="text-xs text-amber-600 mt-2">Click "Save" again to confirm.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-4">
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => { setShowConfirm(false); onClose(); }}
               className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
@@ -216,14 +363,16 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             <button
               type="submit"
               disabled={loading || !isValidUrl(formData.outcome_link)}
-              className="flex-1 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
+              }`}
             >
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? 'Saving...' : showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 'Save Changes'}
             </button>
           </div>
         </form>

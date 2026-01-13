@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
 
@@ -7,6 +7,7 @@ const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
   { id: 'targets', label: 'Company Targets', icon: Target },
   { id: 'historical', label: 'Historical Data', icon: History },
+  { id: 'dropdowns', label: 'Dropdown Options', icon: List },
 ];
 
 const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
@@ -56,6 +57,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
         {activeTab === 'departments' && <DepartmentsTab onNavigateToUsers={onNavigateToUsers} />}
         {activeTab === 'targets' && <TargetsTab />}
         {activeTab === 'historical' && <HistoricalTab />}
+        {activeTab === 'dropdowns' && <DropdownOptionsTab />}
       </main>
     </div>
   );
@@ -832,6 +834,434 @@ function HistoricalTab() {
       {hasChanges && (
         <div className="p-3 bg-amber-50 border-t border-amber-200 text-center text-sm text-amber-700">
           ⚠️ You have unsaved changes. Click "Save Changes" to persist your data.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== DROPDOWN OPTIONS TAB ====================
+const DROPDOWN_CATEGORIES = [
+  { id: 'failure_reason', label: 'Failure Reasons', description: 'Options shown when marking a plan as "Not Achieved"' },
+  { id: 'delete_reason', label: 'Deletion Reasons', description: 'Options shown when deleting/cancelling a plan' },
+];
+
+function DropdownOptionsTab() {
+  const [options, setOptions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newLabels, setNewLabels] = useState({}); // { category: 'new label' }
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [optionToDelete, setOptionToDelete] = useState(null); // { id, label, category }
+
+  useEffect(() => {
+    fetchOptions();
+  }, []);
+
+  const fetchOptions = async () => {
+    const { data, error } = await supabase
+      .from('dropdown_options')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching dropdown options:', error);
+    }
+    setOptions(data || []);
+    setLoading(false);
+  };
+
+  // Separate standard options from "Other" option (sorted by sort_order)
+  const getStandardOptions = (category) => {
+    return options
+      .filter(opt => opt.category === category && opt.label !== 'Other')
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  };
+
+  const getOtherOption = (category) => {
+    return options.find(opt => opt.category === category && opt.label === 'Other');
+  };
+
+  const handleAddOption = async (category) => {
+    const label = newLabels[category]?.trim();
+    if (!label) return;
+    
+    // Prevent adding "Other" as a custom option
+    if (label.toLowerCase() === 'other') {
+      alert('"Other" is a system option. Use the toggle below to enable/disable it.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Get max sort_order for this category (excluding "Other" which should always be last)
+      const standardOptions = getStandardOptions(category);
+      const maxSort = standardOptions.length > 0 
+        ? Math.max(...standardOptions.map(o => o.sort_order || 0)) 
+        : 0;
+
+      const { data, error } = await supabase
+        .from('dropdown_options')
+        .insert({ 
+          category, 
+          label, 
+          sort_order: maxSort + 1,
+          is_active: true 
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Immediately update local state
+      if (data) {
+        setOptions(prev => [...prev, data]);
+      }
+      setNewLabels(prev => ({ ...prev, [category]: '' }));
+    } catch (error) {
+      console.error('Add error:', error);
+      alert('Failed to add option: ' + (error.message || 'Unknown error'));
+    }
+    setSaving(false);
+  };
+
+  const handleToggleActive = async (option) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('dropdown_options')
+        .update({ is_active: !option.is_active })
+        .eq('id', option.id);
+
+      if (error) throw error;
+      
+      // Immediately update local state
+      setOptions(prev => prev.map(item => 
+        item.id === option.id ? { ...item, is_active: !item.is_active } : item
+      ));
+    } catch (error) {
+      console.error('Toggle error:', error);
+      alert('Failed to update option: ' + (error.message || 'Unknown error'));
+    }
+    setSaving(false);
+  };
+
+  const handleToggleOther = async (category) => {
+    const otherOption = getOtherOption(category);
+    
+    setSaving(true);
+    try {
+      if (otherOption) {
+        // Toggle existing "Other" option
+        const { error } = await supabase
+          .from('dropdown_options')
+          .update({ is_active: !otherOption.is_active })
+          .eq('id', otherOption.id);
+
+        if (error) throw error;
+        
+        // Immediately update local state
+        setOptions(prev => prev.map(item => 
+          item.id === otherOption.id ? { ...item, is_active: !item.is_active } : item
+        ));
+      } else {
+        // Create "Other" option if it doesn't exist
+        const { data, error } = await supabase
+          .from('dropdown_options')
+          .insert({ 
+            category, 
+            label: 'Other', 
+            sort_order: 99, // Always last
+            is_active: true 
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Add new option to local state
+        if (data) {
+          setOptions(prev => [...prev, data]);
+        }
+      }
+    } catch (error) {
+      console.error('Toggle Other error:', error);
+      alert('Failed to update option: ' + (error.message || 'Unknown error'));
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = (option) => {
+    setOptionToDelete(option);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleMove = async (category, currentIndex, direction) => {
+    const standardOptions = getStandardOptions(category);
+    
+    // Calculate target index
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    
+    // Bounds check
+    if (targetIndex < 0 || targetIndex >= standardOptions.length) return;
+    
+    const currentItem = standardOptions[currentIndex];
+    const targetItem = standardOptions[targetIndex];
+    
+    // Swap sort_order values
+    const currentSortOrder = currentItem.sort_order;
+    const targetSortOrder = targetItem.sort_order;
+    
+    // Optimistic UI update - swap in local state immediately
+    setOptions(prev => prev.map(item => {
+      if (item.id === currentItem.id) {
+        return { ...item, sort_order: targetSortOrder };
+      }
+      if (item.id === targetItem.id) {
+        return { ...item, sort_order: currentSortOrder };
+      }
+      return item;
+    }));
+    
+    // Persist to database
+    try {
+      const [result1, result2] = await Promise.all([
+        supabase
+          .from('dropdown_options')
+          .update({ sort_order: targetSortOrder })
+          .eq('id', currentItem.id),
+        supabase
+          .from('dropdown_options')
+          .update({ sort_order: currentSortOrder })
+          .eq('id', targetItem.id)
+      ]);
+      
+      if (result1.error) throw result1.error;
+      if (result2.error) throw result2.error;
+    } catch (error) {
+      console.error('Move error:', error);
+      // Revert optimistic update on error
+      setOptions(prev => prev.map(item => {
+        if (item.id === currentItem.id) {
+          return { ...item, sort_order: currentSortOrder };
+        }
+        if (item.id === targetItem.id) {
+          return { ...item, sort_order: targetSortOrder };
+        }
+        return item;
+      }));
+      alert('Failed to reorder: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!optionToDelete) return;
+
+    setSaving(true);
+    try {
+      // Soft delete: set is_active to false instead of hard delete
+      const { error } = await supabase
+        .from('dropdown_options')
+        .update({ is_active: false })
+        .eq('id', optionToDelete.id);
+
+      if (error) {
+        console.error('Error deleting option:', error);
+        alert('Failed to delete. Check console for details.');
+        setSaving(false);
+        return;
+      }
+      
+      // Immediately update local state to reflect the deletion
+      setOptions(prev => prev.filter(item => item.id !== optionToDelete.id));
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Failed to delete option: ' + (error.message || 'Unknown error'));
+    }
+    setSaving(false);
+    setIsDeleteModalOpen(false);
+    setOptionToDelete(null);
+  };
+
+  const handleCancelDelete = () => {
+    setIsDeleteModalOpen(false);
+    setOptionToDelete(null);
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {DROPDOWN_CATEGORIES.map((cat) => {
+        const standardOptions = getStandardOptions(cat.id);
+        const otherOption = getOtherOption(cat.id);
+        const activeCount = standardOptions.filter(o => o.is_active).length + (otherOption?.is_active ? 1 : 0);
+        const inactiveCount = standardOptions.filter(o => !o.is_active).length + (otherOption && !otherOption.is_active ? 1 : 0);
+
+        return (
+          <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800">{cat.label}</h3>
+              <p className="text-sm text-gray-500 mt-1">{cat.description}</p>
+              <div className="flex gap-3 mt-2 text-xs">
+                <span className="text-green-600">{activeCount} active</span>
+                {inactiveCount > 0 && <span className="text-gray-400">{inactiveCount} inactive</span>}
+              </div>
+            </div>
+
+            {/* Add New */}
+            <div className="p-3 bg-gray-50 border-b border-gray-100">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newLabels[cat.id] || ''}
+                  onChange={(e) => setNewLabels(prev => ({ ...prev, [cat.id]: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddOption(cat.id)}
+                  placeholder="Add new option..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                />
+                <button
+                  onClick={() => handleAddOption(cat.id)}
+                  disabled={saving || !newLabels[cat.id]?.trim()}
+                  className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Standard Options List */}
+            <div className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
+              {standardOptions.length === 0 ? (
+                <div className="p-6 text-center text-gray-400 text-sm">
+                  No custom options yet. Add one above.
+                </div>
+              ) : (
+                standardOptions.map((option, index) => (
+                  <div 
+                    key={option.id} 
+                    className={`p-3 flex items-center gap-2 hover:bg-gray-50 ${!option.is_active ? 'opacity-50 bg-gray-50' : ''}`}
+                  >
+                    {/* Toggle Active */}
+                    <button
+                      onClick={() => handleToggleActive(option)}
+                      disabled={saving}
+                      className={`p-1 rounded transition-colors ${
+                        option.is_active 
+                          ? 'text-green-600 hover:bg-green-50' 
+                          : 'text-gray-400 hover:bg-gray-100'
+                      }`}
+                      title={option.is_active ? 'Click to deactivate' : 'Click to activate'}
+                    >
+                      {option.is_active ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                    </button>
+
+                    {/* Label */}
+                    <span className={`flex-1 text-sm ${option.is_active ? 'text-gray-800' : 'text-gray-500 line-through'}`}>
+                      {option.label}
+                    </span>
+
+                    {/* Reorder Buttons */}
+                    <div className="flex flex-col">
+                      <button
+                        onClick={() => handleMove(cat.id, index, 'up')}
+                        disabled={saving || index === 0}
+                        className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        title="Move up"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleMove(cat.id, index, 'down')}
+                        disabled={saving || index === standardOptions.length - 1}
+                        className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        title="Move down"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Delete */}
+                    <button
+                      onClick={() => handleDelete(option)}
+                      disabled={saving}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title="Delete permanently"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* System Option: "Other" Toggle */}
+            <div className="p-4 bg-slate-50 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">Allow Custom Input</span>
+                    <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">System</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    When enabled, users can select "Other" and type a custom reason.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggleOther(cat.id)}
+                  disabled={saving}
+                  className={`p-1 rounded-lg transition-colors ${
+                    otherOption?.is_active 
+                      ? 'text-teal-600 hover:bg-teal-50' 
+                      : 'text-gray-400 hover:bg-gray-100'
+                  }`}
+                  title={otherOption?.is_active ? 'Click to disable "Other" option' : 'Click to enable "Other" option'}
+                >
+                  {otherOption?.is_active ? (
+                    <ToggleRight className="w-8 h-8" />
+                  ) : (
+                    <ToggleLeft className="w-8 h-8" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && optionToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Delete Option?</h3>
+            <p className="text-gray-600 text-sm mb-4">
+              Are you sure you want to delete <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>? 
+              This action cannot be undone.
+            </p>
+            <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mb-4">
+              💡 Tip: Consider deactivating instead to preserve historical data.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={handleCancelDelete}
+                disabled={saving}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={saving}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium flex items-center gap-2"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {saving ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

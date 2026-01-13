@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, X, Loader2 } from 'lucide-react';
-
-const DELETION_REASONS = [
-  'Input Error / Duplicate',
-  'Cancelled by Management',
-  'Strategy Shift / Change',
-  'Merged / Redundant',
-  'Other',
-];
+import { supabase } from '../lib/supabase';
 
 export default function ConfirmationModal({
   isOpen,
@@ -23,6 +16,34 @@ export default function ConfirmationModal({
 }) {
   const [reason, setReason] = useState('');
   const [customDetail, setCustomDetail] = useState('');
+  const [deleteReasonOptions, setDeleteReasonOptions] = useState([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
+  // Fetch delete reasons when modal opens with requireReason
+  useEffect(() => {
+    if (isOpen && requireReason) {
+      const fetchDeleteReasons = async () => {
+        setLoadingOptions(true);
+        try {
+          const { data, error } = await supabase
+            .from('dropdown_options')
+            .select('id, label, sort_order')
+            .eq('category', 'delete_reason')
+            .eq('is_active', true)
+            .order('sort_order', { ascending: true });
+          
+          if (error) throw error;
+          setDeleteReasonOptions(data || []);
+        } catch (err) {
+          console.error('Failed to fetch delete reasons:', err);
+          setDeleteReasonOptions([]);
+        } finally {
+          setLoadingOptions(false);
+        }
+      };
+      fetchDeleteReasons();
+    }
+  }, [isOpen, requireReason]);
 
   // Reset states when modal opens/closes
   useEffect(() => {
@@ -102,13 +123,16 @@ export default function ConfirmationModal({
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              disabled={loadingOptions}
               className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
                 isNoReasonSelected ? 'border-gray-300 text-gray-500' : 'border-gray-300 text-gray-900'
-              }`}
+              } ${loadingOptions ? 'bg-gray-50' : ''}`}
             >
-              <option value="" disabled>-- Select a reason --</option>
-              {DELETION_REASONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+              <option value="" disabled>
+                {loadingOptions ? 'Loading options...' : '-- Select a reason --'}
+              </option>
+              {deleteReasonOptions.map((opt) => (
+                <option key={opt.id} value={opt.label}>{opt.label}</option>
               ))}
             </select>
 

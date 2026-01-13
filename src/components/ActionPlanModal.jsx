@@ -3,17 +3,6 @@ import { X, Save, Loader2, Repeat, AlertCircle, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 
-// Root Cause / Failure Reason options
-const FAILURE_REASONS = [
-  'Lack of Resources / Manpower',
-  'Budget Constraints',
-  'Vendor / Third-Party Issue',
-  'Timeline / Deadline too tight',
-  'Technical Blocker',
-  'Change in Business Strategy',
-  'Other',
-];
-
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false }) {
   const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
   
@@ -53,6 +42,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [showConfirm, setShowConfirm] = useState(false);
   const [allStaff, setAllStaff] = useState([]); // All profiles from DB
   const [loadingStaff, setLoadingStaff] = useState(false);
+  const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB
+  const [loadingReasons, setLoadingReasons] = useState(false);
   const [formData, setFormData] = useState({
     department_code: departmentCode || '',
     month: 'Jan',
@@ -77,6 +68,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     }
   }, [isOpen, hasFullAccess]);
 
+  // Fetch failure reasons when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchFailureReasons();
+    }
+  }, [isOpen]);
+
   const fetchStaff = async () => {
     setLoadingStaff(true);
     try {
@@ -91,6 +89,27 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       console.error('Failed to fetch staff:', err);
     } finally {
       setLoadingStaff(false);
+    }
+  };
+
+  const fetchFailureReasons = async () => {
+    setLoadingReasons(true);
+    try {
+      const { data, error } = await supabase
+        .from('dropdown_options')
+        .select('id, label, sort_order')
+        .eq('category', 'failure_reason')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      
+      if (error) throw error;
+      setFailureReasons(data || []);
+    } catch (err) {
+      console.error('Failed to fetch failure reasons:', err);
+      // Fallback to empty array - user will see "No options available"
+      setFailureReasons([]);
+    } finally {
+      setLoadingReasons(false);
     }
   };
 
@@ -115,10 +134,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       const remarkMatch = editData.remark?.match(/^\[Cause: (.+?)\]\s*/);
       if (remarkMatch) {
         const existingReason = remarkMatch[1];
-        if (FAILURE_REASONS.includes(existingReason)) {
+        // Check if the reason exists in our dynamic list
+        const reasonExists = failureReasons.some(r => r.label === existingReason);
+        if (reasonExists) {
           setFailureReason(existingReason);
           setOtherReason('');
-        } else {
+        } else if (existingReason) {
+          // Reason not in list - treat as "Other"
           setFailureReason('Other');
           setOtherReason(existingReason);
         }
@@ -145,7 +167,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       setOtherReason('');
     }
     setShowConfirm(false);
-  }, [editData, isOpen, departmentCode]);
+  }, [editData, isOpen, departmentCode, failureReasons]);
 
   // Clear PIC when department changes (only for new plans)
   const handleDepartmentChange = (newDeptCode) => {
@@ -458,41 +480,54 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               <label className="block text-sm font-medium text-red-700 mb-2">
                 Root Cause / Reason for Failure <span className="text-red-500">*</span>
               </label>
-              <select
-                value={failureReason}
-                onChange={(e) => {
-                  setFailureReason(e.target.value);
-                  if (e.target.value !== 'Other') setOtherReason('');
-                }}
-                className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
-                required
-              >
-                <option value="">Select a reason...</option>
-                {FAILURE_REASONS.map((reason) => (
-                  <option key={reason} value={reason}>{reason}</option>
-                ))}
-              </select>
-              
-              {/* "Other" text input */}
-              {failureReason === 'Other' && (
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-red-600 mb-1">
-                    Specify Reason <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={otherReason}
-                    onChange={(e) => setOtherReason(e.target.value)}
-                    placeholder="Describe the reason..."
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm ${
-                      otherReason.trim().length < 3 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
-                    }`}
-                    required
-                  />
-                  {otherReason.trim().length < 3 && (
-                    <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 3 characters</p>
-                  )}
+              {loadingReasons ? (
+                <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading options...
                 </div>
+              ) : failureReasons.length === 0 ? (
+                <div className="text-amber-600 text-sm py-2">
+                  ⚠️ No failure reasons configured. Please contact admin to add options in Settings.
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={failureReason}
+                    onChange={(e) => {
+                      setFailureReason(e.target.value);
+                      if (e.target.value !== 'Other') setOtherReason('');
+                    }}
+                    className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
+                    required
+                  >
+                    <option value="">Select a reason...</option>
+                    {failureReasons.map((reason) => (
+                      <option key={reason.id} value={reason.label}>{reason.label}</option>
+                    ))}
+                  </select>
+                  
+                  {/* "Other" text input */}
+                  {failureReason === 'Other' && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-red-600 mb-1">
+                        Specify Reason <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={otherReason}
+                        onChange={(e) => setOtherReason(e.target.value)}
+                        placeholder="Describe the reason..."
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm ${
+                          otherReason.trim().length < 3 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
+                        }`}
+                        required
+                      />
+                      {otherReason.trim().length < 3 && (
+                        <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 3 characters</p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
               
               <p className="text-xs text-red-600 mt-2">

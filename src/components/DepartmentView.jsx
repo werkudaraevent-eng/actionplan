@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Calendar, CheckCircle, X, Download } from 'lucide-react';
+import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -7,6 +7,7 @@ import DashboardCards from './DashboardCards';
 import DataTable from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
+import RecycleBinModal from './RecycleBinModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -28,9 +29,10 @@ const jsonToCSV = (data, columns) => {
 
 export default function DepartmentView({ departmentCode }) {
   const { isAdmin } = useAuth();
-  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, updateStatus } = useActionPlans(departmentCode);
+  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
+  const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -231,6 +233,15 @@ export default function DepartmentView({ departmentCode }) {
             <p className="text-gray-500 text-sm">Department Action Plan Tracking</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Recycle Bin Button */}
+            <button
+              onClick={() => setIsRecycleBinOpen(true)}
+              className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 text-gray-600 bg-white rounded-lg hover:bg-gray-50 transition-colors"
+              title="Recycle Bin"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
             {/* Export CSV Button */}
             <button
               onClick={handleExportCSV}
@@ -390,11 +401,20 @@ export default function DepartmentView({ departmentCode }) {
         onClose={closeDeleteModal}
         onConfirm={confirmDelete}
         title="Delete Action Plan"
-        message={`Are you sure you want to delete "${deleteModal.planTitle}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete "${deleteModal.planTitle}"? You can restore it from the Recycle Bin later.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="danger"
         loading={deleting}
+      />
+
+      <RecycleBinModal
+        isOpen={isRecycleBinOpen}
+        onClose={() => setIsRecycleBinOpen(false)}
+        fetchDeletedPlans={fetchDeletedPlans}
+        onRestore={restorePlan}
+        onPermanentDelete={permanentlyDeletePlan}
+        isAdmin={isAdmin}
       />
     </div>
   );

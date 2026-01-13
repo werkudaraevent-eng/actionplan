@@ -37,6 +37,7 @@ export function useActionPlans(departmentCode = null) {
       let query = supabase
         .from('action_plans')
         .select('*')
+        .is('deleted_at', null) // Only fetch active (non-deleted) items
         .order('created_at', { ascending: true });
 
       if (departmentCode) {
@@ -76,11 +77,19 @@ export function useActionPlans(departmentCode = null) {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setPlans((prev) => [...prev, payload.new]);
+            // Only add if not soft-deleted
+            if (!payload.new.deleted_at) {
+              setPlans((prev) => [...prev, payload.new]);
+            }
           } else if (payload.eventType === 'UPDATE') {
-            setPlans((prev) =>
-              prev.map((p) => (p.id === payload.new.id ? payload.new : p))
-            );
+            // If soft-deleted, remove from list; otherwise update
+            if (payload.new.deleted_at) {
+              setPlans((prev) => prev.filter((p) => p.id !== payload.new.id));
+            } else {
+              setPlans((prev) =>
+                prev.map((p) => (p.id === payload.new.id ? payload.new : p))
+              );
+            }
           } else if (payload.eventType === 'DELETE') {
             setPlans((prev) => prev.filter((p) => p.id !== payload.old.id));
           }
@@ -93,10 +102,28 @@ export function useActionPlans(departmentCode = null) {
     };
   }, [departmentCode]);
 
-  // Get current user ID
-  const getCurrentUserId = async () => {
+  // Get current user ID and name
+  const getCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    return user?.id;
+    if (!user) return { id: null, name: null };
+    
+    // Try to get name from profiles table
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
+    
+    return { 
+      id: user.id, 
+      name: profile?.full_name || user.email || 'Unknown User' 
+    };
+  };
+
+  // Legacy helper for backward compatibility
+  const getCurrentUserId = async () => {
+    const { id } = await getCurrentUser();
+    return id;
   };
 
   // Create new plan with audit logging
@@ -219,42 +246,134 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
-  // Delete plan with audit logging
+  // Soft delete plan with audit logging
   const deletePlan = async (id) => {
     const planToDelete = plans.find((p) => p.id === id);
     
-    // Optimistic update
+    // Optimistic update - remove from active list
     setPlans((prev) => prev.filter((p) => p.id !== id));
 
     try {
-      // Log before delete (since we need the action_plan_id)
-      const userId = await getCurrentUserId();
-      if (userId && planToDelete) {
-        await createAuditLog(
-          id,
-          userId,
-          'DELETED',
-          planToDelete,
-          { deleted: true },
-          `Deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..."`
-        );
-      }
-
+      const { id: userId, name: userName } = await getCurrentUser();
+      const deletedAt = new Date().toISOString();
+      
+      // Soft delete: set deleted_at timestamp and deleted_by name
       const { error } = await supabase
         .from('action_plans')
-        .delete()
+        .update({ 
+          deleted_at: deletedAt,
+          deleted_by: userName 
+        })
         .eq('id', id);
 
       if (error) {
+        // Rollback optimistic update
         if (planToDelete) {
           setPlans((prev) => [...prev, planToDelete]);
         }
         throw error;
       }
+
+      // Audit log
+      if (userId && planToDelete) {
+        await createAuditLog(
+          id,
+          userId,
+          'SOFT_DELETE',
+          planToDelete,
+          { deleted_at: deletedAt, deleted_by: userName },
+          `Soft deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..." by ${userName}`
+        );
+      }
     } catch (err) {
       console.error('Delete failed:', err);
       throw err;
     }
+  };
+
+  // Restore soft-deleted plan
+  const restorePlan = async (id) => {
+    try {
+      const userId = await getCurrentUserId();
+      
+      // Restore: set deleted_at to null
+      const { data, error } = await supabase
+        .from('action_plans')
+        .update({ deleted_at: null })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Add back to active list
+      setPlans((prev) => [...prev, data]);
+
+      // Audit log
+      if (userId) {
+        await createAuditLog(
+          id,
+          userId,
+          'RESTORE',
+          { deleted_at: data.deleted_at },
+          { restored: true },
+          `Restored action plan: "${data.action_plan?.substring(0, 50)}..."`
+        );
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Restore failed:', err);
+      throw err;
+    }
+  };
+
+  // Fetch deleted plans for recycle bin
+  const fetchDeletedPlans = async () => {
+    let query = supabase
+      .from('action_plans')
+      .select('*')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+
+    if (departmentCode) {
+      query = query.eq('department_code', departmentCode);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  };
+
+  // Permanently delete (for admin cleanup if needed)
+  const permanentlyDeletePlan = async (id) => {
+    const userId = await getCurrentUserId();
+    
+    // Get plan info before deletion
+    const { data: planToDelete } = await supabase
+      .from('action_plans')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    // Audit log before permanent delete
+    if (userId && planToDelete) {
+      await createAuditLog(
+        id,
+        userId,
+        'PERMANENT_DELETE',
+        planToDelete,
+        { permanently_deleted: true },
+        `Permanently deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..."`
+      );
+    }
+
+    const { error } = await supabase
+      .from('action_plans')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   };
 
   // Quick status update with audit logging
@@ -307,6 +426,9 @@ export function useActionPlans(departmentCode = null) {
     bulkCreatePlans,
     updatePlan,
     deletePlan,
+    restorePlan,
+    fetchDeletedPlans,
+    permanentlyDeletePlan,
     updateStatus,
   };
 }
@@ -331,7 +453,10 @@ export function useAggregatedStats() {
     const fetchStats = async () => {
       try {
         const { data, error } = await withTimeout(
-          supabase.from('action_plans').select('department_code, status'),
+          supabase
+            .from('action_plans')
+            .select('department_code, status')
+            .is('deleted_at', null), // Only count active items
           10000
         );
 

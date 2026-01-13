@@ -243,27 +243,35 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
                 From {failureReasons.reduce((sum, r) => sum + r.count, 0)} not achieved
               </p>
               <div className="flex-1 overflow-y-auto space-y-3">
-                {failureReasons.slice(0, 5).map((item, index) => (
-                  <div key={item.reason} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-gray-700 truncate flex-1 mr-2">
-                        {index === 0 && <span className="text-red-500 mr-1">⚠️</span>}
-                        {item.reason}
-                      </span>
-                      <span className="text-gray-500 text-xs whitespace-nowrap">
-                        {item.percentage}% ({item.count})
-                      </span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          index === 0 ? 'bg-red-500' : 'bg-amber-500'
-                        }`}
-                        style={{ width: `${item.percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                {(() => {
+                  const displayReasons = failureReasons.slice(0, 5);
+                  const maxCount = displayReasons.length > 0 ? Math.max(...displayReasons.map(r => r.count)) : 0;
+                  
+                  return displayReasons.map((item) => {
+                    const isTop = item.count === maxCount;
+                    return (
+                      <div key={item.reason} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium text-gray-700 truncate flex-1 mr-2">
+                            {isTop && <span className="text-red-500 mr-1">⚠️</span>}
+                            {item.reason}
+                          </span>
+                          <span className="text-gray-500 text-xs whitespace-nowrap">
+                            {item.percentage}% ({item.count})
+                          </span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-300 ${
+                              isTop ? 'bg-red-500' : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${item.percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </>
           ) : (

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Target, TrendingUp, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar } from 'lucide-react';
+import { Target, TrendingUp, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
@@ -206,6 +206,48 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
     return { total: 0, achieved: 0, inProgress: 0, pending: 0, notAchieved: 0, rate: 0, isHistorical: false };
   }, [yearFilteredPlans, historicalStats]);
+
+  // Failure Analysis: Extract and aggregate failure reasons from action_plans
+  const failureAnalysis = useMemo(() => {
+    // Filter plans where status === 'Not Achieved'
+    const failedPlans = yearFilteredPlans.filter((p) => p.status === 'Not Achieved');
+    
+    if (failedPlans.length === 0) {
+      return { reasons: [], topBlocker: null, totalFailed: 0 };
+    }
+    
+    // Parse reasons from remark field: [Cause: ...]
+    const reasonCounts = {};
+    failedPlans.forEach((plan) => {
+      const match = plan.remark?.match(/\[Cause: (.*?)\]/);
+      const reason = match?.[1]?.trim() || 'Unspecified';
+      reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+    });
+    
+    // Convert to sorted array
+    const sortedReasons = Object.entries(reasonCounts)
+      .map(([reason, count]) => ({
+        reason,
+        count,
+        percentage: Math.round((count / failedPlans.length) * 100)
+      }))
+      .sort((a, b) => b.count - a.count);
+    
+    // Identify top blocker
+    const topBlocker = sortedReasons.length > 0 ? sortedReasons[0] : null;
+    
+    return {
+      reasons: sortedReasons,
+      topBlocker,
+      totalFailed: failedPlans.length
+    };
+  }, [yearFilteredPlans]);
+
+  // Status breakdown string for Total Plans card
+  const statusBreakdownString = useMemo(() => {
+    if (stats.isHistorical) return null;
+    return `✓${stats.achieved} ◐${stats.inProgress} ○${stats.pending} ✕${stats.notAchieved}`;
+  }, [stats]);
 
   // Chart 1: Performance Breakdown (by Strategy or PIC)
   const breakdownChartData = useMemo(() => {
@@ -459,13 +501,6 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Select the right benchmark data based on timeMetric
   const benchmarkChartData = timeMetric === 'monthly' ? benchmarkMonthlyData : benchmarkQuarterlyData;
 
-  // Get rate color
-  const getRateColor = (rate) => {
-    if (rate >= 90) return 'text-green-600';
-    if (rate >= 70) return 'text-amber-600';
-    return 'text-red-600';
-  };
-
   // Chart titles based on selected metric
   const breakdownTitle = breakdownMetric === 'goal_strategy' ? 'Performance by Strategy' : 'Performance by PIC';
   const breakdownSubtitle = breakdownMetric === 'goal_strategy' 
@@ -585,12 +620,13 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             labelColor="text-teal-100"
             size="compact"
             tooltipContent={!stats.isHistorical && (
-              <BreakdownTooltip active={stats.inProgress + stats.pending} completed={stats.achieved + stats.notAchieved} />
+              <BreakdownTooltip ongoing={stats.inProgress + stats.pending} finalized={stats.achieved + stats.notAchieved} />
             )}
+            statusBreakdown={statusBreakdownString}
             onClick={!stats.isHistorical && canNavigate ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: '' }) : undefined}
           />
 
-          {/* Completion Rate */}
+          {/* Completion Rate - with integrated progress bar */}
           <KPICard
             gradient="from-emerald-500 to-emerald-600"
             icon={TrendingUp}
@@ -599,6 +635,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             labelColor="text-emerald-100"
             size="compact"
             tooltipContent={<TargetGapTooltip currentRate={stats.rate} target={80} />}
+            progressBar={{ value: stats.rate, target: 80 }}
           />
 
           {/* Achieved */}
@@ -644,54 +681,69 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             tooltipContent={!stats.isHistorical && (
               <FailureRateTooltip failed={stats.notAchieved} total={stats.total} />
             )}
+            topBlocker={!stats.isHistorical && failureAnalysis.topBlocker ? `⚠️ Top Issue: ${failureAnalysis.topBlocker.reason} (${failureAnalysis.topBlocker.count})` : null}
             onClick={!stats.isHistorical && canNavigate && stats.notAchieved > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'Not Achieved' }) : undefined}
           />
         </div>
 
-        {/* Performance Summary Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Performance Summary</h3>
-          <div className="flex items-center gap-8">
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">Overall Progress</span>
-                <span className={`text-lg font-bold ${getRateColor(stats.rate)}`}>{stats.rate}%</span>
-              </div>
-              <div className="h-4 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${stats.rate}%`,
-                    backgroundColor: stats.rate >= 90 ? '#15803d' : stats.rate >= 70 ? '#b45309' : '#b91c1c'
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex gap-6 text-sm">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-green-600">{stats.achieved}</p>
-                <p className="text-gray-500">Achieved</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-amber-600">{stats.inProgress}</p>
-                <p className="text-gray-500">In Progress</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-gray-400">{stats.pending}</p>
-                <p className="text-gray-500">Pending</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-red-600">{stats.notAchieved}</p>
-                <p className="text-gray-500">Not Achieved</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Priority Focus Widget - Only show for current year with real data */}
+        {/* Priority Focus & Failure Analysis - Only show for current year with real data */}
         {selectedYear === CURRENT_YEAR && yearFilteredPlans.length > 0 && (
-          <div className="mb-6">
-            <PriorityFocusWidget plans={yearFilteredPlans} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* Priority Focus Widget - Span 2 columns */}
+            <div className="lg:col-span-2">
+              <PriorityFocusWidget plans={yearFilteredPlans} />
+            </div>
+            
+            {/* Failure Analysis Widget - Span 1 column */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <h3 className="font-semibold text-gray-800">Failure Analysis</h3>
+              </div>
+              
+              {failureAnalysis.totalFailed === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
+                    <CheckCircle2 className="w-6 h-6 text-green-600" />
+                  </div>
+                  <p className="text-green-700 font-medium">No Critical Issues</p>
+                  <p className="text-gray-500 text-sm mt-1">All plans are on track</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-500 mb-3">
+                    {failureAnalysis.totalFailed} plan{failureAnalysis.totalFailed > 1 ? 's' : ''} not achieved
+                  </p>
+                  {(() => {
+                    // Determine max count for tie-highlighting
+                    const maxCount = Math.max(...failureAnalysis.reasons.map(r => r.count));
+                    
+                    return failureAnalysis.reasons.map((item) => {
+                      const isTop = item.count === maxCount;
+                      return (
+                        <div key={item.reason} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className={`${isTop ? 'font-semibold text-red-700' : 'text-gray-700'}`}>
+                              {isTop && '🔥 '}{item.reason}
+                            </span>
+                            <span className={`font-medium ${isTop ? 'text-red-600' : 'text-gray-600'}`}>
+                              {item.percentage}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full transition-all ${isTop ? 'bg-red-500' : 'bg-gray-400'}`}
+                              style={{ width: `${item.percentage}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-400">{item.count} plan{item.count > 1 ? 's' : ''}</p>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

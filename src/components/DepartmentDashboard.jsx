@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { DEPARTMENTS, supabase } from '../lib/supabase';
 import PerformanceChart from './PerformanceChart';
 import PriorityFocusWidget from './PriorityFocusWidget';
+import KPICard, { TargetGapTooltip, ContributionTooltip, FailureRateTooltip, BreakdownTooltip } from './KPICard';
 
 // Sort months chronologically
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
@@ -73,15 +74,22 @@ const BenchmarkTooltip = ({ active, payload, label, currentYear, comparisonLabel
   return null;
 };
 
-export default function DepartmentDashboard({ departmentCode }) {
-  const { profile } = useAuth();
+export default function DepartmentDashboard({ departmentCode, onNavigate }) {
+  const { profile, isStaff } = useAuth();
   const { plans, loading } = useActionPlans(departmentCode);
+  
+  // Staff users should not navigate from KPI cards - they can only view
+  const canNavigate = onNavigate && !isStaff;
   
   // Year and dimension switching states
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [breakdownMetric, setBreakdownMetric] = useState('goal_strategy');
   const [timeMetric, setTimeMetric] = useState('monthly');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
+  
+  // Month range filter states
+  const [startMonth, setStartMonth] = useState('');
+  const [endMonth, setEndMonth] = useState('');
 
   // Historical stats for selected year (hybrid data source)
   const [historicalStats, setHistoricalStats] = useState([]);
@@ -105,10 +113,24 @@ export default function DepartmentDashboard({ departmentCode }) {
   const deptInfo = DEPARTMENTS.find((d) => d.code === departmentCode);
   const deptName = deptInfo?.name || departmentCode;
 
-  // Filter plans by selected year
+  // Filter plans by selected year and month range
   const yearFilteredPlans = useMemo(() => {
-    return plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
-  }, [plans, selectedYear]);
+    let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
+    
+    // Apply month range filter if set
+    if (startMonth || endMonth) {
+      const startIdx = startMonth ? MONTH_ORDER[startMonth] : 0;
+      const endIdx = endMonth ? MONTH_ORDER[endMonth] : 11;
+      
+      filtered = filtered.filter((plan) => {
+        const planMonthIdx = MONTH_ORDER[plan.month];
+        if (planMonthIdx === undefined) return true; // Include plans without month
+        return planMonthIdx >= startIdx && planMonthIdx <= endIdx;
+      });
+    }
+    
+    return filtered;
+  }, [plans, selectedYear, startMonth, endMonth]);
 
   // Check if viewing historical data (no real plans but has historical stats)
   const isHistoricalView = yearFilteredPlans.length === 0 && historicalStats.length > 0;
@@ -161,15 +183,15 @@ export default function DepartmentDashboard({ departmentCode }) {
       const inProgress = yearFilteredPlans.filter((p) => p.status === 'On Progress').length;
       const pending = yearFilteredPlans.filter((p) => p.status === 'Pending').length;
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
-      const rate = total > 0 ? Math.round((achieved / total) * 100) : 0;
+      const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
 
       return { total, achieved, inProgress, pending, notAchieved, rate, isHistorical: false };
     }
 
     // Fallback to historical stats - calculate average completion rate
     if (historicalStats.length > 0) {
-      const avgRate = Math.round(
-        historicalStats.reduce((sum, h) => sum + h.completion_rate, 0) / historicalStats.length
+      const avgRate = parseFloat(
+        (historicalStats.reduce((sum, h) => sum + h.completion_rate, 0) / historicalStats.length).toFixed(1)
       );
       return { 
         total: 0, 
@@ -212,7 +234,7 @@ export default function DepartmentDashboard({ departmentCode }) {
       .map(([name, s]) => ({
         name,
         fullName: s.fullName,
-        rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0,
+        rate: s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0,
         total: s.total,
         achieved: s.achieved,
       }))
@@ -246,7 +268,7 @@ export default function DepartmentDashboard({ departmentCode }) {
         .map(([name, s]) => ({
           name,
           fullName: name,
-          rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0,
+          rate: s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0,
           total: s.total,
           achieved: s.achieved,
         }));
@@ -481,7 +503,14 @@ export default function DepartmentDashboard({ departmentCode }) {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">{deptName}</h1>
-            <p className="text-gray-500 text-sm">Department Performance Dashboard — FY {selectedYear}</p>
+            <p className="text-gray-500 text-sm">
+              Department Performance Dashboard — FY {selectedYear}
+              {(startMonth || endMonth) && (
+                <span className="ml-1 text-teal-600">
+                  ({startMonth || 'Jan'} - {endMonth || 'Dec'})
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-4">
             {/* Year Selector */}
@@ -501,6 +530,41 @@ export default function DepartmentDashboard({ departmentCode }) {
                 ))}
               </div>
             </div>
+            
+            {/* Month Range Filter */}
+            <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
+              <span className="text-xs text-gray-500">Period:</span>
+              <select
+                value={startMonth}
+                onChange={(e) => setStartMonth(e.target.value)}
+                className="appearance-none bg-white border border-gray-200 rounded-lg px-2 py-1.5 pr-6 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">From</option>
+                {MONTHS_ORDER.map((month) => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
+              <span className="text-gray-400">—</span>
+              <select
+                value={endMonth}
+                onChange={(e) => setEndMonth(e.target.value)}
+                className="appearance-none bg-white border border-gray-200 rounded-lg px-2 py-1.5 pr-6 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">To</option>
+                {MONTHS_ORDER.map((month) => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
+              {(startMonth || endMonth) && (
+                <button
+                  onClick={() => { setStartMonth(''); setEndMonth(''); }}
+                  className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            
             <div className="text-right">
               <p className="text-sm text-gray-500">Welcome back,</p>
               <p className="font-medium text-gray-800">{profile?.full_name}</p>
@@ -512,67 +576,76 @@ export default function DepartmentDashboard({ departmentCode }) {
       <main className="p-6">
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-gradient-to-br from-teal-500 to-teal-600 rounded-xl p-4 text-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <Target className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.isHistorical ? '—' : stats.total}</p>
-                <p className="text-teal-100 text-xs">Total Plans</p>
-              </div>
-            </div>
-          </div>
+          {/* Total Plans */}
+          <KPICard
+            gradient="from-teal-500 to-teal-600"
+            icon={Target}
+            value={stats.isHistorical ? '—' : stats.total}
+            label="Total Plans"
+            labelColor="text-teal-100"
+            size="compact"
+            tooltipContent={!stats.isHistorical && (
+              <BreakdownTooltip active={stats.inProgress + stats.pending} completed={stats.achieved + stats.notAchieved} />
+            )}
+            onClick={!stats.isHistorical && canNavigate ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: '' }) : undefined}
+          />
 
-          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-4 text-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <TrendingUp className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.rate}%</p>
-                <p className="text-emerald-100 text-xs">
-                  {stats.isHistorical ? 'Avg. Rate (Historical)' : 'Completion Rate'}
-                </p>
-              </div>
-            </div>
-          </div>
+          {/* Completion Rate */}
+          <KPICard
+            gradient="from-emerald-500 to-emerald-600"
+            icon={TrendingUp}
+            value={`${stats.rate}%`}
+            label={stats.isHistorical ? 'Avg. Rate (Historical)' : 'Completion Rate'}
+            labelColor="text-emerald-100"
+            size="compact"
+            tooltipContent={<TargetGapTooltip currentRate={stats.rate} target={80} />}
+          />
 
-          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.isHistorical ? '—' : stats.achieved}</p>
-                <p className="text-green-100 text-xs">Achieved</p>
-              </div>
-            </div>
-          </div>
+          {/* Achieved */}
+          <KPICard
+            gradient="from-green-500 to-green-600"
+            icon={CheckCircle2}
+            value={stats.isHistorical ? '—' : stats.achieved}
+            label="Achieved"
+            labelColor="text-green-100"
+            size="compact"
+            tooltipContent={!stats.isHistorical && (
+              <ContributionTooltip achieved={stats.achieved} total={stats.total} />
+            )}
+            onClick={!stats.isHistorical && canNavigate && stats.achieved > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'Achieved' }) : undefined}
+          />
 
-          <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-4 text-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <Clock className="w-5 h-5" />
+          {/* In Progress */}
+          <KPICard
+            gradient="from-amber-500 to-amber-600"
+            icon={Clock}
+            value={stats.isHistorical ? '—' : stats.inProgress}
+            label="In Progress"
+            labelColor="text-amber-100"
+            size="compact"
+            tooltipContent={!stats.isHistorical && stats.total > 0 && (
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Work in Progress</p>
+                <p>Active: <span className="font-bold text-amber-400">{((stats.inProgress / stats.total) * 100).toFixed(1)}%</span></p>
+                <p className="text-xs text-gray-400">{stats.inProgress} tasks being worked on</p>
               </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.isHistorical ? '—' : stats.inProgress}</p>
-                <p className="text-amber-100 text-xs">In Progress</p>
-              </div>
-            </div>
-          </div>
+            )}
+            onClick={!stats.isHistorical && canNavigate && stats.inProgress > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'On Progress' }) : undefined}
+          />
 
-          <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats.isHistorical ? '—' : stats.notAchieved + stats.pending}</p>
-                <p className="text-red-100 text-xs">Needs Attention</p>
-              </div>
-            </div>
-          </div>
+          {/* Not Achieved */}
+          <KPICard
+            gradient="from-red-500 to-red-600"
+            icon={AlertCircle}
+            value={stats.isHistorical ? '—' : stats.notAchieved}
+            label="Not Achieved"
+            labelColor="text-red-100"
+            size="compact"
+            tooltipContent={!stats.isHistorical && (
+              <FailureRateTooltip failed={stats.notAchieved} total={stats.total} />
+            )}
+            onClick={!stats.isHistorical && canNavigate && stats.notAchieved > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'Not Achieved' }) : undefined}
+          />
         </div>
 
         {/* Performance Summary Card */}

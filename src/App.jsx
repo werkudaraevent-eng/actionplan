@@ -5,8 +5,11 @@ import LoadingScreen from './components/LoadingScreen';
 import Sidebar from './components/Sidebar';
 import AdminDashboard from './components/AdminDashboard';
 import AdminSettings from './components/AdminSettings';
+import UserManagement from './components/UserManagement';
+import CompanyActionPlans from './components/CompanyActionPlans';
 import DepartmentDashboard from './components/DepartmentDashboard';
 import DepartmentView from './components/DepartmentView';
+import StaffWorkspace from './components/StaffWorkspace';
 import { AlertCircle, LogOut, ShieldAlert } from 'lucide-react';
 
 // Error screen for missing profile
@@ -62,20 +65,25 @@ function AccessDeniedScreen({ message, onGoBack }) {
 }
 
 function AppContent() {
-  const { user, profile, loading, profileError, isAdmin, departmentCode, signOut } = useAuth();
+  const { user, profile, loading, profileError, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const [currentView, setCurrentView] = useState(null);
+  const [userFilter, setUserFilter] = useState(''); // For deep linking to Team Management with filter
+  const [statusFilter, setStatusFilter] = useState(''); // For KPI card drill-down to action plans
 
   // Set initial view based on role after profile loads
   useEffect(() => {
     if (profile && !currentView) {
       if (isAdmin) {
         setCurrentView('dashboard');
+      } else if (isStaff) {
+        // Staff users go to their personal workspace
+        setCurrentView('my-workspace');
       } else if (departmentCode) {
-        // Dept heads land on their dashboard first
+        // Leaders land on their dashboard first
         setCurrentView(`dept-dashboard-${departmentCode}`);
       }
     }
-  }, [profile, isAdmin, departmentCode, currentView]);
+  }, [profile, isAdmin, isStaff, isLeader, departmentCode, currentView]);
 
   // Reset view when user logs out
   useEffect(() => {
@@ -105,7 +113,7 @@ function AppContent() {
   }
 
   // Navigation handler with RBAC enforcement
-  const handleNavigate = (view) => {
+  const handleNavigate = (view, options = {}) => {
     // RBAC Check: Dept heads can only access their own department
     if (!isAdmin) {
       // Dept head trying to access company dashboard
@@ -119,17 +127,64 @@ function AppContent() {
       }
     }
     
+    // Clear user filter when navigating directly to users (not from deep link)
+    if (view === 'users' && !options.userFilter) {
+      setUserFilter('');
+    } else if (options.userFilter) {
+      setUserFilter(options.userFilter);
+    }
+    
+    // Handle status filter for KPI drill-down
+    if (options.statusFilter !== undefined) {
+      setStatusFilter(options.statusFilter);
+    } else {
+      setStatusFilter(''); // Clear filter when navigating without it
+    }
+    
     setCurrentView(view);
   };
 
   // Determine what to render based on current view
   const renderContent = () => {
+    // Safety check: Staff trying to access admin-only views
+    if (isStaff) {
+      // Staff can only access my-workspace and dept-dashboard (read-only)
+      if (currentView === 'dashboard' || currentView === 'all-plans' || currentView === 'settings' || currentView === 'users') {
+        return (
+          <AccessDeniedScreen
+            message="You don't have permission to access this area. This section is restricted to administrators only."
+            onGoBack={() => setCurrentView('my-workspace')}
+          />
+        );
+      }
+      
+      // Staff cannot access department action plan management (dept-XXX without dashboard)
+      if (currentView?.startsWith('dept-') && !currentView.includes('dashboard')) {
+        return (
+          <AccessDeniedScreen
+            message="You don't have permission to manage department action plans. Please use your personal workspace."
+            onGoBack={() => setCurrentView('my-workspace')}
+          />
+        );
+      }
+    }
+
     // Safety check: If dept_head somehow gets to dashboard view, redirect
     if (!isAdmin && currentView === 'dashboard') {
       return (
         <AccessDeniedScreen
           message="You don't have permission to view the Company Dashboard. This area is restricted to administrators only."
           onGoBack={() => setCurrentView(`dept-dashboard-${departmentCode}`)}
+        />
+      );
+    }
+
+    // Safety check: If non-admin tries to access all-plans
+    if (!isAdmin && currentView === 'all-plans') {
+      return (
+        <AccessDeniedScreen
+          message="You don't have permission to view all action plans. This area is restricted to administrators only."
+          onGoBack={() => isStaff ? setCurrentView('my-workspace') : setCurrentView(`dept-dashboard-${departmentCode}`)}
         />
       );
     }
@@ -147,24 +202,41 @@ function AppContent() {
 
     // Render company dashboard (admin only)
     if (currentView === 'dashboard' && isAdmin) {
-      return <AdminDashboard />;
+      return <AdminDashboard onNavigate={handleNavigate} />;
     }
 
     // Render admin settings (admin only)
     if (currentView === 'settings' && isAdmin) {
-      return <AdminSettings />;
+      return <AdminSettings onNavigateToUsers={(deptCode) => {
+        handleNavigate('users', { userFilter: deptCode });
+      }} />;
+    }
+
+    // Render user management (admin only)
+    if (currentView === 'users' && isAdmin) {
+      return <UserManagement initialFilter={userFilter} />;
+    }
+
+    // Render company-wide action plans (admin only)
+    if (currentView === 'all-plans' && isAdmin) {
+      return <CompanyActionPlans initialStatusFilter={statusFilter} />;
     }
 
     // Render department dashboard (dept head landing page)
     if (currentView?.startsWith('dept-dashboard-')) {
       const deptCode = currentView.replace('dept-dashboard-', '');
-      return <DepartmentDashboard departmentCode={deptCode} />;
+      return <DepartmentDashboard departmentCode={deptCode} onNavigate={handleNavigate} />;
     }
 
     // Render department data table view
     if (currentView?.startsWith('dept-')) {
       const deptCode = currentView.replace('dept-', '');
-      return <DepartmentView departmentCode={deptCode} />;
+      return <DepartmentView departmentCode={deptCode} initialStatusFilter={statusFilter} />;
+    }
+
+    // Render staff workspace (staff only)
+    if (currentView === 'my-workspace' && isStaff) {
+      return <StaffWorkspace />;
     }
 
     // Fallback: Show loading or redirect to appropriate view

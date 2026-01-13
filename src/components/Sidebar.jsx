@@ -1,9 +1,9 @@
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { DEPARTMENTS } from '../lib/supabase';
 
 export default function Sidebar({ currentView, onNavigate }) {
-  const { profile, isAdmin, departmentCode, signOut } = useAuth();
+  const { profile, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
 
   const handleSignOut = async () => {
     await signOut();
@@ -36,7 +36,7 @@ export default function Sidebar({ currentView, onNavigate }) {
           <p className="text-teal-300 text-xs uppercase tracking-wider">Logged in as</p>
           <p className="text-white font-medium text-sm truncate">{profile?.full_name}</p>
           <p className="text-teal-400 text-xs truncate">
-            {isAdmin ? 'Administrator' : `Dept Head - ${departmentCode}`}
+            {isAdmin ? 'Administrator' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
           </p>
         </div>
       </div>
@@ -49,7 +49,7 @@ export default function Sidebar({ currentView, onNavigate }) {
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Overview</p>
             <button
               onClick={() => onNavigate('dashboard')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
                 currentView === 'dashboard'
                   ? 'bg-teal-600 text-white'
                   : 'text-teal-200 hover:bg-teal-700/50'
@@ -57,6 +57,18 @@ export default function Sidebar({ currentView, onNavigate }) {
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-sm">Company Dashboard</span>
+            </button>
+            
+            <button
+              onClick={() => onNavigate('all-plans')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${
+                currentView === 'all-plans'
+                  ? 'bg-teal-600 text-white'
+                  : 'text-teal-200 hover:bg-teal-700/50'
+              }`}
+            >
+              <ListChecks className="w-4 h-4" />
+              <span className="text-sm">All Action Plans</span>
             </button>
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Departments</p>
@@ -81,6 +93,17 @@ export default function Sidebar({ currentView, onNavigate }) {
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
             <button
+              onClick={() => onNavigate('users')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                currentView === 'users'
+                  ? 'bg-teal-600 text-white'
+                  : 'text-teal-200 hover:bg-teal-700/50'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span className="text-sm">Team Management</span>
+            </button>
+            <button
               onClick={() => onNavigate('settings')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
                 currentView === 'settings'
@@ -91,6 +114,40 @@ export default function Sidebar({ currentView, onNavigate }) {
               <Settings className="w-4 h-4" />
               <span className="text-sm">Admin Settings</span>
             </button>
+          </>
+        ) : isStaff ? (
+          <>
+            {/* STAFF VIEW: My Tasks + Department Overview */}
+            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
+            
+            <button
+              onClick={() => onNavigate('my-workspace')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                currentView === 'my-workspace'
+                  ? 'bg-teal-600 text-white'
+                  : 'text-teal-200 hover:bg-teal-700/50'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span className="text-sm">My Action Plans</span>
+            </button>
+
+            {/* Allow staff to view department dashboard */}
+            <button
+              onClick={() => onNavigate(`dept-dashboard-${departmentCode}`)}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
+                currentView === `dept-dashboard-${departmentCode}`
+                  ? 'bg-teal-600 text-white'
+                  : 'text-teal-200 hover:bg-teal-700/50'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="text-sm">Team Overview</span>
+            </button>
+            
+            <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
+              {getUserDeptName()}
+            </p>
           </>
         ) : (
           <>

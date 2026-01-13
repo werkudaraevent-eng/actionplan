@@ -1,14 +1,58 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
+import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 
-export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode }) {
-  const { isAdmin } = useAuth();
+// Root Cause / Failure Reason options
+const FAILURE_REASONS = [
+  'Lack of Resources / Manpower',
+  'Budget Constraints',
+  'Vendor / Third-Party Issue',
+  'Timeline / Deadline too tight',
+  'Technical Blocker',
+  'Change in Business Strategy',
+  'Other',
+];
+
+export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false }) {
+  const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
+  
+  // Get the plan's department (from editData or the prop)
+  const planDept = editData?.department_code || departmentCode || '';
+  
+  // Get user's department (from AuthContext which gets it from profile)
+  const userDept = userDeptCode || profile?.department_code || '';
+
+  // Permission Logic: Determine if user has full edit access
+  const hasFullAccess = useMemo(() => {
+    // Debug logging
+    console.log('[ActionPlanModal] Permission Check:', {
+      staffMode,
+      isAdmin,
+      isLeader,
+      userDept,
+      planDept,
+      profileDept: profile?.department_code,
+      isMatch: userDept === planDept,
+      result: staffMode ? 'STAFF_MODE' : isAdmin ? 'ADMIN' : (isLeader && userDept === planDept) ? 'LEADER_MATCH' : 'NO_ACCESS'
+    });
+
+    if (staffMode) return false; // Staff mode always restricts
+    if (isAdmin) return true; // Admin can edit everything
+    if (isLeader && userDept && planDept && userDept === planDept) {
+      return true; // Leader can edit their own department
+    }
+    return false; // Staff or unknown role
+  }, [isAdmin, isLeader, staffMode, userDept, planDept, profile]);
+
+  // Can change department: Only admin, and only for new plans
+  const canChangeDepartment = isAdmin && !editData;
   const [loading, setLoading] = useState(false);
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [allStaff, setAllStaff] = useState([]); // All profiles from DB
+  const [loadingStaff, setLoadingStaff] = useState(false);
   const [formData, setFormData] = useState({
     department_code: departmentCode || '',
     month: 'Jan',
@@ -21,6 +65,40 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     outcome_link: '',
     remark: '',
   });
+  
+  // Failure reason state (for "Not Achieved" status)
+  const [failureReason, setFailureReason] = useState('');
+  const [otherReason, setOtherReason] = useState('');
+
+  // Fetch all staff/profiles when modal opens
+  useEffect(() => {
+    if (isOpen && hasFullAccess) {
+      fetchStaff();
+    }
+  }, [isOpen, hasFullAccess]);
+
+  const fetchStaff = async () => {
+    setLoadingStaff(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, department_code, role')
+        .order('full_name');
+      
+      if (error) throw error;
+      setAllStaff(data || []);
+    } catch (err) {
+      console.error('Failed to fetch staff:', err);
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
+
+  // Filter staff by selected department
+  const filteredStaff = useMemo(() => {
+    if (!formData.department_code) return [];
+    return allStaff.filter(s => s.department_code === formData.department_code);
+  }, [allStaff, formData.department_code]);
 
   // Get remaining months (excluding the selected month)
   const remainingMonths = useMemo(() => {
@@ -33,6 +111,21 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       setFormData(editData);
       setRepeatEnabled(false);
       setSelectedMonths([]);
+      // Parse existing failure reason from remark if present
+      const remarkMatch = editData.remark?.match(/^\[Cause: (.+?)\]\s*/);
+      if (remarkMatch) {
+        const existingReason = remarkMatch[1];
+        if (FAILURE_REASONS.includes(existingReason)) {
+          setFailureReason(existingReason);
+          setOtherReason('');
+        } else {
+          setFailureReason('Other');
+          setOtherReason(existingReason);
+        }
+      } else {
+        setFailureReason('');
+        setOtherReason('');
+      }
     } else {
       setFormData({
         department_code: departmentCode || '',
@@ -48,9 +141,20 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       });
       setRepeatEnabled(false);
       setSelectedMonths([]);
+      setFailureReason('');
+      setOtherReason('');
     }
     setShowConfirm(false);
   }, [editData, isOpen, departmentCode]);
+
+  // Clear PIC when department changes (only for new plans)
+  const handleDepartmentChange = (newDeptCode) => {
+    setFormData(prev => ({
+      ...prev,
+      department_code: newDeptCode,
+      pic: '' // Reset PIC when department changes
+    }));
+  };
 
   // When repeat is enabled, select all remaining months by default
   useEffect(() => {
@@ -79,6 +183,12 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Validation: If status is "Not Achieved", require a failure reason
+    if (formData.status === 'Not Achieved' && !failureReason) {
+      alert('Please select a Root Cause / Reason for Failure.');
+      return;
+    }
+    
     // Show confirmation if creating multiple plans
     if (repeatEnabled && selectedMonths.length > 0 && !showConfirm) {
       setShowConfirm(true);
@@ -87,11 +197,22 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
 
     setLoading(true);
     try {
+      // Prepare the final form data with failure reason appended to remark
+      let finalFormData = { ...formData };
+      
+      if (formData.status === 'Not Achieved' && failureReason) {
+        const reasonText = failureReason === 'Other' ? otherReason : failureReason;
+        // Remove any existing [Cause: ...] prefix from remark
+        const cleanRemark = (formData.remark || '').replace(/^\[Cause: .+?\]\s*/, '').trim();
+        // Prepend the new cause
+        finalFormData.remark = `[Cause: ${reasonText}]${cleanRemark ? ' ' + cleanRemark : ''}`;
+      }
+      
       if (repeatEnabled && selectedMonths.length > 0 && !editData) {
         // Bulk create: main month + selected months
         const allMonths = [formData.month, ...selectedMonths];
         const payloads = allMonths.map(month => ({
-          ...formData,
+          ...finalFormData,
           month,
           // Reset status to Pending for all copies
           status: 'Pending',
@@ -102,7 +223,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         await onSave(payloads, true); // Pass true to indicate bulk insert
       } else {
         // Single create/update
-        await onSave(formData);
+        await onSave(finalFormData);
       }
       onClose();
     } catch (error) {
@@ -139,23 +260,28 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {isAdmin && (
+          {hasFullAccess && (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
                   <select
                     value={formData.department_code}
-                    onChange={(e) => setFormData({ ...formData, department_code: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    onChange={(e) => handleDepartmentChange(e.target.value)}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                      !canChangeDepartment ? 'bg-gray-50 text-gray-600' : ''
+                    }`}
                     required
-                    disabled={!!editData}
+                    disabled={!canChangeDepartment}
                   >
                     <option value="">Select Department</option>
                     {DEPARTMENTS.map((d) => (
                       <option key={d.code} value={d.code}>{d.code} - {d.name}</option>
                     ))}
                   </select>
+                  {isLeader && !isAdmin && (
+                    <p className="text-xs text-gray-400 mt-1">Locked to your department</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
@@ -203,14 +329,44 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">PIC</label>
-                  <input
-                    type="text"
-                    value={formData.pic}
-                    onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    required
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    PIC (Person In Charge)
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={formData.pic}
+                      onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                        !formData.department_code ? 'bg-gray-50 text-gray-400' : ''
+                      }`}
+                      required
+                      disabled={!formData.department_code || loadingStaff}
+                    >
+                      <option value="">
+                        {!formData.department_code 
+                          ? 'Select department first' 
+                          : loadingStaff 
+                          ? 'Loading...' 
+                          : filteredStaff.length === 0 
+                          ? 'No staff in this dept' 
+                          : 'Select PIC'}
+                      </option>
+                      {filteredStaff.map((staff) => (
+                        <option key={staff.id} value={staff.full_name}>
+                          {staff.full_name} {staff.role === 'leader' ? '(Leader)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingStaff && (
+                      <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                    )}
+                  </div>
+                  {formData.department_code && filteredStaff.length === 0 && !loadingStaff && (
+                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      No team members found. Add users in Team Management.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -227,6 +383,31 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             </>
           )}
 
+          {/* Limited access mode: Show read-only context for staff */}
+          {!hasFullAccess && editData && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200">
+              <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Task Details (Read Only)</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Month:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editData.month}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">PIC:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
+                </div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-sm">Action Plan:</span>
+                <p className="text-gray-800 text-sm mt-1">{editData.action_plan}</p>
+              </div>
+              <div>
+                <span className="text-gray-500 text-sm">KPI:</span>
+                <p className="text-gray-800 text-sm mt-1">{editData.indicator}</p>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select
@@ -239,20 +420,86 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Outcome (URL)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Outcome / Evidence
+              {(formData.status === 'Achieved' || formData.status === 'Not Achieved') && (
+                <span className="text-red-500 ml-1">*</span>
+              )}
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              {(formData.status === 'Achieved' || formData.status === 'Not Achieved')
+                ? 'Required: Provide a URL or specific reference/location of the evidence.'
+                : 'Optional: Provide a URL or specific reference to the evidence of completion.'}
+            </p>
             <input
               type="text"
               value={formData.outcome_link || ''}
               onChange={(e) => setFormData({ ...formData, outcome_link: e.target.value })}
-              placeholder="https://..."
+              placeholder="e.g., https://drive.google.com/file/d/xyz or 'Sent via Email on Oct 20'"
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                !isValidUrl(formData.outcome_link) ? 'border-red-300' : 'border-gray-300'
+                (formData.status === 'Achieved' || formData.status === 'Not Achieved') && (!formData.outcome_link || formData.outcome_link.length < 5)
+                  ? 'border-amber-300 bg-amber-50'
+                  : !isValidUrl(formData.outcome_link) && formData.outcome_link?.startsWith('http') 
+                  ? 'border-red-300' 
+                  : 'border-gray-300'
               }`}
             />
-            {!isValidUrl(formData.outcome_link) && (
+            {!isValidUrl(formData.outcome_link) && formData.outcome_link?.startsWith('http') && (
               <p className="text-red-500 text-xs mt-1">Please enter a valid URL</p>
             )}
+            {(formData.status === 'Achieved' || formData.status === 'Not Achieved') && (!formData.outcome_link || formData.outcome_link.length < 5) && (
+              <p className="text-amber-600 text-xs mt-1">⚠️ Outcome is required for {formData.status} status (min 5 characters)</p>
+            )}
           </div>
+
+          {/* Root Cause / Failure Reason - Only show when status is "Not Achieved" */}
+          {formData.status === 'Not Achieved' && (
+            <div className="border border-red-200 rounded-lg p-4 bg-red-50">
+              <label className="block text-sm font-medium text-red-700 mb-2">
+                Root Cause / Reason for Failure <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={failureReason}
+                onChange={(e) => {
+                  setFailureReason(e.target.value);
+                  if (e.target.value !== 'Other') setOtherReason('');
+                }}
+                className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
+                required
+              >
+                <option value="">Select a reason...</option>
+                {FAILURE_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>{reason}</option>
+                ))}
+              </select>
+              
+              {/* "Other" text input */}
+              {failureReason === 'Other' && (
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-red-600 mb-1">
+                    Specify Reason <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={otherReason}
+                    onChange={(e) => setOtherReason(e.target.value)}
+                    placeholder="Describe the reason..."
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm ${
+                      otherReason.trim().length < 3 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
+                    }`}
+                    required
+                  />
+                  {otherReason.trim().length < 3 && (
+                    <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 3 characters</p>
+                  )}
+                </div>
+              )}
+              
+              <p className="text-xs text-red-600 mt-2">
+                This helps with Root Cause Analysis (RCA) and process improvement.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Remark/Analysis</label>
@@ -265,8 +512,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             />
           </div>
 
-          {/* Recurring Task Option - Only show for new plans, not edits */}
-          {!editData && isAdmin && (
+          {/* Recurring Task Option - Only show for new plans with full access */}
+          {!editData && hasFullAccess && (
             <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -362,7 +609,31 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             </button>
             <button
               type="submit"
-              disabled={loading || !isValidUrl(formData.outcome_link)}
+              disabled={(() => {
+                // Basic loading check
+                if (loading) return true;
+                
+                // URL validation (if starts with http, must be valid)
+                if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
+                
+                // Completion status validation
+                const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
+                
+                if (isCompletionStatus) {
+                  // Outcome is required (min 5 chars) for completion statuses
+                  if (!formData.outcome_link || formData.outcome_link.trim().length < 5) return true;
+                }
+                
+                // Additional validation for "Not Achieved"
+                if (formData.status === 'Not Achieved') {
+                  // Failure reason is required
+                  if (!failureReason) return true;
+                  // If "Other" is selected, custom reason is required (min 3 chars)
+                  if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
+                }
+                
+                return false;
+              })()}
               className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
                 showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
               }`}

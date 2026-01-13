@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
 
@@ -11,7 +11,7 @@ const TABS = [
 
 const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
 
-export default function AdminSettings() {
+export default function AdminSettings({ onNavigateToUsers }) {
   const [activeTab, setActiveTab] = useState('departments');
   
   return (
@@ -53,7 +53,7 @@ export default function AdminSettings() {
         </div>
 
         {/* Tab Content */}
-        {activeTab === 'departments' && <DepartmentsTab />}
+        {activeTab === 'departments' && <DepartmentsTab onNavigateToUsers={onNavigateToUsers} />}
         {activeTab === 'targets' && <TargetsTab />}
         {activeTab === 'historical' && <HistoricalTab />}
       </main>
@@ -62,8 +62,9 @@ export default function AdminSettings() {
 }
 
 // ==================== DEPARTMENTS TAB ====================
-function DepartmentsTab() {
+function DepartmentsTab({ onNavigateToUsers }) {
   const [departments, setDepartments] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingCode, setEditingCode] = useState(null);
   const [editName, setEditName] = useState('');
@@ -73,20 +74,32 @@ function DepartmentsTab() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetchDepartments();
+    fetchData();
   }, []);
 
-  const fetchDepartments = async () => {
-    const { data, error } = await supabase
-      .from('departments')
-      .select('*')
-      .order('code');
+  const fetchData = async () => {
+    // Fetch departments and profiles in parallel
+    const [deptResult, profileResult] = await Promise.all([
+      supabase.from('departments').select('*').order('code'),
+      supabase.from('profiles').select('id, full_name, role, department_code')
+    ]);
     
-    if (error) {
-      console.error('Error fetching departments:', error);
-    }
-    setDepartments(data || []);
+    if (deptResult.error) console.error('Error fetching departments:', deptResult.error);
+    if (profileResult.error) console.error('Error fetching profiles:', profileResult.error);
+    
+    setDepartments(deptResult.data || []);
+    setProfiles(profileResult.data || []);
     setLoading(false);
+  };
+
+  // Get leader for a department
+  const getLeader = (deptCode) => {
+    return profiles.find(p => p.department_code === deptCode && p.role === 'leader');
+  };
+
+  // Get headcount for a department
+  const getHeadcount = (deptCode) => {
+    return profiles.filter(p => p.department_code === deptCode).length;
   };
 
   const handleSaveNew = async () => {
@@ -100,7 +113,7 @@ function DepartmentsTab() {
       
       if (error) throw error;
       
-      await fetchDepartments();
+      await fetchData();
       setIsAdding(false);
       setNewCode('');
       setNewName('');
@@ -123,7 +136,7 @@ function DepartmentsTab() {
       
       if (error) throw error;
       
-      await fetchDepartments();
+      await fetchData();
       setEditingCode(null);
       setEditName('');
     } catch (error) {
@@ -144,7 +157,7 @@ function DepartmentsTab() {
       
       if (error) throw error;
       
-      await fetchDepartments();
+      await fetchData();
     } catch (error) {
       console.error('Delete error:', error);
       alert('Failed to delete department: ' + (error.message || 'Unknown error'));
@@ -187,26 +200,41 @@ function DepartmentsTab() {
         </button>
       </div>
 
+      {/* Table Header */}
+      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        <div className="col-span-2">Code</div>
+        <div className="col-span-3">Department Name</div>
+        <div className="col-span-3">Leader</div>
+        <div className="col-span-2">Headcount</div>
+        <div className="col-span-2 text-right">Actions</div>
+      </div>
+
       <div className="divide-y divide-gray-100">
         {/* Add New Row */}
         {isAdding && (
-          <div key="add-new-row" className="p-4 bg-teal-50 flex items-center gap-4">
-            <input
-              type="text"
-              value={newCode}
-              onChange={(e) => setNewCode(e.target.value)}
-              placeholder="Code (e.g., MKT)"
-              className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase"
-              maxLength={10}
-            />
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Department Name"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-            <div className="flex gap-2">
+          <div key="add-new-row" className="p-4 bg-teal-50 grid grid-cols-12 gap-4 items-center">
+            <div className="col-span-2">
+              <input
+                type="text"
+                value={newCode}
+                onChange={(e) => setNewCode(e.target.value)}
+                placeholder="Code"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase"
+                maxLength={10}
+              />
+            </div>
+            <div className="col-span-3">
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Department Name"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div className="col-span-3 text-gray-400 text-sm italic">—</div>
+            <div className="col-span-2 text-gray-400 text-sm italic">—</div>
+            <div className="col-span-2 flex justify-end gap-2">
               <button onClick={handleSaveNew} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               </button>
@@ -218,42 +246,85 @@ function DepartmentsTab() {
         )}
 
         {/* Department List */}
-        {departments.map((dept) => (
-          <div key={dept.code} className="p-4 flex items-center gap-4">
-            {editingCode === dept.code ? (
-              <>
-                <span className="w-24 px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono">{dept.code}</span>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                />
-                <div className="flex gap-2">
-                  <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  </button>
-                  <button onClick={cancelEdit} className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <span className="w-24 px-3 py-2 bg-teal-100 text-teal-700 rounded-lg text-sm font-mono font-semibold">{dept.code}</span>
-                <span className="flex-1 text-gray-800">{dept.name}</span>
-                <div className="flex gap-2">
-                  <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => handleDelete(dept.code)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        ))}
+        {departments.map((dept) => {
+          const leader = getLeader(dept.code);
+          const headcount = getHeadcount(dept.code);
+          
+          return (
+            <div key={dept.code} className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50">
+              {editingCode === dept.code ? (
+                <>
+                  <div className="col-span-2">
+                    <span className="px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono block">{dept.code}</span>
+                  </div>
+                  <div className="col-span-3">
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div className="col-span-3 text-gray-400 text-sm">—</div>
+                  <div className="col-span-2 text-gray-400 text-sm">—</div>
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    </button>
+                    <button onClick={cancelEdit} className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="col-span-2">
+                    <span className="px-3 py-1.5 bg-teal-100 text-teal-700 rounded-lg text-sm font-mono font-semibold inline-block">
+                      {dept.code}
+                    </span>
+                  </div>
+                  <div className="col-span-3 text-gray-800 font-medium">{dept.name}</div>
+                  <div className="col-span-3">
+                    {leader ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 text-teal-700 rounded-full text-sm">
+                        <User className="w-3.5 h-3.5" />
+                        {leader.full_name}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-600 rounded-full text-sm font-medium">
+                        <UserPlus className="w-3.5 h-3.5" />
+                        VACANT
+                      </span>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <button
+                      onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
+                      disabled={headcount === 0}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${
+                        headcount === 0 
+                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed' 
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                      }`}
+                      title={headcount > 0 ? `View ${headcount} team members` : 'No users in this department'}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      {headcount} {headcount === 1 ? 'User' : 'Users'}
+                    </button>
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(dept.code)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
 
         {departments.length === 0 && !isAdding && (
           <div key="empty-state" className="p-8 text-center text-gray-500">No departments found. Add one to get started.</div>

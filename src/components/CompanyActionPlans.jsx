@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2 } from 'lucide-react';
+import { Search, Calendar, CheckCircle, X, Download, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -7,7 +7,6 @@ import DashboardCards from './DashboardCards';
 import DataTable from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
-import RecycleBinModal from './RecycleBinModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -17,7 +16,6 @@ const jsonToCSV = (data, columns) => {
   const rows = data.map(row => 
     columns.map(col => {
       let value = row[col.key] ?? '';
-      // Escape quotes and wrap in quotes if contains comma, quote, or newline
       if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
         value = `"${value.replace(/"/g, '""')}"`;
       }
@@ -27,36 +25,47 @@ const jsonToCSV = (data, columns) => {
   return [header, ...rows].join('\n');
 };
 
-export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
-  const { isAdmin, isLeader } = useAuth();
-  const canManagePlans = isAdmin || isLeader; // Leaders can add/edit plans in their department
-  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus } = useActionPlans(departmentCode);
+export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '' }) {
+  const { isAdmin } = useAuth();
+  // Fetch ALL plans (no department filter)
+  const { plans, loading, updatePlan, deletePlan, updateStatus } = useActionPlans(null);
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
-  const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
   
-  // Filter states - initialize status from prop if provided
+  // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
+  const [selectedDept, setSelectedDept] = useState(initialDeptFilter || 'all');
   const [exporting, setExporting] = useState(false);
-  
-  // Update status filter when navigating from dashboard KPI cards
-  useEffect(() => {
-    if (initialStatusFilter) {
-      setSelectedStatus(initialStatusFilter);
-    }
-  }, [initialStatusFilter]);
   
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [deleting, setDeleting] = useState(false);
 
-  const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
+  // Update filters when props change (from dashboard drill-down)
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setSelectedStatus(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
 
-  // Combined filter logic: Month AND Status AND Search
+  useEffect(() => {
+    if (initialDeptFilter) {
+      setSelectedDept(initialDeptFilter);
+    }
+  }, [initialDeptFilter]);
+
+
+  // Combined filter logic
   const filteredPlans = useMemo(() => {
     return plans.filter((plan) => {
+      // Department filter
+      if (selectedDept !== 'all' && plan.department_code !== selectedDept) {
+        return false;
+      }
+      
       // Month filter
       if (selectedMonth !== 'all' && plan.month !== selectedMonth) {
         return false;
@@ -67,7 +76,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         return false;
       }
       
-      // Search filter (case insensitive)
+      // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const searchableFields = [
@@ -76,6 +85,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           plan.indicator,
           plan.pic,
           plan.remark,
+          plan.department_code,
         ].filter(Boolean);
         
         const matchesSearch = searchableFields.some((field) =>
@@ -87,23 +97,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       
       return true;
     });
-  }, [plans, selectedMonth, selectedStatus, searchQuery]);
+  }, [plans, selectedDept, selectedMonth, selectedStatus, searchQuery]);
 
-  // Check if any filters are active
-  const hasActiveFilters = selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
+  const hasActiveFilters = selectedDept !== 'all' || selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setSelectedMonth('all');
     setSelectedStatus('all');
+    setSelectedDept('all');
   };
 
   // Export CSV handler
   const handleExportCSV = async () => {
     setExporting(true);
     try {
-      // Define columns for export
       const columns = [
+        { key: 'department_code', label: 'Department' },
         { key: 'month', label: 'Month' },
         { key: 'goal_strategy', label: 'Goal/Strategy' },
         { key: 'action_plan', label: 'Action Plan' },
@@ -116,22 +126,17 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         { key: 'created_at', label: 'Created At' },
       ];
 
-      // Use all plans (full dataset for the year, not filtered/paginated)
-      const exportData = plans.map(plan => ({
+      const exportData = filteredPlans.map(plan => ({
         ...plan,
         created_at: plan.created_at ? new Date(plan.created_at).toLocaleDateString() : '',
       }));
 
-      // Generate CSV
       const csv = jsonToCSV(exportData, columns);
-      
-      // Create and trigger download
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const timestamp = new Date().toISOString().split('T')[0];
-      const year = plans[0]?.year || CURRENT_YEAR;
       link.href = URL.createObjectURL(blob);
-      link.download = `${departmentCode}_Action_Plans_${year}_${timestamp}.csv`;
+      link.download = `All_Action_Plans_${CURRENT_YEAR}_${timestamp}.csv`;
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (error) {
@@ -142,45 +147,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     }
   };
 
-  const handleSave = async (formData, isBulk = false) => {
+  const handleSave = async (formData) => {
     try {
       if (editData) {
-        // Update existing plan
-        const updateFields = canManagePlans 
-          ? {
-              month: formData.month,
-              goal_strategy: formData.goal_strategy,
-              action_plan: formData.action_plan,
-              indicator: formData.indicator,
-              pic: formData.pic,
-              report_format: formData.report_format,
-              status: formData.status,
-              outcome_link: formData.outcome_link,
-              remark: formData.remark,
-            }
-          : {
-              // Staff can only update these fields
-              status: formData.status,
-              outcome_link: formData.outcome_link,
-              remark: formData.remark,
-            };
-        
-        await updatePlan(editData.id, updateFields);
-      } else if (isBulk && Array.isArray(formData)) {
-        // Bulk create (recurring task)
-        const plansWithDept = formData.map(plan => ({
-          ...plan,
-          department_code: departmentCode,
-        }));
-        await bulkCreatePlans(plansWithDept);
-      } else {
-        // Create single new plan (admin or leader)
-        await createPlan({
-          ...formData,
-          department_code: departmentCode,
+        await updatePlan(editData.id, {
+          month: formData.month,
+          goal_strategy: formData.goal_strategy,
+          action_plan: formData.action_plan,
+          indicator: formData.indicator,
+          pic: formData.pic,
+          report_format: formData.report_format,
+          status: formData.status,
+          outcome_link: formData.outcome_link,
+          remark: formData.remark,
         });
       }
       setEditData(null);
+      setIsModalOpen(false);
     } catch (error) {
       console.error('Save failed:', error);
       alert('Failed to save. Please try again.');
@@ -188,14 +171,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   };
 
   const handleDelete = (item) => {
-    // Safety check: Prevent deletion of achieved items for non-admins
-    // Admins have "God Mode" and can delete anything
-    if (item.status?.toLowerCase() === 'achieved' && !isAdmin) {
-      alert('Action Denied: You cannot delete a verified achievement. Please contact an Admin if this was marked in error.');
+    if (item.status?.toLowerCase() === 'achieved') {
+      alert('Cannot delete achieved items.');
       return;
     }
-    
-    // Open confirmation modal
     setDeleteModal({
       isOpen: true,
       planId: item.id,
@@ -205,7 +184,6 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const confirmDelete = async (deletionReason) => {
     if (!deleteModal.planId) return;
-    
     setDeleting(true);
     try {
       await deletePlan(deleteModal.planId, deletionReason);
@@ -215,12 +193,6 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       alert('Failed to delete. Please try again.');
     } finally {
       setDeleting(false);
-    }
-  };
-
-  const closeDeleteModal = () => {
-    if (!deleting) {
-      setDeleteModal({ isOpen: false, planId: null, planTitle: '' });
     }
   };
 
@@ -238,73 +210,48 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     }
   };
 
-  // Completion Gate: When user selects "Achieved" or "Not Achieved", open modal instead of saving directly
   const handleCompletionStatusChange = (item, newStatus) => {
-    // Pre-fill the edit data with the new status so modal opens with it selected
     setEditData({ ...item, status: newStatus });
     setIsModalOpen(true);
   };
 
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
-      {/* Header - Clean, only title and Add button */}
+      {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-20">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">{currentDept?.name}</h1>
-            <p className="text-gray-500 text-sm">Department Action Plan Tracking</p>
+            <h1 className="text-2xl font-bold text-gray-800">All Action Plans</h1>
+            <p className="text-gray-500 text-sm">Company-wide Master Tracker — {plans.length} total plans</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Recycle Bin Button */}
-            <button
-              onClick={() => setIsRecycleBinOpen(true)}
-              className="flex items-center gap-2 px-3 py-2.5 border border-gray-300 text-gray-600 bg-white rounded-lg hover:bg-gray-50 transition-colors"
-              title="Recycle Bin"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-
-            {/* Export CSV Button */}
             <button
               onClick={handleExportCSV}
-              disabled={exporting || plans.length === 0}
+              disabled={exporting || filteredPlans.length === 0}
               className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="w-4 h-4" />
               {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
-            
-            {canManagePlans && (
-              <button
-                onClick={() => {
-                  setEditData(null);
-                  setIsModalOpen(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Add Action Plan
-              </button>
-            )}
           </div>
         </div>
       </header>
 
       <main className="p-6">
-        {/* KPI Cards - Updates based on filtered data */}
+        {/* KPI Cards */}
         <DashboardCards data={filteredPlans} />
         
         {/* Control Toolbar */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            {/* Left Side: Search Input */}
+            {/* Search Input */}
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search goals, PIC, or strategy..."
+                placeholder="Search across all departments..."
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
               />
               {searchQuery && (
@@ -317,8 +264,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               )}
             </div>
             
-            {/* Right Side: Filter Dropdowns */}
-            <div className="flex items-center gap-3">
+            {/* Filter Dropdowns */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Department Filter */}
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <Building2 className="w-4 h-4 text-gray-500" />
+                <select
+                  value={selectedDept}
+                  onChange={(e) => setSelectedDept(e.target.value)}
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                >
+                  <option value="all">All Departments</option>
+                  {DEPARTMENTS.map((dept) => (
+                    <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
+                  ))}
+                </select>
+              </div>
+              
               {/* Month Filter */}
               <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                 <Calendar className="w-4 h-4 text-gray-500" />
@@ -365,6 +327,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                 </span>
               )}
               
+              {selectedDept !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-full">
+                  Dept: {selectedDept}
+                  <button onClick={() => setSelectedDept('all')} className="hover:text-emerald-900">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              
               {selectedMonth !== 'all' && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
                   Month: {selectedMonth}
@@ -397,7 +368,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           )}
         </div>
         
-        {/* Data Table */}
+        {/* Data Table with Department Column */}
         <DataTable
           data={filteredPlans}
           loading={loading}
@@ -405,6 +376,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onDelete={handleDelete}
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
+          showDepartmentColumn={true}
         />
       </main>
 
@@ -416,29 +388,20 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         }}
         onSave={handleSave}
         editData={editData}
-        departmentCode={departmentCode}
+        departmentCode={editData?.department_code}
       />
 
       <ConfirmationModal
         isOpen={deleteModal.isOpen}
-        onClose={closeDeleteModal}
+        onClose={() => !deleting && setDeleteModal({ isOpen: false, planId: null, planTitle: '' })}
         onConfirm={confirmDelete}
         title="Delete Action Plan"
-        message={`Are you sure you want to delete "${deleteModal.planTitle}"? You can restore it from the Recycle Bin later.`}
+        message={`Are you sure you want to delete "${deleteModal.planTitle}"?`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="danger"
         loading={deleting}
         requireReason={true}
-      />
-
-      <RecycleBinModal
-        isOpen={isRecycleBinOpen}
-        onClose={() => setIsRecycleBinOpen(false)}
-        fetchDeletedPlans={fetchDeletedPlans}
-        onRestore={restorePlan}
-        onPermanentDelete={permanentlyDeletePlan}
-        isAdmin={isAdmin}
       />
     </div>
   );

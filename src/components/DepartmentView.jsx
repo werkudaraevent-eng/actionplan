@@ -195,12 +195,12 @@ export default function DepartmentView({ departmentCode }) {
     });
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (deletionReason) => {
     if (!deleteModal.planId) return;
     
     setDeleting(true);
     try {
-      await deletePlan(deleteModal.planId);
+      await deletePlan(deleteModal.planId, deletionReason);
       setDeleteModal({ isOpen: false, planId: null, planTitle: '' });
     } catch (error) {
       console.error('Delete failed:', error);
@@ -413,6 +413,7 @@ export default function DepartmentView({ departmentCode }) {
         cancelText="Cancel"
         variant="danger"
         loading={deleting}
+        requireReason={true}
       />
 
       <RecycleBinModal

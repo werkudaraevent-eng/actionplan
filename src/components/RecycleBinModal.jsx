@@ -74,6 +74,16 @@ export default function RecycleBinModal({
     });
   };
 
+  // Format reason for display
+  const formatReason = (reason) => {
+    if (!reason) return null;
+    // Truncate long "Other: ..." reasons
+    if (reason.length > 50) {
+      return reason.substring(0, 47) + '...';
+    }
+    return reason;
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -124,24 +134,42 @@ export default function RecycleBinModal({
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
+                      {/* Action Plan Name */}
                       <p className="font-medium text-gray-800 truncate">
                         {plan.action_plan || plan.goal_strategy || 'Untitled'}
                       </p>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
-                        <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
+                      
+                      {/* Meta: Deleted by, Date, Reason */}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium text-gray-600">
                           {plan.month}
                         </span>
-                        <span>•</span>
-                        <span>
+                        <span className="text-xs text-gray-400">•</span>
+                        <span className="text-xs text-gray-500">
                           {plan.deleted_by ? (
-                            <>Deleted by <span className="font-medium text-gray-700">{plan.deleted_by}</span> on {formatDate(plan.deleted_at)}</>
+                            <>Deleted by <span className="font-medium text-gray-700">{plan.deleted_by}</span></>
                           ) : (
-                            <>Deleted on {formatDate(plan.deleted_at)}</>
+                            'Deleted'
                           )}
+                          {' on '}{formatDate(plan.deleted_at)}
                         </span>
                       </div>
+                      
+                      {/* Deletion Reason Badge */}
+                      {plan.deletion_reason && (
+                        <div className="mt-2">
+                          <span 
+                            className="inline-flex items-center px-2 py-1 bg-amber-50 text-amber-700 text-xs rounded-md border border-amber-200"
+                            title={plan.deletion_reason}
+                          >
+                            <span className="font-medium mr-1">Reason:</span>
+                            {formatReason(plan.deletion_reason)}
+                          </span>
+                        </div>
+                      )}
+                      
                       {plan.indicator && (
-                        <p className="text-sm text-gray-400 mt-1 truncate">
+                        <p className="text-sm text-gray-400 mt-2 truncate">
                           KPI: {plan.indicator}
                         </p>
                       )}

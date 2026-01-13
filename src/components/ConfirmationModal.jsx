@@ -1,4 +1,13 @@
+import { useState, useEffect } from 'react';
 import { AlertTriangle, X, Loader2 } from 'lucide-react';
+
+const DELETION_REASONS = [
+  'Input Error / Duplicate',
+  'Cancelled by Management',
+  'Strategy Shift / Change',
+  'Merged / Redundant',
+  'Other',
+];
 
 export default function ConfirmationModal({
   isOpen,
@@ -10,7 +19,19 @@ export default function ConfirmationModal({
   cancelText = 'Cancel',
   variant = 'danger', // 'danger' | 'warning' | 'info'
   loading = false,
+  requireReason = false, // Enable deletion reason form
 }) {
+  const [reason, setReason] = useState('');
+  const [customDetail, setCustomDetail] = useState('');
+
+  // Reset states when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setReason(''); // Start empty - force explicit selection
+      setCustomDetail('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const variantStyles = {
@@ -30,10 +51,26 @@ export default function ConfirmationModal({
 
   const styles = variantStyles[variant] || variantStyles.danger;
 
+  // Validation: disable confirm if no reason selected, or "Other" selected but empty
+  const isNoReasonSelected = reason === '';
+  const isOtherEmpty = reason === 'Other' && customDetail.trim() === '';
+  const isConfirmDisabled = loading || (requireReason && (isNoReasonSelected || isOtherEmpty));
+
+  const handleConfirm = () => {
+    if (requireReason) {
+      const finalReason = reason === 'Other' 
+        ? `Other: ${customDetail.trim()}` 
+        : reason;
+      onConfirm(finalReason);
+    } else {
+      onConfirm();
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div 
-        className="bg-white rounded-xl shadow-xl max-w-sm w-full animate-in fade-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-xl max-w-md w-full animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -56,6 +93,47 @@ export default function ConfirmationModal({
           </div>
         </div>
 
+        {/* Deletion Reason Form */}
+        {requireReason && (
+          <div className="px-6 pb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Why are you deleting this?
+            </label>
+            <select
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
+                isNoReasonSelected ? 'border-gray-300 text-gray-500' : 'border-gray-300 text-gray-900'
+              }`}
+            >
+              <option value="" disabled>-- Select a reason --</option>
+              {DELETION_REASONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+
+            {/* Conditional "Other" textarea */}
+            {reason === 'Other' && (
+              <div className="mt-3">
+                <textarea
+                  value={customDetail}
+                  onChange={(e) => setCustomDetail(e.target.value)}
+                  placeholder="Please specify the reason..."
+                  rows={3}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none ${
+                    isOtherEmpty ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                  }`}
+                />
+                {isOtherEmpty && (
+                  <p className="mt-1 text-xs text-red-500">
+                    Please provide a reason to continue
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Actions */}
         <div className="px-6 pb-6 flex gap-3">
           <button
@@ -66,9 +144,9 @@ export default function ConfirmationModal({
             {cancelText}
           </button>
           <button
-            onClick={onConfirm}
-            disabled={loading}
-            className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2 ${styles.button}`}
+            onClick={handleConfirm}
+            disabled={isConfirmDisabled}
+            className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${styles.button}`}
           >
             {loading ? (
               <>

@@ -246,8 +246,8 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
-  // Soft delete plan with audit logging
-  const deletePlan = async (id) => {
+  // Soft delete plan with audit logging and deletion reason
+  const deletePlan = async (id, deletionReason = null) => {
     const planToDelete = plans.find((p) => p.id === id);
     
     // Optimistic update - remove from active list
@@ -257,12 +257,13 @@ export function useActionPlans(departmentCode = null) {
       const { id: userId, name: userName } = await getCurrentUser();
       const deletedAt = new Date().toISOString();
       
-      // Soft delete: set deleted_at timestamp and deleted_by name
+      // Soft delete: set deleted_at timestamp, deleted_by name, and deletion_reason
       const { error } = await supabase
         .from('action_plans')
         .update({ 
           deleted_at: deletedAt,
-          deleted_by: userName 
+          deleted_by: userName,
+          deletion_reason: deletionReason
         })
         .eq('id', id);
 
@@ -281,8 +282,8 @@ export function useActionPlans(departmentCode = null) {
           userId,
           'SOFT_DELETE',
           planToDelete,
-          { deleted_at: deletedAt, deleted_by: userName },
-          `Soft deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..." by ${userName}`
+          { deleted_at: deletedAt, deleted_by: userName, deletion_reason: deletionReason },
+          `Soft deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..." by ${userName}. Reason: ${deletionReason || 'Not specified'}`
         );
       }
     } catch (err) {

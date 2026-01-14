@@ -222,6 +222,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       // Prepare the final form data with failure reason appended to remark
       let finalFormData = { ...formData };
       
+      // INTERCEPTOR: Non-admin selecting "Achieved" -> convert to "Waiting Approval"
+      if (!hasFullAccess && formData.status === 'Achieved') {
+        finalFormData.status = 'Waiting Approval';
+      }
+      
       if (formData.status === 'Not Achieved' && failureReason) {
         const reasonText = failureReason === 'Other' ? otherReason : failureReason;
         // Remove any existing [Cause: ...] prefix from remark
@@ -433,12 +438,25 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select
-              value={formData.status}
+              value={formData.status === 'Waiting Approval' ? 'Achieved' : formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
             >
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              {STATUS_OPTIONS
+                .filter(s => {
+                  // Hide "Waiting Approval" from dropdown - it's a system state
+                  // Users select "Achieved" which triggers the review workflow
+                  if (s === 'Waiting Approval') return false;
+                  return true;
+                })
+                .map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            {/* Show info when user selects "Achieved" (non-admin) - will become "Waiting Approval" */}
+            {!hasFullAccess && formData.status === 'Achieved' && (
+              <p className="text-xs text-blue-600 mt-1">
+                📋 Selecting "Achieved" will submit your work for admin review and grading
+              </p>
+            )}
           </div>
 
           <div>
@@ -670,6 +688,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 return false;
               })()}
               className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                (!hasFullAccess && formData.status === 'Achieved') ? 'bg-blue-600 hover:bg-blue-700' :
                 showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
               }`}
             >
@@ -678,7 +697,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              {loading ? 'Saving...' : showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 'Save Changes'}
+              {loading ? 'Saving...' : 
+                showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 
+                (!hasFullAccess && formData.status === 'Achieved') ? 'Submit for Review' :
+                'Save Changes'}
             </button>
           </div>
         </form>

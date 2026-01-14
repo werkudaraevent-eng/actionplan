@@ -50,6 +50,6 @@ export const DEPARTMENTS = [
   { code: 'SO', name: 'Sales Operation' },
 ];
 
-export const STATUS_OPTIONS = ['Pending', 'On Progress', 'Achieved', 'Not Achieved'];
+export const STATUS_OPTIONS = ['Pending', 'On Progress', 'Waiting Approval', 'Achieved', 'Not Achieved'];
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const REPORT_FORMATS = ['Monthly Report', 'Weekly Update', 'Quarterly Review', 'Annual Report'];

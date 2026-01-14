@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { STATUS_OPTIONS, DEPARTMENTS } from '../lib/supabase';
 import HistoryModal from './HistoryModal';
@@ -7,12 +7,13 @@ import HistoryModal from './HistoryModal';
 const STATUS_COLORS = {
   'Pending': 'bg-gray-100 text-gray-700',
   'On Progress': 'bg-yellow-100 text-yellow-700',
+  'Waiting Approval': 'bg-blue-100 text-blue-700',
   'Achieved': 'bg-green-100 text-green-700',
   'Not Achieved': 'bg-red-100 text-red-700',
 };
 
 // Statuses that require proof (outcome/remark) before saving
-const COMPLETION_STATUSES = ['Achieved', 'Not Achieved'];
+const COMPLETION_STATUSES = ['Achieved', 'Not Achieved', 'Waiting Approval'];
 
 // Helper to detect if a string is a valid URL
 const isUrl = (string) => {
@@ -145,10 +146,24 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                           value={item.status}
                           onChange={(e) => handleStatusChange(item, e.target.value)}
                           disabled={updatingId === item.id}
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[item.status]}`}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
                         >
                           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
+                        {/* Quality Score Badge - Show next to Achieved status */}
+                        {item.status === 'Achieved' && item.quality_score != null && (
+                          <span 
+                            className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-0.5 ${
+                              item.quality_score >= 90 ? 'bg-green-500 text-white' :
+                              item.quality_score >= 70 ? 'bg-amber-500 text-white' :
+                              'bg-red-500 text-white'
+                            }`}
+                            title={`Quality Score: ${item.quality_score}/100`}
+                          >
+                            <Star className="w-2.5 h-2.5" />
+                            {item.quality_score}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">

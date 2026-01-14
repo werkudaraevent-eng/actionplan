@@ -50,6 +50,11 @@ export const DEPARTMENTS = [
   { code: 'SO', name: 'Sales Operation' },
 ];
 
-export const STATUS_OPTIONS = ['Pending', 'On Progress', 'Waiting Approval', 'Achieved', 'Not Achieved'];
+// Simplified workflow: Staff can directly mark Achieved
+// Internal Review and Waiting Approval are legacy/system states
+export const STATUS_OPTIONS = ['Pending', 'On Progress', 'Achieved', 'Not Achieved'];
+
+// Legacy status options (for display purposes only)
+export const ALL_STATUS_OPTIONS = ['Pending', 'On Progress', 'Internal Review', 'Waiting Approval', 'Achieved', 'Not Achieved'];
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const REPORT_FORMATS = ['Monthly Report', 'Weekly Update', 'Quarterly Review', 'Annual Report'];

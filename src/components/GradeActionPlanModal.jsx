@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
@@ -7,6 +7,11 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [score, setScore] = useState(85);
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Validation & Confirmation states
+  const [showError, setShowError] = useState(false);
+  const [showConfirmReject, setShowConfirmReject] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   if (!isOpen || !plan) return null;
 
@@ -32,6 +37,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
   const handleApprove = async () => {
     setLoading(true);
+    setErrorMessage('');
     try {
       await onGrade(plan.id, {
         status: 'Achieved',
@@ -43,32 +49,46 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       onClose();
     } catch (error) {
       console.error('Grade error:', error);
-      alert('Failed to approve: ' + (error.message || 'Unknown error'));
+      setErrorMessage('Failed to approve: ' + (error.message || 'Unknown error'));
     }
     setLoading(false);
   };
 
-  const handleReject = async () => {
-    if (!feedback.trim()) {
-      alert('Please provide feedback explaining why this needs revision.');
+  // Step 1: Validate and show confirmation modal
+  const handleRequestRevisionClick = () => {
+    if (!feedback || feedback.trim() === '') {
+      setShowError(true);
       return;
     }
-    
+    setShowConfirmReject(true);
+  };
+
+  // Step 2: Execute the actual rejection after confirmation
+  const handleConfirmReject = async () => {
+    setShowConfirmReject(false);
     setLoading(true);
+    setErrorMessage('');
     try {
       await onGrade(plan.id, {
         status: 'On Progress',
         quality_score: null,
         admin_feedback: feedback.trim(),
+        submission_status: 'draft', // Unlock the item so staff can edit
         reviewed_by: profile?.id,
         reviewed_at: new Date().toISOString()
       });
       onClose();
     } catch (error) {
       console.error('Reject error:', error);
-      alert('Failed to request revision: ' + (error.message || 'Unknown error'));
+      setErrorMessage('Failed to request revision: ' + (error.message || 'Unknown error'));
     }
     setLoading(false);
+  };
+
+  // Clear error when user starts typing
+  const handleFeedbackChange = (e) => {
+    setFeedback(e.target.value);
+    if (showError) setShowError(false);
   };
 
   return (
@@ -220,23 +240,38 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
           {/* Feedback */}
           <div>
             <label className="block font-semibold text-gray-800 mb-2">
-              Admin Feedback / Notes
+              Management Feedback / Notes
               <span className="text-gray-400 font-normal text-sm ml-2">(Required for rejection)</span>
             </label>
             <textarea
               value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
+              onChange={handleFeedbackChange}
               placeholder="Provide feedback on the submission quality, areas for improvement, or commendation..."
               rows={3}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 text-sm resize-none transition-colors ${
+                showError 
+                  ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' 
+                  : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+              }`}
             />
+            {showError && (
+              <p className="text-sm text-red-500 mt-1 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Feedback is required when requesting a revision.
+              </p>
+            )}
+            {errorMessage && (
+              <p className="text-sm text-red-500 mt-2 p-2 bg-red-50 rounded-lg">
+                {errorMessage}
+              </p>
+            )}
           </div>
         </div>
 
         {/* Actions */}
         <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
           <button
-            onClick={handleReject}
+            onClick={handleRequestRevisionClick}
             disabled={loading}
             className="flex-1 px-4 py-3 border-2 border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50"
           >
@@ -257,6 +292,57 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
           </button>
         </div>
       </div>
+
+      {/* Confirmation Modal for Rejection */}
+      {showConfirmReject && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                <RotateCcw className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Confirm Revision Request</h3>
+                <p className="text-sm text-gray-500">This action will return the plan to staff</p>
+              </div>
+            </div>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <p className="text-amber-800 text-sm">
+                Are you sure you want to return this plan to the staff for revision? 
+                The status will be reset to "On Progress" and the item will be unlocked for editing.
+              </p>
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-3 mb-4">
+              <p className="text-xs text-gray-500 mb-1">Your feedback:</p>
+              <p className="text-sm text-gray-700 italic">"{feedback}"</p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirmReject(false)}
+                disabled={loading}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReject}
+                disabled={loading}
+                className="flex-1 px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+                Confirm & Return
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

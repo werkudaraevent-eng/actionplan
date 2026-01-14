@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Target, TrendingUp, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle } from 'lucide-react';
+import { Target, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle, Star, Send } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
@@ -52,19 +52,23 @@ function ChartDropdown({ value, onChange, options, children }) {
   );
 }
 
-// Custom tooltip for composed chart
+// Custom tooltip for composed chart - Score-centric
 const BenchmarkTooltip = ({ active, payload, label, currentYear, comparisonLabel }) => {
   if (active && payload && payload.length) {
     const currentValue = payload.find(p => p.dataKey === 'current')?.value;
     const compValue = payload.find(p => p.dataKey === 'comparison')?.value;
+    const data = payload[0]?.payload;
     return (
       <div className="bg-white px-3 py-2 shadow-lg rounded-lg border border-gray-200">
         <p className="font-medium text-gray-800 mb-1">{label}</p>
         <p className="text-sm" style={{ color: getBarColor(currentValue || 0) }}>
-          {currentYear}: <span className="font-bold">{currentValue !== null ? `${currentValue}%` : 'No data'}</span>
+          {currentYear} Avg Score: <span className="font-bold">{currentValue !== null ? `${currentValue}%` : 'No data'}</span>
         </p>
+        {data?.graded != null && (
+          <p className="text-xs text-gray-400">{data.graded} graded of {data.total} total</p>
+        )}
         {compValue !== null && compValue !== undefined && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mt-1">
             {comparisonLabel}: <span className="font-bold">{compValue}%</span>
           </p>
         )}
@@ -184,8 +188,21 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const pending = yearFilteredPlans.filter((p) => p.status === 'Pending').length;
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
       const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
+      
+      // Submission Progress: How many items have been finalized/submitted
+      const submittedItems = yearFilteredPlans.filter(p => p.submission_status === 'submitted').length;
+      const submissionProgress = total > 0 ? parseFloat(((submittedItems / total) * 100).toFixed(0)) : 0;
+      
+      // Quality Score: Average of graded items (THE HERO METRIC)
+      const gradedItems = yearFilteredPlans.filter(p => 
+        p.submission_status === 'submitted' && p.quality_score != null
+      );
+      const qualityScore = gradedItems.length > 0 
+        ? parseFloat((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(0))
+        : null;
+      const gradedCount = gradedItems.length;
 
-      return { total, achieved, inProgress, pending, notAchieved, rate, isHistorical: false };
+      return { total, achieved, inProgress, pending, notAchieved, rate, submissionProgress, qualityScore, gradedCount, isHistorical: false };
     }
 
     // Fallback to historical stats - calculate average completion rate
@@ -199,12 +216,15 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         inProgress: 0, 
         pending: 0, 
         notAchieved: 0, 
-        rate: avgRate, 
+        rate: avgRate,
+        submissionProgress: 0,
+        qualityScore: null,
+        gradedCount: 0,
         isHistorical: true 
       };
     }
 
-    return { total: 0, achieved: 0, inProgress: 0, pending: 0, notAchieved: 0, rate: 0, isHistorical: false };
+    return { total: 0, achieved: 0, inProgress: 0, pending: 0, notAchieved: 0, rate: 0, submissionProgress: 0, qualityScore: null, gradedCount: 0, isHistorical: false };
   }, [yearFilteredPlans, historicalStats]);
 
   // Failure Analysis: Extract and aggregate failure reasons from action_plans
@@ -243,13 +263,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     };
   }, [yearFilteredPlans]);
 
-  // Status breakdown string for Total Plans card
-  const statusBreakdownString = useMemo(() => {
-    if (stats.isHistorical) return null;
-    return `✓${stats.achieved} ◐${stats.inProgress} ○${stats.pending} ✕${stats.notAchieved}`;
-  }, [stats]);
-
-  // Chart 1: Performance Breakdown (by Strategy or PIC)
+  // Chart 1: Performance Breakdown (by Strategy or PIC) - Score-centric
   const breakdownChartData = useMemo(() => {
     const dataMap = {};
     
@@ -264,11 +278,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const shortName = key.length > 25 ? key.substring(0, 22) + '...' : key;
       
       if (!dataMap[shortName]) {
-        dataMap[shortName] = { total: 0, achieved: 0, fullName: key };
+        dataMap[shortName] = { total: 0, scores: [], fullName: key };
       }
       dataMap[shortName].total++;
-      if (plan.status === 'Achieved') {
-        dataMap[shortName].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        dataMap[shortName].scores.push(plan.quality_score);
       }
     });
 
@@ -276,14 +291,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       .map(([name, s]) => ({
         name,
         fullName: s.fullName,
-        rate: s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0,
+        rate: s.scores.length > 0 
+          ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) 
+          : 0,
         total: s.total,
-        achieved: s.achieved,
+        graded: s.scores.length,
       }))
       .sort((a, b) => b.rate - a.rate);
   }, [yearFilteredPlans, breakdownMetric]);
 
-  // Chart 2: Time Analysis (Monthly or Quarterly) - with historical fallback
+  // Chart 2: Time Analysis (Monthly or Quarterly) - Score-centric with historical fallback
   const timeChartData = useMemo(() => {
     // If we have real plans, use them
     if (yearFilteredPlans.length > 0) {
@@ -298,11 +315,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         }
         
         if (!dataMap[key]) {
-          dataMap[key] = { total: 0, achieved: 0 };
+          dataMap[key] = { total: 0, scores: [] };
         }
         dataMap[key].total++;
-        if (plan.status === 'Achieved') {
-          dataMap[key].achieved++;
+        // Track quality scores for graded items
+        if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+          dataMap[key].scores.push(plan.quality_score);
         }
       });
 
@@ -310,9 +328,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         .map(([name, s]) => ({
           name,
           fullName: name,
-          rate: s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0,
+          rate: s.scores.length > 0 
+            ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) 
+            : 0,
           total: s.total,
-          achieved: s.achieved,
+          graded: s.scores.length,
         }));
 
       // Sort appropriately
@@ -323,7 +343,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       }
     }
 
-    // Fallback to historical stats
+    // Fallback to historical stats (still uses completion_rate as that's what's stored)
     if (historicalStats.length > 0) {
       if (timeMetric === 'monthly') {
         // Map historical stats to monthly chart data
@@ -334,7 +354,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             fullName: month,
             rate: hist ? Math.round(hist.completion_rate) : 0,
             total: 0,
-            achieved: 0,
+            graded: 0,
             isHistorical: true,
           };
         }).filter(d => d.rate > 0 || historicalStats.some(h => h.month === MONTH_ORDER[d.name] + 1));
@@ -355,7 +375,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             ? Math.round(quarterMap[quarter].reduce((a, b) => a + b, 0) / quarterMap[quarter].length)
             : 0,
           total: 0,
-          achieved: 0,
+          graded: 0,
           isHistorical: true,
         }));
       }
@@ -364,15 +384,18 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     return [];
   }, [yearFilteredPlans, historicalStats, timeMetric]);
 
-  // Benchmark chart data for Monthly view (current year bars + comparison year line)
+  // Benchmark chart data for Monthly view (current year bars + comparison year line) - Score-centric
   const benchmarkMonthlyData = useMemo(() => {
-    // Build current year data by month from real plans
+    // Build current year data by month from real plans - using quality scores
     const currentMap = {};
     yearFilteredPlans.forEach((plan) => {
       const month = plan.month || 'Unknown';
-      if (!currentMap[month]) currentMap[month] = { total: 0, achieved: 0 };
+      if (!currentMap[month]) currentMap[month] = { total: 0, scores: [] };
       currentMap[month].total++;
-      if (plan.status === 'Achieved') currentMap[month].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        currentMap[month].scores.push(plan.quality_score);
+      }
     });
 
     // Build historical data map for current year (month number to rate)
@@ -382,13 +405,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       currentHistoricalMap[monthName] = h.completion_rate;
     });
 
-    // Build comparison year data by month from real plans
+    // Build comparison year data by month from real plans - using quality scores
     const compMap = {};
     comparisonPlans.forEach((plan) => {
       const month = plan.month || 'Unknown';
-      if (!compMap[month]) compMap[month] = { total: 0, achieved: 0 };
+      if (!compMap[month]) compMap[month] = { total: 0, scores: [] };
       compMap[month].total++;
-      if (plan.status === 'Achieved') compMap[month].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        compMap[month].scores.push(plan.quality_score);
+      }
     });
 
     // Build historical comparison map (month number to rate)
@@ -403,18 +429,18 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const curr = currentMap[month];
       const comp = compMap[month];
       
-      // Current year value: prefer real data, fall back to historical
+      // Current year value: prefer real quality score data, fall back to historical
       let currentValue = null;
-      if (curr && curr.total > 0) {
-        currentValue = Math.round((curr.achieved / curr.total) * 100);
+      if (curr && curr.scores.length > 0) {
+        currentValue = Math.round(curr.scores.reduce((a, b) => a + b, 0) / curr.scores.length);
       } else if (currentHistoricalMap[month] !== undefined) {
         currentValue = Math.round(currentHistoricalMap[month]);
       }
 
-      // Comparison value: prefer real data, fall back to historical
+      // Comparison value: prefer real quality score data, fall back to historical
       let comparisonValue = null;
-      if (comp && comp.total > 0) {
-        comparisonValue = Math.round((comp.achieved / comp.total) * 100);
+      if (comp && comp.scores.length > 0) {
+        comparisonValue = Math.round(comp.scores.reduce((a, b) => a + b, 0) / comp.scores.length);
       } else if (compHistoricalMap[month] !== undefined) {
         comparisonValue = Math.round(compHistoricalMap[month]);
       }
@@ -423,21 +449,26 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         name: month,
         current: currentValue,
         comparison: comparisonValue,
+        graded: curr?.scores.length || 0,
+        total: curr?.total || 0,
       };
     });
   }, [yearFilteredPlans, comparisonPlans, historicalStats, comparisonHistorical]);
 
-  // Benchmark chart data for Quarterly view
+  // Benchmark chart data for Quarterly view - Score-centric
   const benchmarkQuarterlyData = useMemo(() => {
     const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
     
-    // Build current year data by quarter from real plans
+    // Build current year data by quarter from real plans - using quality scores
     const currentMap = {};
     yearFilteredPlans.forEach((plan) => {
       const quarter = getQuarter(plan.month);
-      if (!currentMap[quarter]) currentMap[quarter] = { total: 0, achieved: 0 };
+      if (!currentMap[quarter]) currentMap[quarter] = { total: 0, scores: [] };
       currentMap[quarter].total++;
-      if (plan.status === 'Achieved') currentMap[quarter].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        currentMap[quarter].scores.push(plan.quality_score);
+      }
     });
 
     // Build historical data for current year by quarter
@@ -449,13 +480,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       }
     });
 
-    // Build comparison year data by quarter from real plans
+    // Build comparison year data by quarter from real plans - using quality scores
     const compMap = {};
     comparisonPlans.forEach((plan) => {
       const quarter = getQuarter(plan.month);
-      if (!compMap[quarter]) compMap[quarter] = { total: 0, achieved: 0 };
+      if (!compMap[quarter]) compMap[quarter] = { total: 0, scores: [] };
       compMap[quarter].total++;
-      if (plan.status === 'Achieved') compMap[quarter].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        compMap[quarter].scores.push(plan.quality_score);
+      }
     });
 
     // Build historical comparison by quarter
@@ -472,19 +506,19 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const curr = currentMap[quarter];
       const comp = compMap[quarter];
       
-      // Current year value: prefer real data, fall back to historical average
+      // Current year value: prefer real quality score data, fall back to historical average
       let currentValue = null;
-      if (curr && curr.total > 0) {
-        currentValue = Math.round((curr.achieved / curr.total) * 100);
+      if (curr && curr.scores.length > 0) {
+        currentValue = Math.round(curr.scores.reduce((a, b) => a + b, 0) / curr.scores.length);
       } else if (currentHistoricalByQuarter[quarter].length > 0) {
         const avg = currentHistoricalByQuarter[quarter].reduce((a, b) => a + b, 0) / currentHistoricalByQuarter[quarter].length;
         currentValue = Math.round(avg);
       }
 
-      // Comparison value: prefer real data, fall back to historical average
+      // Comparison value: prefer real quality score data, fall back to historical average
       let comparisonValue = null;
-      if (comp && comp.total > 0) {
-        comparisonValue = Math.round((comp.achieved / comp.total) * 100);
+      if (comp && comp.scores.length > 0) {
+        comparisonValue = Math.round(comp.scores.reduce((a, b) => a + b, 0) / comp.scores.length);
       } else if (compHistoricalByQuarter[quarter].length > 0) {
         const avg = compHistoricalByQuarter[quarter].reduce((a, b) => a + b, 0) / compHistoricalByQuarter[quarter].length;
         comparisonValue = Math.round(avg);
@@ -494,6 +528,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         name: quarter,
         current: currentValue,
         comparison: comparisonValue,
+        graded: curr?.scores.length || 0,
+        total: curr?.total || 0,
       };
     });
   }, [yearFilteredPlans, comparisonPlans, historicalStats, comparisonHistorical]);
@@ -501,16 +537,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Select the right benchmark data based on timeMetric
   const benchmarkChartData = timeMetric === 'monthly' ? benchmarkMonthlyData : benchmarkQuarterlyData;
 
-  // Chart titles based on selected metric
-  const breakdownTitle = breakdownMetric === 'goal_strategy' ? 'Performance by Strategy' : 'Performance by PIC';
+  // Chart titles based on selected metric - Score-centric
+  const breakdownTitle = breakdownMetric === 'goal_strategy' ? 'Quality Score by Strategy' : 'Quality Score by PIC';
   const breakdownSubtitle = breakdownMetric === 'goal_strategy' 
     ? `${breakdownChartData.length} strategies tracked`
     : `${breakdownChartData.length} team members`;
   
-  const timeTitle = timeMetric === 'monthly' ? 'Monthly Progress' : 'Quarterly Progress';
+  const timeTitle = timeMetric === 'monthly' ? 'Monthly Quality Trend' : 'Quarterly Quality Trend';
   const timeSubtitle = timeMetric === 'monthly' 
-    ? 'Completion rate by month'
-    : 'Completion rate by quarter';
+    ? 'Average quality score by month'
+    : 'Average quality score by quarter';
 
   if (loading) {
     return (
@@ -609,8 +645,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       </header>
 
       <main className="p-6">
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        {/* KPI Cards - Score-Centric Layout */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           {/* Total Plans */}
           <KPICard
             gradient="from-teal-500 to-teal-600"
@@ -622,20 +658,46 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             tooltipContent={!stats.isHistorical && (
               <BreakdownTooltip ongoing={stats.inProgress + stats.pending} finalized={stats.achieved + stats.notAchieved} />
             )}
-            statusBreakdown={statusBreakdownString}
             onClick={!stats.isHistorical && canNavigate ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: '' }) : undefined}
           />
 
-          {/* Completion Rate - with integrated progress bar */}
+          {/* Quality Score - THE HERO METRIC */}
           <KPICard
-            gradient="from-emerald-500 to-emerald-600"
-            icon={TrendingUp}
-            value={`${stats.rate}%`}
-            label={stats.isHistorical ? 'Avg. Rate (Historical)' : 'Completion Rate'}
-            labelColor="text-emerald-100"
+            gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
+              stats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
+              stats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
+            icon={Star}
+            value={stats.qualityScore !== null ? `${stats.qualityScore}%` : '—'}
+            label="Quality Score"
+            labelColor="text-white/90"
             size="compact"
-            tooltipContent={<TargetGapTooltip currentRate={stats.rate} target={80} />}
-            progressBar={{ value: stats.rate, target: 80 }}
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality</p>
+                <p>Avg Score: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                  {stats.qualityScore !== null ? `${stats.qualityScore}%` : 'N/A'}
+                </span></p>
+                <p className="text-xs text-gray-400">{stats.gradedCount} items graded</p>
+              </div>
+            }
+          />
+
+          {/* Submission Progress - Administrative/Compliance metric */}
+          <KPICard
+            gradient="from-slate-500 to-slate-600"
+            icon={Send}
+            value={`${stats.submissionProgress}%`}
+            label={stats.isHistorical ? 'Avg. Rate (Historical)' : 'Submission Progress'}
+            labelColor="text-slate-100"
+            size="compact"
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Compliance Status</p>
+                <p>Submitted: <span className="font-bold">{stats.submissionProgress}%</span></p>
+                <p className="text-xs text-gray-400">Tracks finalized items (not quality)</p>
+              </div>
+            }
+            progressBar={{ value: stats.submissionProgress, target: 100 }}
           />
 
           {/* Achieved */}

@@ -269,13 +269,43 @@ export function useActionPlans(departmentCode = null) {
       // Audit log with detailed change description
       const userId = await getCurrentUserId();
       if (userId) {
-        // Determine change type based on what was updated
+        // Determine change type with PRIORITY logic for hierarchical workflow
         let changeType = 'FULL_UPDATE';
         const updateKeys = Object.keys(updates);
         
-        if (updateKeys.length === 1) {
-          if (updates.status !== undefined) changeType = 'STATUS_UPDATE';
-          else if (updates.remark !== undefined) changeType = 'REMARK_UPDATE';
+        // Check for status change first (highest priority)
+        const oldStatus = original?.status;
+        const newStatus = updates.status;
+        const statusChanged = newStatus !== undefined && newStatus !== oldStatus;
+        
+        if (statusChanged) {
+          // Priority 1: Staff marked ready for Leader (Internal Review)
+          if (newStatus === 'Internal Review' && oldStatus !== 'Internal Review') {
+            changeType = 'MARKED_READY';
+          }
+          // Priority 2: Leader submitted to Admin (Waiting Approval)
+          else if (newStatus === 'Waiting Approval' && oldStatus !== 'Waiting Approval') {
+            changeType = 'SUBMITTED_FOR_REVIEW';
+          }
+          // Priority 3: Approved (Admin approved the submission)
+          else if (newStatus === 'Achieved' && oldStatus === 'Waiting Approval') {
+            changeType = 'APPROVED';
+          }
+          // Priority 4: Rejected by Admin (sent back for revision)
+          else if (oldStatus === 'Waiting Approval' && newStatus !== 'Achieved') {
+            changeType = 'REJECTED';
+          }
+          // Priority 5: Leader sent back to staff (from Internal Review)
+          else if (oldStatus === 'Internal Review' && (newStatus === 'On Progress' || newStatus === 'Pending')) {
+            changeType = 'REJECTED';
+          }
+          // Priority 6: Generic status change
+          else {
+            changeType = 'STATUS_UPDATE';
+          }
+        } else if (updateKeys.length === 1) {
+          // Single field updates (no status change)
+          if (updates.remark !== undefined) changeType = 'REMARK_UPDATE';
           else if (updates.outcome_link !== undefined) changeType = 'OUTCOME_UPDATE';
         }
 
@@ -329,12 +359,12 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Audit log
+      // Audit log (using DELETED as change_type for DB constraint compatibility)
       if (userId && planToDelete) {
         await createAuditLog(
           id,
           userId,
-          'SOFT_DELETE',
+          'DELETED',
           planToDelete,
           { deleted_at: deletedAt, deleted_by: userName, deletion_reason: deletionReason },
           `Soft deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..." by ${userName}. Reason: ${deletionReason || 'Not specified'}`
@@ -364,12 +394,12 @@ export function useActionPlans(departmentCode = null) {
       // Add back to active list
       setPlans((prev) => [...prev, data]);
 
-      // Audit log
+      // Audit log (using STATUS_UPDATE as change_type for DB constraint compatibility)
       if (userId) {
         await createAuditLog(
           id,
           userId,
-          'RESTORE',
+          'STATUS_UPDATE',
           { deleted_at: data.deleted_at },
           { restored: true },
           `Restored action plan: "${data.action_plan?.substring(0, 50)}..."`
@@ -411,12 +441,12 @@ export function useActionPlans(departmentCode = null) {
       .eq('id', id)
       .single();
 
-    // Audit log before permanent delete
+    // Audit log before permanent delete (using DELETED as change_type for DB constraint compatibility)
     if (userId && planToDelete) {
       await createAuditLog(
         id,
         userId,
-        'PERMANENT_DELETE',
+        'DELETED',
         planToDelete,
         { permanently_deleted: true },
         `Permanently deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..."`
@@ -432,20 +462,34 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Quick status update with audit logging
+  // Also clears leader_feedback when staff resubmits to Internal Review
   const updateStatus = async (id, status) => {
     // Get previous data for audit log
     const previousPlan = plans.find((p) => p.id === id);
     const previousStatus = previousPlan?.status;
     
+    // Determine if we need to clear leader_feedback (staff resubmitting after revision)
+    const shouldClearLeaderFeedback = status === 'Internal Review' && previousPlan?.leader_feedback;
+    
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status } : p))
+      prev.map((p) => (p.id === id ? { 
+        ...p, 
+        status,
+        ...(shouldClearLeaderFeedback && { leader_feedback: null })
+      } : p))
     );
 
     try {
+      // Build update payload
+      const updatePayload = { status };
+      if (shouldClearLeaderFeedback) {
+        updatePayload.leader_feedback = null;
+      }
+      
       const { error } = await supabase
         .from('action_plans')
-        .update({ status })
+        .update(updatePayload)
         .eq('id', id);
 
       if (error) {
@@ -453,20 +497,214 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Audit log
+      // Audit log with priority-based change type
+      const userId = await getCurrentUserId();
+      if (userId) {
+        // Determine change type with PRIORITY logic
+        let changeType = 'STATUS_UPDATE';
+        
+        // Priority 1: Staff marked ready for Leader (Internal Review)
+        if (status === 'Internal Review' && previousStatus !== 'Internal Review') {
+          changeType = 'MARKED_READY';
+        }
+        // Priority 2: Submitted for Review
+        else if (status === 'Waiting Approval' && previousStatus !== 'Waiting Approval') {
+          changeType = 'SUBMITTED_FOR_REVIEW';
+        }
+        // Priority 3: Approved (Admin approved the submission)
+        else if (status === 'Achieved' && previousStatus === 'Waiting Approval') {
+          changeType = 'APPROVED';
+        }
+        // Priority 4: Rejected (Admin sent back for revision)
+        else if (previousStatus === 'Waiting Approval' && status !== 'Achieved') {
+          changeType = 'REJECTED';
+        }
+        
+        await createAuditLog(
+          id,
+          userId,
+          changeType,
+          { status: previousStatus },
+          updatePayload,
+          `Changed status from "${previousStatus}" to "${status}"${shouldClearLeaderFeedback ? ' (cleared leader feedback)' : ''}`
+        );
+      }
+    } catch (err) {
+      console.error('Status update failed:', err);
+      throw err;
+    }
+  };
+
+  // SIMPLIFIED WORKFLOW: Finalize month report
+  // Locks all items for a month by setting submission_status = 'submitted'
+  // Auto-scores "Not Achieved" items with 0 (they skip the grading queue)
+  const finalizeMonthReport = async (month) => {
+    const { id: userId, name: userName } = await getCurrentUser();
+    
+    // Find all draft items for this month (not yet submitted)
+    const itemsToFinalize = plans.filter(
+      p => p.month === month && (!p.submission_status || p.submission_status === 'draft')
+    );
+    
+    if (itemsToFinalize.length === 0) {
+      throw new Error('No items to finalize for this month');
+    }
+
+    const submittedAt = new Date().toISOString();
+    
+    // Split items into two groups: Achieved (needs grading) and Not Achieved (auto-score 0)
+    const achievedItems = itemsToFinalize.filter(p => p.status === 'Achieved');
+    const failedItems = itemsToFinalize.filter(p => p.status === 'Not Achieved');
+    
+    const achievedIds = achievedItems.map(p => p.id);
+    const failedIds = failedItems.map(p => p.id);
+    
+    // Optimistic update - include auto-scoring for failed items
+    setPlans((prev) =>
+      prev.map((p) => {
+        if (achievedIds.includes(p.id)) {
+          return { 
+            ...p, 
+            submission_status: 'submitted',
+            submitted_at: submittedAt,
+            submitted_by: userId
+          };
+        }
+        if (failedIds.includes(p.id)) {
+          return { 
+            ...p, 
+            submission_status: 'submitted',
+            submitted_at: submittedAt,
+            submitted_by: userId,
+            quality_score: 0,
+            admin_feedback: 'System: Auto-graded (Not Achieved)'
+          };
+        }
+        return p;
+      })
+    );
+
+    try {
+      // Batch update in database using Promise.all for parallel execution
+      const updatePromises = [];
+      
+      // Batch 1: Achieved items - need Admin grading (quality_score = null)
+      if (achievedIds.length > 0) {
+        updatePromises.push(
+          supabase
+            .from('action_plans')
+            .update({ 
+              submission_status: 'submitted',
+              submitted_at: submittedAt,
+              submitted_by: userId
+            })
+            .in('id', achievedIds)
+        );
+      }
+      
+      // Batch 2: Not Achieved items - auto-score 0, skip grading queue
+      if (failedIds.length > 0) {
+        updatePromises.push(
+          supabase
+            .from('action_plans')
+            .update({ 
+              submission_status: 'submitted',
+              submitted_at: submittedAt,
+              submitted_by: userId,
+              quality_score: 0,
+              admin_feedback: 'System: Auto-graded (Not Achieved)'
+            })
+            .in('id', failedIds)
+        );
+      }
+      
+      const results = await Promise.all(updatePromises);
+      
+      // Check for errors
+      for (const result of results) {
+        if (result.error) {
+          await fetchPlans();
+          throw result.error;
+        }
+      }
+
+      // Create audit logs for each item (using STATUS_UPDATE as change_type for DB constraint compatibility)
+      if (userId) {
+        // Audit logs for Achieved items
+        for (const item of achievedItems) {
+          await createAuditLog(
+            item.id,
+            userId,
+            'STATUS_UPDATE',
+            { submission_status: 'draft' },
+            { submission_status: 'submitted', submitted_at: submittedAt },
+            `Report finalized for ${month} by ${userName} - item locked for Management grading`
+          );
+        }
+        
+        // Audit logs for Not Achieved items (with auto-score note)
+        for (const item of failedItems) {
+          await createAuditLog(
+            item.id,
+            userId,
+            'STATUS_UPDATE',
+            { submission_status: 'draft', quality_score: null },
+            { submission_status: 'submitted', submitted_at: submittedAt, quality_score: 0 },
+            `Report finalized for ${month} by ${userName} - auto-scored 0 (Not Achieved)`
+          );
+        }
+      }
+
+      return itemsToFinalize.length;
+    } catch (err) {
+      console.error('Finalize report failed:', err);
+      throw err;
+    }
+  };
+
+  // Unlock a finalized item (Leader/Admin only)
+  const unlockItem = async (id) => {
+    const previousPlan = plans.find((p) => p.id === id);
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? { 
+        ...p, 
+        submission_status: 'draft',
+        submitted_at: null,
+        submitted_by: null
+      } : p))
+    );
+
+    try {
+      const { error } = await supabase
+        .from('action_plans')
+        .update({ 
+          submission_status: 'draft',
+          submitted_at: null,
+          submitted_by: null
+        })
+        .eq('id', id);
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Audit log (using STATUS_UPDATE as change_type for DB constraint compatibility)
       const userId = await getCurrentUserId();
       if (userId) {
         await createAuditLog(
           id,
           userId,
           'STATUS_UPDATE',
-          { status: previousStatus },
-          { status },
-          `Changed status from "${previousStatus}" to "${status}"`
+          { submission_status: 'submitted' },
+          { submission_status: 'draft' },
+          `Item unlocked for editing`
         );
       }
     } catch (err) {
-      console.error('Status update failed:', err);
+      console.error('Unlock failed:', err);
       throw err;
     }
   };
@@ -485,6 +723,8 @@ export function useActionPlans(departmentCode = null) {
     fetchDeletedPlans,
     permanentlyDeletePlan,
     updateStatus,
+    finalizeMonthReport,
+    unlockItem,
   };
 }
 

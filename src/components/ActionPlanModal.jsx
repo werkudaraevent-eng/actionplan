@@ -1,10 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false }) {
   const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
+  
+  // SECURITY: Determine if this plan is locked (finalized for Management grading)
+  // Admin God Mode: Admins can edit locked plans, others cannot
+  const isPlanLocked = editData?.submission_status === 'submitted' || editData?.status === 'Waiting Approval';
+  const isLocked = isPlanLocked && !isAdmin; // Regular users are locked out
+  const isAdminOverride = isPlanLocked && isAdmin; // Admin can override the lock
   
   // Get the plan's department (from editData or the prop)
   const planDept = editData?.department_code || departmentCode || '';
@@ -222,10 +228,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       // Prepare the final form data with failure reason appended to remark
       let finalFormData = { ...formData };
       
-      // INTERCEPTOR: Non-admin selecting "Achieved" -> convert to "Waiting Approval"
-      if (!hasFullAccess && formData.status === 'Achieved') {
-        finalFormData.status = 'Waiting Approval';
-      }
+      // SIMPLIFIED WORKFLOW: Staff can mark "Achieved" directly
+      // No more Internal Review interceptor - alignment happens in monthly meetings
+      // Leader will use "Finalize Report" to lock items for Management grading
       
       if (formData.status === 'Not Achieved' && failureReason) {
         const reasonText = failureReason === 'Other' ? otherReason : failureReason;
@@ -287,7 +292,29 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {hasFullAccess && (
+          {/* LOCKED BANNER - Security: Show when plan is finalized */}
+          {isLocked && (
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4 flex items-center gap-3">
+              <Lock className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-yellow-800">This plan is finalized and locked.</p>
+                <p className="text-sm text-yellow-700">Editing is disabled. Waiting for Management grading.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN OVERRIDE BANNER - Warning when admin edits locked plan */}
+          {isAdminOverride && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4 flex items-center gap-3">
+              <Lock className="w-5 h-5 text-red-600 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-red-800">⚠ ADMIN OVERRIDE ACTIVE</p>
+                <p className="text-sm text-red-700">This plan is finalized/locked. Edits will modify the official record.</p>
+              </div>
+            </div>
+          )}
+
+          {(hasFullAccess && !isLocked) && (
             <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -410,11 +437,15 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             </>
           )}
 
-          {/* Limited access mode: Show read-only context for staff */}
-          {!hasFullAccess && editData && (
+          {/* Limited access mode: Show read-only context for staff OR when locked (but NOT for admin override) */}
+          {(!hasFullAccess || isLocked) && !isAdminOverride && editData && (
             <div className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Task Details (Read Only)</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Department:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editData.department_code}</span>
+                </div>
                 <div>
                   <span className="text-gray-500">Month:</span>
                   <span className="ml-2 font-medium text-gray-800">{editData.month}</span>
@@ -423,6 +454,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   <span className="text-gray-500">PIC:</span>
                   <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
                 </div>
+                <div>
+                  <span className="text-gray-500">Report Format:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editData.report_format}</span>
+                </div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-sm">Goal/Strategy:</span>
+                <p className="text-gray-800 text-sm mt-1">{editData.goal_strategy}</p>
               </div>
               <div>
                 <span className="text-gray-500 text-sm">Action Plan:</span>
@@ -440,23 +479,15 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             <select
               value={formData.status === 'Waiting Approval' ? 'Achieved' : formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                isLocked && !isAdminOverride ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+              }`}
+              disabled={isLocked && !isAdminOverride}
             >
-              {STATUS_OPTIONS
-                .filter(s => {
-                  // Hide "Waiting Approval" from dropdown - it's a system state
-                  // Users select "Achieved" which triggers the review workflow
-                  if (s === 'Waiting Approval') return false;
-                  return true;
-                })
-                .map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {/* Show info when user selects "Achieved" (non-admin) - will become "Waiting Approval" */}
-            {!hasFullAccess && formData.status === 'Achieved' && (
-              <p className="text-xs text-blue-600 mt-1">
-                📋 Selecting "Achieved" will submit your work for admin review and grading
-              </p>
-            )}
+              {/* Status dropdown - simplified workflow */}
+            {STATUS_OPTIONS
+              .map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
           </div>
 
           <div>
@@ -476,7 +507,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               value={formData.outcome_link || ''}
               onChange={(e) => setFormData({ ...formData, outcome_link: e.target.value })}
               placeholder="e.g., https://drive.google.com/file/d/xyz or 'Sent via Email on Oct 20'"
+              disabled={isLocked && !isAdminOverride}
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                (isLocked && !isAdminOverride) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' :
                 (formData.status === 'Achieved' || formData.status === 'Not Achieved') && (!formData.outcome_link || formData.outcome_link.length < 5)
                   ? 'border-amber-300 bg-amber-50'
                   : !isValidUrl(formData.outcome_link) && formData.outcome_link?.startsWith('http') 
@@ -492,8 +525,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             )}
           </div>
 
-          {/* Root Cause / Failure Reason - Only show when status is "Not Achieved" */}
-          {formData.status === 'Not Achieved' && (
+          {/* Root Cause / Failure Reason - Only show when status is "Not Achieved" and not locked (or admin override) */}
+          {formData.status === 'Not Achieved' && (!isLocked || isAdminOverride) && (
             <div className="border border-red-200 rounded-lg p-4 bg-red-50">
               <label className="block text-sm font-medium text-red-700 mb-2">
                 Root Cause / Reason for Failure <span className="text-red-500">*</span>
@@ -559,14 +592,17 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             <textarea
               value={formData.remark || ''}
               onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                (isLocked && !isAdminOverride) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+              }`}
               rows={3}
               placeholder="Enter your analysis or evaluation..."
+              disabled={isLocked && !isAdminOverride}
             />
           </div>
 
-          {/* Recurring Task Option - Only show for new plans with full access */}
-          {!editData && hasFullAccess && (
+          {/* Recurring Task Option - Only show for new plans with full access and not locked */}
+          {!editData && hasFullAccess && !isLocked && (
             <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -656,39 +692,43 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             <button
               type="button"
               onClick={() => { setShowConfirm(false); onClose(); }}
-              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              className={`px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors ${
+                (isLocked && !isAdminOverride) ? 'flex-1' : 'flex-1'
+              }`}
             >
-              Cancel
+              {(isLocked && !isAdminOverride) ? 'Close' : 'Cancel'}
             </button>
-            <button
-              type="submit"
-              disabled={(() => {
-                // Basic loading check
-                if (loading) return true;
-                
-                // URL validation (if starts with http, must be valid)
-                if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
-                
-                // Completion status validation
-                const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
-                
-                if (isCompletionStatus) {
-                  // Outcome is required (min 5 chars) for completion statuses
-                  if (!formData.outcome_link || formData.outcome_link.trim().length < 5) return true;
-                }
-                
-                // Additional validation for "Not Achieved"
-                if (formData.status === 'Not Achieved') {
-                  // Failure reason is required
-                  if (!failureReason) return true;
-                  // If "Other" is selected, custom reason is required (min 3 chars)
-                  if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
-                }
-                
-                return false;
-              })()}
+            {/* Hide Save button when locked (but show for admin override) */}
+            {(!isLocked || isAdminOverride) && (
+              <button
+                type="submit"
+                disabled={(() => {
+                  // Basic loading check
+                  if (loading) return true;
+                  
+                  // URL validation (if starts with http, must be valid)
+                  if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
+                  
+                  // Completion status validation
+                  const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
+                  
+                  if (isCompletionStatus) {
+                    // Outcome is required (min 5 chars) for completion statuses
+                    if (!formData.outcome_link || formData.outcome_link.trim().length < 5) return true;
+                  }
+                  
+                  // Additional validation for "Not Achieved"
+                  if (formData.status === 'Not Achieved') {
+                    // Failure reason is required
+                    if (!failureReason) return true;
+                    // If "Other" is selected, custom reason is required (min 3 chars)
+                    if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
+                  }
+                  
+                  return false;
+                })()}
               className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-                (!hasFullAccess && formData.status === 'Achieved') ? 'bg-blue-600 hover:bg-blue-700' :
+                isAdminOverride ? 'bg-red-600 hover:bg-red-700' :
                 showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
               }`}
             >
@@ -698,10 +738,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <Save className="w-4 h-4" />
               )}
               {loading ? 'Saving...' : 
+                isAdminOverride ? 'Save (Admin Override)' :
                 showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 
-                (!hasFullAccess && formData.status === 'Achieved') ? 'Submit for Review' :
                 'Save Changes'}
             </button>
+            )}
           </div>
         </form>
       </div>

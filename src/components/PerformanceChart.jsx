@@ -1,25 +1,32 @@
 import { useRef, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList } from 'recharts';
 
-// Conditional color based on percentage
+// Conditional color based on percentage (score-centric thresholds)
 const getBarColor = (value) => {
-  if (value >= 90) return '#15803d'; // green-700
-  if (value >= 70) return '#b45309'; // amber-700
+  if (value >= 80) return '#15803d'; // green-700
+  if (value >= 60) return '#b45309'; // amber-700
   return '#b91c1c'; // red-700
 };
 
-// Custom tooltip
-const CustomTooltip = ({ active, payload, label }) => {
+// Custom tooltip - supports both score and completion modes
+const CustomTooltip = ({ active, payload, label, mode = 'score' }) => {
   if (active && payload && payload.length) {
     const value = payload[0].value;
     const data = payload[0].payload;
+    const isScoreMode = mode === 'score';
+    
     return (
       <div className="bg-white px-3 py-2 shadow-lg rounded-lg border border-gray-200 z-50">
         <p className="font-medium text-gray-800 max-w-[200px] truncate">{data.fullName || label}</p>
         <p className="text-sm" style={{ color: getBarColor(value) }}>
-          Completion: <span className="font-bold">{value}%</span>
+          {isScoreMode ? 'Avg Score' : 'Completion'}: <span className="font-bold">{value}%</span>
         </p>
-        {data.total && (
+        {isScoreMode && data.graded != null && (
+          <p className="text-xs text-gray-500">
+            {data.graded} graded of {data.total} total
+          </p>
+        )}
+        {!isScoreMode && data.total && (
           <p className="text-xs text-gray-500">
             {data.achieved} of {data.total} achieved
           </p>
@@ -50,7 +57,7 @@ const renderCustomLabel = (props) => {
 const MIN_BAR_WIDTH = 50;
 const BAR_GAP = 15;
 
-export default function PerformanceChart({ data, title, subtitle, xKey = 'name', yKey = 'rate', height = 300, hideHeader = false }) {
+export default function PerformanceChart({ data, title, subtitle, xKey = 'name', yKey = 'rate', height = 300, hideHeader = false, mode = 'score' }) {
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(600);
 
@@ -134,7 +141,7 @@ export default function PerformanceChart({ data, title, subtitle, xKey = 'name',
               tickFormatter={(value) => `${value}%`}
               width={45}
             />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+            <Tooltip content={<CustomTooltip mode={mode} />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
             <Bar 
               dataKey={yKey} 
               radius={[4, 4, 0, 0]}

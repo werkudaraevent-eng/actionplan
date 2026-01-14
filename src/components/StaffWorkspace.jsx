@@ -110,11 +110,15 @@ export default function StaffWorkspace() {
     try {
       if (editData) {
         // Staff can only update status, outcome, and remark
+        // Pass the original editData (before modal changes) for accurate audit logging
+        // Note: editData.status might be pre-filled from handleCompletionStatusChange,
+        // so we need to get the true original from plans state
+        const originalPlan = plans.find(p => p.id === editData.id);
         await updatePlan(editData.id, {
           status: formData.status,
           outcome_link: formData.outcome_link,
           remark: formData.remark,
-        });
+        }, originalPlan);
       }
       setEditData(null);
       setIsModalOpen(false);

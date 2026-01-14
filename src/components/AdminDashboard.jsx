@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
   Target, TrendingUp, CheckCircle2, Trophy, Medal, Award, Calendar, 
-  X, Users, Upload, Download, ChevronDown, AlertTriangle 
+  X, Users, Upload, Download, ChevronDown, AlertTriangle, Star, Send 
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
 import Papa from 'papaparse';
@@ -321,6 +321,26 @@ export default function AdminDashboard({ onNavigate }) {
     return { total, achieved, inProgress, pending, notAchieved, byDepartment, overdue };
   }, [filteredPlans, filteredHistoricalStats]);
 
+  // Quality Score and Submission Progress stats (separate for clarity)
+  const qualityStats = useMemo(() => {
+    // Submission Progress: How many items have been finalized/submitted
+    const submittedItems = filteredPlans.filter(p => p.submission_status === 'submitted').length;
+    const submissionProgress = filteredPlans.length > 0 
+      ? parseFloat(((submittedItems / filteredPlans.length) * 100).toFixed(0)) 
+      : 0;
+    
+    // Quality Score: Average of graded items (THE HERO METRIC)
+    const gradedItems = filteredPlans.filter(p => 
+      p.submission_status === 'submitted' && p.quality_score != null
+    );
+    const qualityScore = gradedItems.length > 0 
+      ? parseFloat((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(0))
+      : null;
+    const gradedCount = gradedItems.length;
+    
+    return { submissionProgress, qualityScore, gradedCount };
+  }, [filteredPlans]);
+
   // Helper: Find department with most items of a given status (for KPI drill-down)
   const getDeptWithMostStatus = useMemo(() => {
     return (status) => {
@@ -438,17 +458,26 @@ export default function AdminDashboard({ onNavigate }) {
 
   // Org Chart Data - with historical fallback
   const orgChartData = useMemo(() => {
-    // If we have real plans, use them
+    // If we have real plans, use them - Score-centric
     if (filteredPlans.length > 0) {
       const dataMap = {};
       filteredPlans.forEach((plan) => {
         let key = orgMetric === 'department_code' ? (plan.department_code || 'Unknown') : (plan.pic?.trim() || 'Unassigned');
         const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
-        if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
+        if (!dataMap[shortName]) dataMap[shortName] = { total: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
         dataMap[shortName].total++;
-        if (plan.status === 'Achieved') dataMap[shortName].achieved++;
+        // Track quality scores for graded items
+        if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+          dataMap[shortName].scores.push(plan.quality_score);
+        }
       });
-      return Object.entries(dataMap).map(([name, s]) => ({ name, fullName: s.fullName, rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0, total: s.total, achieved: s.achieved })).sort((a, b) => b.rate - a.rate);
+      return Object.entries(dataMap).map(([name, s]) => ({ 
+        name, 
+        fullName: s.fullName, 
+        rate: s.scores.length > 0 ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length) : 0, 
+        total: s.total, 
+        graded: s.scores.length 
+      })).sort((a, b) => b.rate - a.rate);
     }
     
     // Fallback to filtered historical stats (only for department view, not PIC)
@@ -468,7 +497,7 @@ export default function AdminDashboard({ onNavigate }) {
         fullName: getDeptName(code),
         rate: Math.round(data.sum / data.count),
         total: 0,
-        achieved: 0,
+        graded: 0,
         isHistorical: true,
       })).sort((a, b) => b.rate - a.rate);
     }
@@ -476,17 +505,26 @@ export default function AdminDashboard({ onNavigate }) {
     return [];
   }, [filteredPlans, orgMetric, filteredHistoricalStats]);
 
-  // Strategy Chart Data - no historical fallback (strategy breakdown not available for historical data)
+  // Strategy Chart Data - Score-centric (no historical fallback)
   const stratChartData = useMemo(() => {
     const dataMap = {};
     filteredPlans.forEach((plan) => {
       let key = stratMetric === 'goal_strategy' ? (plan.goal_strategy?.trim() || 'Uncategorized') : (plan.report_format?.trim() || 'No Format');
       const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
-      if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, fullName: key };
+      if (!dataMap[shortName]) dataMap[shortName] = { total: 0, scores: [], fullName: key };
       dataMap[shortName].total++;
-      if (plan.status === 'Achieved') dataMap[shortName].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        dataMap[shortName].scores.push(plan.quality_score);
+      }
     });
-    return Object.entries(dataMap).map(([name, s]) => ({ name, fullName: s.fullName, rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0, total: s.total, achieved: s.achieved })).sort((a, b) => b.rate - a.rate);
+    return Object.entries(dataMap).map(([name, s]) => ({ 
+      name, 
+      fullName: s.fullName, 
+      rate: s.scores.length > 0 ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length) : 0, 
+      total: s.total, 
+      graded: s.scores.length 
+    })).sort((a, b) => b.rate - a.rate);
   }, [filteredPlans, stratMetric]);
 
   // Check if viewing historical year with no real data
@@ -495,7 +533,6 @@ export default function AdminDashboard({ onNavigate }) {
   // Leaderboard is now just the stats.byDepartment (filtering is done at the data level)
   const filteredLeaderboard = stats.byDepartment;
 
-  const globalRate = stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : 0;
   function getDeptName(code) { const dept = DEPARTMENTS.find((d) => d.code === code); return dept ? dept.name : code; }
   const getRankIcon = (index) => {
     if (index === 0) return <Trophy className="w-5 h-5 text-yellow-500" />;
@@ -520,8 +557,8 @@ export default function AdminDashboard({ onNavigate }) {
     return `Until ${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
-  const orgTitle = orgMetric === 'department_code' ? 'Performance by Department' : 'Performance by PIC';
-  const stratTitle = stratMetric === 'goal_strategy' ? 'Performance by Strategy' : 'Performance by Report Format';
+  const orgTitle = orgMetric === 'department_code' ? 'Quality Score by Department' : 'Quality Score by PIC';
+  const stratTitle = stratMetric === 'goal_strategy' ? 'Quality Score by Strategy' : 'Quality Score by Report Format';
 
   const handleExport = async () => {
     setExporting(true);
@@ -649,8 +686,8 @@ export default function AdminDashboard({ onNavigate }) {
           )}
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {/* KPI Cards - Score-Centric Layout */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           {/* Total Action Plans */}
           <KPICard
             gradient="from-teal-500 to-teal-600"
@@ -661,19 +698,45 @@ export default function AdminDashboard({ onNavigate }) {
             tooltipContent={<BreakdownTooltip ongoing={stats.inProgress + stats.pending} finalized={stats.achieved + stats.notAchieved} />}
             onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
             size="compact"
-            statusBreakdown={{ achieved: stats.achieved, inProgress: stats.inProgress, pending: stats.pending, notAchieved: stats.notAchieved }}
           />
           
-          {/* Completion Rate - with integrated progress bar */}
+          {/* Quality Score - THE HERO METRIC */}
           <KPICard
-            gradient="from-emerald-500 to-emerald-600"
-            icon={TrendingUp}
-            value={`${globalRate}%`}
-            label={`${selectedYear} Completion`}
-            labelColor="text-emerald-100"
-            tooltipContent={<TargetGapTooltip currentRate={parseFloat(globalRate)} target={annualTarget || 80} />}
+            gradient={qualityStats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
+              qualityStats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
+              qualityStats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
+            icon={Star}
+            value={qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : '—'}
+            label="Quality Score"
+            labelColor="text-white/90"
             size="compact"
-            progressBar={{ value: parseFloat(globalRate), target: annualTarget || 80 }}
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality</p>
+                <p>Avg Score: <span className={`font-bold ${qualityStats.qualityScore >= 80 ? 'text-green-400' : qualityStats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                  {qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : 'N/A'}
+                </span></p>
+                <p className="text-xs text-gray-400">{qualityStats.gradedCount} items graded</p>
+              </div>
+            }
+          />
+          
+          {/* Submission Progress - Administrative/Compliance metric */}
+          <KPICard
+            gradient="from-slate-500 to-slate-600"
+            icon={Send}
+            value={`${qualityStats.submissionProgress}%`}
+            label="Submission Progress"
+            labelColor="text-slate-100"
+            size="compact"
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Compliance Status</p>
+                <p>Submitted: <span className="font-bold">{qualityStats.submissionProgress}%</span></p>
+                <p className="text-xs text-gray-400">Tracks finalized items (not quality)</p>
+              </div>
+            }
+            progressBar={{ value: qualityStats.submissionProgress, target: 100 }}
           />
           
           {/* Achieved Plans */}
@@ -685,6 +748,24 @@ export default function AdminDashboard({ onNavigate }) {
             labelColor="text-green-100"
             tooltipContent={<ContributionTooltip achieved={stats.achieved} total={stats.total} />}
             onClick={onNavigate && stats.achieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Achieved' }) : undefined}
+            size="compact"
+          />
+          
+          {/* In Progress */}
+          <KPICard
+            gradient="from-amber-500 to-amber-600"
+            icon={TrendingUp}
+            value={stats.inProgress}
+            label="In Progress"
+            labelColor="text-amber-100"
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Work in Progress</p>
+                <p>Active: <span className="font-bold text-amber-400">{stats.total > 0 ? ((stats.inProgress / stats.total) * 100).toFixed(1) : 0}%</span></p>
+                <p className="text-xs text-gray-400">{stats.inProgress} tasks being worked on</p>
+              </div>
+            }
+            onClick={onNavigate && stats.inProgress > 0 ? () => onNavigate('all-plans', { statusFilter: 'On Progress' }) : undefined}
             size="compact"
           />
           
@@ -711,7 +792,7 @@ export default function AdminDashboard({ onNavigate }) {
             <div>
               <h3 className="text-lg font-semibold text-gray-800">Performance Trend (YoY)</h3>
               <p className="text-sm text-gray-500">
-                Monthly completion rate comparison
+                Monthly quality score comparison
                 {highlightRange && (
                   <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
                     Viewing: {highlightRange.x1}{highlightRange.x1 !== highlightRange.x2 ? ` – ${highlightRange.x2}` : ''}
@@ -927,7 +1008,7 @@ export default function AdminDashboard({ onNavigate }) {
               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-yellow-500" />Department Leaderboard — {selectedYear}
               </h2>
-              <p className="text-gray-500 text-sm">Ranked by completion rate</p>
+              <p className="text-gray-500 text-sm">Ranked by quality score</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-700"></span> ≥90%</span>

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2 } from 'lucide-react';
+import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -8,6 +8,7 @@ import DataTable from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
 import RecycleBinModal from './RecycleBinModal';
+import GradeActionPlanModal from './GradeActionPlanModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -30,7 +31,7 @@ const jsonToCSV = (data, columns) => {
 export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
   const { isAdmin, isLeader } = useAuth();
   const canManagePlans = isAdmin || isLeader; // Leaders can add/edit plans in their department
-  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus } = useActionPlans(departmentCode);
+  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -40,6 +41,22 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [exporting, setExporting] = useState(false);
+  
+  // Batch submit state
+  const [submitting, setSubmitting] = useState(false);
+  const [showIncompleteModal, setShowIncompleteModal] = useState(false);
+  const [incompleteItems, setIncompleteItems] = useState([]);
+  
+  // Custom Modal State (replaces native alerts)
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    type: 'info', // 'warning', 'confirm', 'success'
+    title: '',
+    message: '',
+    onConfirm: null
+  });
+
+  const closeModal = () => setModalConfig(prev => ({ ...prev, isOpen: false }));
   
   // Update status filter when navigating from dashboard KPI cards
   useEffect(() => {
@@ -51,8 +68,38 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [deleting, setDeleting] = useState(false);
+  
+  // Grade modal state (Admin only)
+  const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
 
   const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
+
+  // Count items ready for finalization (draft items for selected month)
+  const readyForFinalizeCount = useMemo(() => {
+    if (selectedMonth === 'all') return 0;
+    return plans.filter(
+      p => p.month === selectedMonth && (!p.submission_status || p.submission_status === 'draft')
+    ).length;
+  }, [plans, selectedMonth]);
+
+  // Count already finalized items for selected month
+  const finalizedCount = useMemo(() => {
+    if (selectedMonth === 'all') return 0;
+    return plans.filter(
+      p => p.month === selectedMonth && p.submission_status === 'submitted'
+    ).length;
+  }, [plans, selectedMonth]);
+
+  // Get incomplete items (not Achieved or Not Achieved) for selected month
+  const getIncompleteItems = useMemo(() => {
+    if (selectedMonth === 'all') return [];
+    return plans.filter(
+      p => p.month === selectedMonth && 
+           (!p.submission_status || p.submission_status === 'draft') &&
+           p.status !== 'Achieved' && 
+           p.status !== 'Not Achieved'
+    );
+  }, [plans, selectedMonth]);
 
   // Combined filter logic: Month AND Status AND Search
   const filteredPlans = useMemo(() => {
@@ -96,6 +143,89 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setSearchQuery('');
     setSelectedMonth('all');
     setSelectedStatus('all');
+  };
+
+  // Pre-flight validation for finalize button
+  const handleFinalizeClick = () => {
+    // Step 1: Month Check
+    if (selectedMonth === 'all') {
+      setModalConfig({
+        isOpen: true,
+        type: 'warning',
+        title: 'Selection Required',
+        message: 'Please select a specific Month from the filter to finalize the report.',
+        onConfirm: null
+      });
+      return;
+    }
+
+    // Check if there are any items to finalize
+    if (readyForFinalizeCount === 0) {
+      if (finalizedCount > 0) {
+        setModalConfig({
+          isOpen: true,
+          type: 'success',
+          title: 'Already Finalized',
+          message: `The ${selectedMonth} report has already been finalized. All ${finalizedCount} item(s) are locked for Management grading.`,
+          onConfirm: null
+        });
+      } else {
+        setModalConfig({
+          isOpen: true,
+          type: 'info',
+          title: 'No Items Found',
+          message: `No action plans found for ${selectedMonth}. Please add items before finalizing.`,
+          onConfirm: null
+        });
+      }
+      return;
+    }
+
+    // Step 2: Status Check - Find incomplete items
+    const incomplete = getIncompleteItems;
+    if (incomplete.length > 0) {
+      setIncompleteItems(incomplete);
+      setShowIncompleteModal(true);
+      return;
+    }
+
+    // Step 3: All items complete - show confirmation modal
+    setModalConfig({
+      isOpen: true,
+      type: 'confirm',
+      title: `Finalize ${selectedMonth} Report?`,
+      message: `You are about to finalize ${readyForFinalizeCount} action plan(s). This will LOCK the data and Staff will no longer be able to edit these items.`,
+      onConfirm: handleFinalizeReport
+    });
+  };
+
+  // Leader finalize report handler (called after confirmation)
+  const handleFinalizeReport = async () => {
+    if (selectedMonth === 'all' || readyForFinalizeCount === 0) return;
+    
+    closeModal(); // Close confirmation modal
+    setSubmitting(true);
+    try {
+      const count = await finalizeMonthReport(selectedMonth);
+      setModalConfig({
+        isOpen: true,
+        type: 'success',
+        title: 'Report Finalized!',
+        message: `Successfully finalized ${count} action plan(s) for ${selectedMonth}. Items are now locked and ready for Management grading.`,
+        onConfirm: null
+      });
+    } catch (error) {
+      console.error('Finalize failed:', error);
+      setModalConfig({
+        isOpen: true,
+        type: 'warning',
+        title: 'Finalization Failed',
+        message: 'An error occurred while finalizing the report. Please try again.',
+        onConfirm: null
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Export CSV handler
@@ -165,7 +295,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               remark: formData.remark,
             };
         
-        await updatePlan(editData.id, updateFields);
+        // Pass the original plan data for accurate audit logging
+        // (editData.status might be pre-filled from handleCompletionStatusChange)
+        const originalPlan = plans.find(p => p.id === editData.id);
+        await updatePlan(editData.id, updateFields, originalPlan);
       } else if (isBulk && Array.isArray(formData)) {
         // Bulk create (recurring task)
         const plansWithDept = formData.map(plan => ({
@@ -245,6 +378,22 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setIsModalOpen(true);
   };
 
+  // Admin Grade handler - opens grade modal
+  const handleOpenGradeModal = (item) => {
+    setGradeModal({ isOpen: true, plan: item });
+  };
+
+  // Admin Grade submission handler
+  const handleGrade = async (planId, gradeData) => {
+    try {
+      await updatePlan(planId, gradeData);
+      setGradeModal({ isOpen: false, plan: null });
+    } catch (error) {
+      console.error('Grade failed:', error);
+      throw error; // Re-throw so modal can show error
+    }
+  };
+
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header - Clean, only title and Add button */}
@@ -273,6 +422,45 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               <Download className="w-4 h-4" />
               {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
+
+            {/* Leader Finalize Report Button - ONLY visible for Leaders (not Admins) */}
+            {isLeader && (
+              <button
+                onClick={handleFinalizeClick}
+                disabled={submitting}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
+                  selectedMonth === 'all'
+                    ? 'bg-purple-100 text-purple-600 hover:bg-purple-200 border border-purple-300'
+                    : readyForFinalizeCount > 0
+                    ? 'bg-purple-600 text-white hover:bg-purple-700'
+                    : finalizedCount > 0
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-gray-200 text-gray-400'
+                }`}
+                title={selectedMonth === 'all' 
+                  ? 'Select a month to finalize report'
+                  : readyForFinalizeCount === 0 
+                    ? finalizedCount > 0 
+                      ? `${finalizedCount} items already finalized` 
+                      : 'No items to finalize' 
+                    : `Finalize ${readyForFinalizeCount} items for Management grading`}
+              >
+                {submitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                {submitting 
+                  ? 'Finalizing...' 
+                  : selectedMonth === 'all'
+                    ? 'Finalize Report'
+                    : readyForFinalizeCount > 0 
+                      ? `Finalize ${selectedMonth} (${readyForFinalizeCount})`
+                      : finalizedCount > 0
+                        ? `${selectedMonth} Finalized ✓`
+                        : `Finalize ${selectedMonth}`}
+              </button>
+            )}
             
             {canManagePlans && (
               <button
@@ -405,6 +593,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onDelete={handleDelete}
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
+          onGrade={isAdmin ? handleOpenGradeModal : undefined}
         />
       </main>
 
@@ -432,6 +621,132 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         requireReason={true}
       />
 
+      {/* Incomplete Items Blocking Modal */}
+      {showIncompleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <X className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Cannot Finalize Report</h3>
+                <p className="text-sm text-gray-500">There are incomplete items for {selectedMonth}</p>
+              </div>
+            </div>
+            
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <p className="text-red-800 font-medium mb-2">
+                {incompleteItems.length} item(s) are not marked as "Achieved" or "Not Achieved":
+              </p>
+              <ul className="space-y-2 max-h-48 overflow-y-auto">
+                {incompleteItems.slice(0, 10).map((item, idx) => (
+                  <li key={item.id} className="flex items-start gap-2 text-sm">
+                    <span className="text-red-400 font-mono">{idx + 1}.</span>
+                    <div className="flex-1">
+                      <span className="text-gray-700">{item.action_plan?.substring(0, 50)}{item.action_plan?.length > 50 ? '...' : ''}</span>
+                      <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                        item.status === 'Pending' ? 'bg-gray-100 text-gray-600' :
+                        item.status === 'On Progress' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {item.status}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+                {incompleteItems.length > 10 && (
+                  <li className="text-sm text-gray-500 italic">
+                    ...and {incompleteItems.length - 10} more items
+                  </li>
+                )}
+              </ul>
+            </div>
+            
+            <p className="text-sm text-gray-600 mb-4">
+              Please update all items to "Achieved" or "Not Achieved" status before finalizing the report.
+            </p>
+            
+            <button
+              onClick={() => setShowIncompleteModal(false)}
+              className="w-full px-4 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors"
+            >
+              Close & Fix Items
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Modal System (replaces native alerts) */}
+      {modalConfig.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            {/* Icon based on type */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                modalConfig.type === 'warning' ? 'bg-amber-100' :
+                modalConfig.type === 'success' ? 'bg-green-100' :
+                modalConfig.type === 'confirm' ? 'bg-purple-100' :
+                'bg-blue-100'
+              }`}>
+                {modalConfig.type === 'warning' && <AlertTriangle className="w-6 h-6 text-amber-600" />}
+                {modalConfig.type === 'success' && <CheckCircle2 className="w-6 h-6 text-green-600" />}
+                {modalConfig.type === 'confirm' && <Lock className="w-6 h-6 text-purple-600" />}
+                {modalConfig.type === 'info' && <Info className="w-6 h-6 text-blue-600" />}
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">{modalConfig.title}</h3>
+            </div>
+            
+            <p className="text-gray-600 mb-6">{modalConfig.message}</p>
+            
+            {/* Buttons based on type */}
+            {modalConfig.type === 'confirm' ? (
+              <div className="flex gap-3">
+                <button
+                  onClick={closeModal}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (modalConfig.onConfirm) modalConfig.onConfirm();
+                  }}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      Yes, Finalize
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={closeModal}
+                className={`w-full px-4 py-2.5 rounded-lg transition-colors ${
+                  modalConfig.type === 'success' 
+                    ? 'bg-green-600 text-white hover:bg-green-700' 
+                    : modalConfig.type === 'warning'
+                    ? 'bg-amber-600 text-white hover:bg-amber-700'
+                    : 'bg-gray-800 text-white hover:bg-gray-900'
+                }`}
+              >
+                {modalConfig.type === 'success' ? 'Great!' : 'Got it'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <RecycleBinModal
         isOpen={isRecycleBinOpen}
         onClose={() => setIsRecycleBinOpen(false)}
@@ -439,6 +754,14 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         onRestore={restorePlan}
         onPermanentDelete={permanentlyDeletePlan}
         isAdmin={isAdmin}
+      />
+
+      {/* Admin Grade Modal */}
+      <GradeActionPlanModal
+        isOpen={gradeModal.isOpen}
+        onClose={() => setGradeModal({ isOpen: false, plan: null })}
+        onGrade={handleGrade}
+        plan={gradeModal.plan}
       />
     </div>
   );

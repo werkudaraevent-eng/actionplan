@@ -3,12 +3,19 @@ import { X, Clock, User, FileText, Loader2, History } from 'lucide-react';
 import { supabase, withTimeout } from '../lib/supabase';
 
 const CHANGE_TYPE_LABELS = {
-  'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-blue-100 text-blue-700' },
+  'SUBMITTED_FOR_REVIEW': { label: 'Submitted to Admin', color: 'bg-blue-100 text-blue-700' },
+  'MARKED_READY': { label: 'Marked Ready for Leader', color: 'bg-purple-100 text-purple-700' },
+  'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-amber-100 text-amber-700' },
   'REMARK_UPDATE': { label: 'Remark Updated', color: 'bg-purple-100 text-purple-700' },
   'OUTCOME_UPDATE': { label: 'Outcome Updated', color: 'bg-teal-100 text-teal-700' },
-  'FULL_UPDATE': { label: 'Record Updated', color: 'bg-amber-100 text-amber-700' },
+  'FULL_UPDATE': { label: 'Record Updated', color: 'bg-gray-100 text-gray-600' },
   'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700' },
   'DELETED': { label: 'Deleted', color: 'bg-red-100 text-red-700' },
+  'SOFT_DELETE': { label: 'Moved to Trash', color: 'bg-red-100 text-red-700' },
+  'RESTORE': { label: 'Restored', color: 'bg-green-100 text-green-700' },
+  'APPROVED': { label: 'Approved', color: 'bg-green-100 text-green-700' },
+  'REJECTED': { label: 'Rejected', color: 'bg-red-100 text-red-700' },
+  'LEADER_BATCH_SUBMIT': { label: 'Leader Submitted to Admin', color: 'bg-blue-100 text-blue-700' },
 };
 
 function formatDate(dateString) {

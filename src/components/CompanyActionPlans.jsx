@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Calendar, CheckCircle, X, Download, Building2 } from 'lucide-react';
+import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -7,6 +7,7 @@ import DashboardCards from './DashboardCards';
 import DataTable from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
+import GradeActionPlanModal from './GradeActionPlanModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -33,6 +34,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   
+  // Tab state for Admin Grading Inbox
+  const [activeTab, setActiveTab] = useState('needs_grading');
+  
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
@@ -43,6 +47,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [deleting, setDeleting] = useState(false);
+  
+  // Grade modal state
+  const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
 
   // Update filters when props change (from dashboard drill-down)
   useEffect(() => {
@@ -57,9 +64,36 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     }
   }, [initialDeptFilter]);
 
+  // Count items needing grading (submitted but not yet graded)
+  const needsGradingCount = useMemo(() => {
+    return plans.filter(p => 
+      p.submission_status === 'submitted' && p.quality_score == null
+    ).length;
+  }, [plans]);
 
-  // Combined filter logic
+  // Items needing grading - sorted by department then month
+  const needsGradingPlans = useMemo(() => {
+    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return plans
+      .filter(p => p.submission_status === 'submitted' && p.quality_score == null)
+      .sort((a, b) => {
+        // First sort by department
+        if (a.department_code !== b.department_code) {
+          return a.department_code.localeCompare(b.department_code);
+        }
+        // Then by month (oldest first)
+        return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
+      });
+  }, [plans]);
+
+  // Combined filter logic - respects active tab
   const filteredPlans = useMemo(() => {
+    // If on "needs_grading" tab, use the pre-filtered list
+    if (activeTab === 'needs_grading') {
+      return needsGradingPlans;
+    }
+    
+    // Otherwise apply normal filters for "all_records" tab
     return plans.filter((plan) => {
       // Department filter
       if (selectedDept !== 'all' && plan.department_code !== selectedDept) {
@@ -97,7 +131,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       
       return true;
     });
-  }, [plans, selectedDept, selectedMonth, selectedStatus, searchQuery]);
+  }, [plans, selectedDept, selectedMonth, selectedStatus, searchQuery, activeTab, needsGradingPlans]);
 
   const hasActiveFilters = selectedDept !== 'all' || selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
 
@@ -215,6 +249,21 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     setIsModalOpen(true);
   };
 
+  // Grade modal handlers
+  const handleOpenGradeModal = (item) => {
+    setGradeModal({ isOpen: true, plan: item });
+  };
+
+  const handleGrade = async (planId, gradeData) => {
+    try {
+      await updatePlan(planId, gradeData);
+      setGradeModal({ isOpen: false, plan: null });
+    } catch (error) {
+      console.error('Grade failed:', error);
+      throw error;
+    }
+  };
+
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header */}
@@ -238,10 +287,50 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       </header>
 
       <main className="p-6">
-        {/* KPI Cards */}
-        <DashboardCards data={filteredPlans} />
+        {/* Tab Navigation - Admin Grading Inbox */}
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('needs_grading')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
+              activeTab === 'needs_grading'
+                ? 'bg-purple-600 text-white'
+                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            Needs Grading
+            {needsGradingCount > 0 && (
+              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'needs_grading'
+                  ? 'bg-white text-purple-600'
+                  : 'bg-orange-500 text-white'
+              }`}>
+                {needsGradingCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('all_records')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
+              activeTab === 'all_records'
+                ? 'bg-gray-800 text-white'
+                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            All Records
+            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-gray-200 text-gray-600">
+              {plans.length}
+            </span>
+          </button>
+        </div>
+
+        {/* KPI Cards - Only show on All Records tab */}
+        {activeTab === 'all_records' && (
+          <DashboardCards data={filteredPlans} />
+        )}
         
-        {/* Control Toolbar */}
+        {/* Control Toolbar - Only show on All Records tab */}
+        {activeTab === 'all_records' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
             {/* Search Input */}
@@ -367,8 +456,31 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             </div>
           )}
         </div>
+        )}
+        
+        {/* Empty State for Needs Grading Tab */}
+        {activeTab === 'needs_grading' && needsGradingCount === 0 && !loading && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+                <PartyPopper className="w-10 h-10 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-800">All Caught Up!</h3>
+                <p className="text-gray-500 mt-1">No pending items to grade. Great work!</p>
+              </div>
+              <button
+                onClick={() => setActiveTab('all_records')}
+                className="mt-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
+              >
+                View All Records →
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Data Table with Department Column */}
+        {(activeTab === 'all_records' || (activeTab === 'needs_grading' && needsGradingCount > 0)) && (
         <DataTable
           data={filteredPlans}
           loading={loading}
@@ -376,8 +488,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           onDelete={handleDelete}
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
+          onGrade={handleOpenGradeModal}
           showDepartmentColumn={true}
         />
+        )}
       </main>
 
       <ActionPlanModal
@@ -402,6 +516,14 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         variant="danger"
         loading={deleting}
         requireReason={true}
+      />
+
+      {/* Admin Grade Modal */}
+      <GradeActionPlanModal
+        isOpen={gradeModal.isOpen}
+        onClose={() => setGradeModal({ isOpen: false, plan: null })}
+        onGrade={handleGrade}
+        plan={gradeModal.plan}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { ClipboardList, CheckCircle2, Clock, AlertCircle, Search, X, Calendar, XCircle } from 'lucide-react';
+import { ClipboardList, CheckCircle2, Clock, AlertCircle, Search, X, Calendar, XCircle, Star, ChevronDown, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -16,6 +16,8 @@ export default function StaffWorkspace() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
 
   const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
   const userName = profile?.full_name || '';
@@ -80,16 +82,23 @@ export default function StaffWorkspace() {
     });
   }, [myPlans, selectedMonth, selectedStatus, searchQuery]);
 
-  // Calculate stats
+  // Calculate stats based on filtered data (respects month/status/search filters)
   const stats = useMemo(() => {
-    const total = myPlans.length;
-    const achieved = myPlans.filter((p) => p.status === 'Achieved').length;
-    const inProgress = myPlans.filter((p) => p.status === 'On Progress').length;
-    const pending = myPlans.filter((p) => p.status === 'Pending').length;
-    const notAchieved = myPlans.filter((p) => p.status === 'Not Achieved').length;
+    const total = filteredPlans.length;
+    const achieved = filteredPlans.filter((p) => p.status === 'Achieved').length;
+    const inProgress = filteredPlans.filter((p) => p.status === 'On Progress').length;
+    const pending = filteredPlans.filter((p) => p.status === 'Pending').length;
+    const notAchieved = filteredPlans.filter((p) => p.status === 'Not Achieved').length;
     const rate = total > 0 ? Math.round((achieved / total) * 100) : 0;
-    return { total, achieved, inProgress, pending, notAchieved, rate };
-  }, [myPlans]);
+    
+    // Quality Score calculation
+    const gradedPlans = filteredPlans.filter((p) => p.quality_score != null && p.quality_score > 0);
+    const totalScore = gradedPlans.reduce((acc, curr) => acc + parseInt(curr.quality_score, 10), 0);
+    const avgScore = gradedPlans.length > 0 ? Math.round(totalScore / gradedPlans.length) : null;
+    const gradedCount = gradedPlans.length;
+    
+    return { total, achieved, inProgress, pending, notAchieved, rate, avgScore, gradedCount };
+  }, [filteredPlans]);
 
   const hasActiveFilters = selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
 
@@ -257,26 +266,76 @@ export default function StaffWorkspace() {
           />
         </div>
 
-        {/* Progress Bar */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">My Completion Rate</span>
-            <span className={`text-lg font-bold ${stats.rate >= 70 ? 'text-green-600' : stats.rate >= 50 ? 'text-amber-600' : 'text-gray-600'}`}>
-              {stats.rate}%
-            </span>
+        {/* Dual Performance Metrics Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Action Plan Completion (Green theme) */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-green-50 rounded-lg">
+                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700">Action Plan Completion</h3>
+                  <p className="text-xs text-gray-400">Tasks marked as Achieved</p>
+                </div>
+              </div>
+              <span className={`text-2xl font-bold ${stats.rate >= 70 ? 'text-green-600' : stats.rate >= 50 ? 'text-amber-600' : 'text-gray-600'}`}>
+                {stats.rate}%
+              </span>
+            </div>
+            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${stats.rate}%`,
+                  backgroundColor: stats.rate >= 70 ? '#22c55e' : stats.rate >= 50 ? '#eab308' : '#6b7280'
+                }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              {stats.achieved} of {stats.total} action plans achieved
+            </p>
           </div>
-          <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: `${stats.rate}%`,
-                backgroundColor: stats.rate >= 70 ? '#15803d' : stats.rate >= 50 ? '#b45309' : '#6b7280'
-              }}
-            />
+
+          {/* Average Quality Score (Purple theme) */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-50 rounded-lg">
+                  <Star className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700">Average Quality Score</h3>
+                  <p className="text-xs text-gray-400">Based on graded submissions</p>
+                </div>
+              </div>
+              <span className={`text-2xl font-bold ${
+                stats.avgScore === null ? 'text-gray-400' :
+                stats.avgScore >= 80 ? 'text-purple-600' : 
+                stats.avgScore >= 60 ? 'text-amber-600' : 'text-red-600'
+              }`}>
+                {stats.avgScore !== null ? `${stats.avgScore}%` : '—'}
+              </span>
+            </div>
+            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: stats.avgScore !== null ? `${stats.avgScore}%` : '0%',
+                  backgroundColor: stats.avgScore === null ? '#d1d5db' :
+                    stats.avgScore >= 80 ? '#9333ea' : 
+                    stats.avgScore >= 60 ? '#eab308' : '#ef4444'
+                }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              {stats.gradedCount > 0 
+                ? `${stats.gradedCount} of ${stats.total} tasks graded by management`
+                : 'No graded submissions yet'
+              }
+            </p>
           </div>
-          <p className="text-xs text-gray-400 mt-2">
-            {stats.achieved} of {stats.total} tasks completed
-          </p>
         </div>
 
         {/* Filter Toolbar */}
@@ -294,32 +353,100 @@ export default function StaffWorkspace() {
             </div>
             
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <Calendar className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+              {/* Month Filter - Custom Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setIsMonthDropdownOpen(!isMonthDropdownOpen);
+                    setIsStatusDropdownOpen(false);
+                  }}
+                  className="flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:border-gray-300 transition-colors min-w-[140px]"
                 >
-                  <option value="all">All Months</option>
-                  {MONTHS.map((month) => (
-                    <option key={month} value={month}>{month}</option>
-                  ))}
-                </select>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <span>{selectedMonth === 'all' ? 'All Months' : selectedMonth}</span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {isMonthDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsMonthDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-1 w-[160px] bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                      <div className="max-h-60 overflow-y-auto p-1">
+                        <button
+                          onClick={() => { setSelectedMonth('all'); setIsMonthDropdownOpen(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                            selectedMonth === 'all' ? 'bg-teal-50 text-teal-700' : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          All Months
+                          {selectedMonth === 'all' && <Check className="w-3.5 h-3.5 text-teal-600" />}
+                        </button>
+                        {MONTHS.map((month) => (
+                          <button
+                            key={month}
+                            onClick={() => { setSelectedMonth(month); setIsMonthDropdownOpen(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                              selectedMonth === month ? 'bg-teal-50 text-teal-700' : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {month}
+                            {selectedMonth === month && <Check className="w-3.5 h-3.5 text-teal-600" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <CheckCircle2 className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+              {/* Status Filter - Custom Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setIsStatusDropdownOpen(!isStatusDropdownOpen);
+                    setIsMonthDropdownOpen(false);
+                  }}
+                  className="flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:border-gray-300 transition-colors min-w-[140px]"
                 >
-                  <option value="all">All Status</option>
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-gray-500" />
+                    <span>{selectedStatus === 'all' ? 'All Status' : selectedStatus}</span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {isStatusDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsStatusDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-1 w-[160px] bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                      <div className="max-h-60 overflow-y-auto p-1">
+                        <button
+                          onClick={() => { setSelectedStatus('all'); setIsStatusDropdownOpen(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                            selectedStatus === 'all' ? 'bg-teal-50 text-teal-700' : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          All Status
+                          {selectedStatus === 'all' && <Check className="w-3.5 h-3.5 text-teal-600" />}
+                        </button>
+                        {STATUS_OPTIONS.map((status) => (
+                          <button
+                            key={status}
+                            onClick={() => { setSelectedStatus(status); setIsStatusDropdownOpen(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                              selectedStatus === status ? 'bg-teal-50 text-teal-700' : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {status}
+                            {selectedStatus === status && <Check className="w-3.5 h-3.5 text-teal-600" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

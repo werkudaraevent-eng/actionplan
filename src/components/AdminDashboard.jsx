@@ -1,13 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
   Target, TrendingUp, CheckCircle2, Trophy, Medal, Award, Calendar, 
-  X, Users, Upload, Download, ChevronDown, AlertTriangle, Star, Send 
+  X, Users, ChevronDown, AlertTriangle, Star 
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
-import Papa from 'papaparse';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, supabase } from '../lib/supabase';
-import ImportModal from './ImportModal';
 import PerformanceChart from './PerformanceChart';
 import StrategyComboChart from './StrategyComboChart';
 import BottleneckChart from './BottleneckChart';
@@ -20,7 +18,8 @@ const MONTH_MAP = {
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CURRENT_YEAR = new Date().getFullYear();
 const AVAILABLE_YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
-const COMPARISON_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
+// Sort descending (newest first) for the comparison dropdown
+const COMPARISON_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].sort((a, b) => b - a);
 
 // Strict quarter-to-month mapping for ReferenceArea (no calculation, just lookup)
 const QUARTER_RANGES = {
@@ -28,48 +27,6 @@ const QUARTER_RANGES = {
   Q2: { start: 'Apr', end: 'Jun' },
   Q3: { start: 'Jul', end: 'Sep' },
   Q4: { start: 'Oct', end: 'Dec' },
-};
-
-const monthToDate = (monthStr, year = CURRENT_YEAR) => {
-  const monthIndex = MONTH_MAP[monthStr];
-  if (monthIndex === undefined) return null;
-  return new Date(year, monthIndex, 1);
-};
-
-const formatDateForInput = (date) => date ? date.toISOString().split('T')[0] : '';
-
-const getQuarterPreset = (quarter, year) => {
-  const quarters = {
-    Q1: { start: new Date(year, 0, 1), end: new Date(year, 2, 31) },
-    Q2: { start: new Date(year, 3, 1), end: new Date(year, 5, 30) },
-    Q3: { start: new Date(year, 6, 1), end: new Date(year, 8, 30) },
-    Q4: { start: new Date(year, 9, 1), end: new Date(year, 11, 31) },
-  };
-  return quarters[quarter];
-};
-
-// Convert date string to month abbreviation for ReferenceArea
-const dateToMonth = (dateStr) => {
-  if (!dateStr) return null;
-  const date = new Date(dateStr);
-  const monthIndex = date.getMonth();
-  return MONTHS_ORDER[monthIndex];
-};
-
-// Detect which quarter a date range represents (for strict lookup)
-const detectQuarter = (startDate, endDate, year) => {
-  if (!startDate || !endDate) return null;
-  
-  // Check each quarter to see if dates match
-  for (const [quarter, range] of Object.entries(QUARTER_RANGES)) {
-    const quarterStart = getQuarterPreset(quarter, year);
-    const startMatch = formatDateForInput(quarterStart.start) === startDate;
-    const endMatch = formatDateForInput(quarterStart.end) === endDate;
-    if (startMatch && endMatch) {
-      return quarter;
-    }
-  }
-  return null; // Custom date range, not a quarter preset
 };
 
 function ChartDropdown({ value, onChange, options }) {
@@ -89,14 +46,12 @@ export default function AdminDashboard({ onNavigate }) {
   const { plans, loading, refetch } = useActionPlans(null);
   
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startMonth, setStartMonth] = useState('Jan');
+  const [endMonth, setEndMonth] = useState('Dec');
   const [selectedDept, setSelectedDept] = useState('All');
   const [selectedQuarter, setSelectedQuarter] = useState(null); // Track active quarter
   const [orgMetric, setOrgMetric] = useState('department_code');
   const [stratMetric, setStratMetric] = useState('goal_strategy');
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [comparisonYear, setComparisonYear] = useState('prev_year');
   
   // Hybrid data: annual targets and historical stats (monthly)
@@ -159,19 +114,16 @@ export default function AdminDashboard({ onNavigate }) {
     return plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
   }, [plans, selectedYear]);
 
-  // Filter by date range
+  // Filter by month range
   const dateFilteredPlans = useMemo(() => {
-    if (!startDate && !endDate) return yearFilteredPlans;
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : null;
+    const startIdx = MONTH_MAP[startMonth] ?? 0;
+    const endIdx = MONTH_MAP[endMonth] ?? 11;
     return yearFilteredPlans.filter((plan) => {
-      const planDate = monthToDate(plan.month, selectedYear);
-      if (!planDate) return true;
-      if (start && planDate < start) return false;
-      if (end && planDate > end) return false;
-      return true;
+      const planMonthIdx = MONTH_MAP[plan.month];
+      if (planMonthIdx === undefined) return true;
+      return planMonthIdx >= startIdx && planMonthIdx <= endIdx;
     });
-  }, [yearFilteredPlans, startDate, endDate, selectedYear]);
+  }, [yearFilteredPlans, startMonth, endMonth]);
 
   // Filter by department - exact match when a specific department is selected
   const filteredPlans = useMemo(() => {
@@ -321,12 +273,12 @@ export default function AdminDashboard({ onNavigate }) {
     return { total, achieved, inProgress, pending, notAchieved, byDepartment, overdue };
   }, [filteredPlans, filteredHistoricalStats]);
 
-  // Quality Score and Submission Progress stats (separate for clarity)
+  // Quality Score and Action Plan Completion stats (separate for clarity)
   const qualityStats = useMemo(() => {
-    // Submission Progress: How many items have been finalized/submitted
-    const submittedItems = filteredPlans.filter(p => p.submission_status === 'submitted').length;
-    const submissionProgress = filteredPlans.length > 0 
-      ? parseFloat(((submittedItems / filteredPlans.length) * 100).toFixed(0)) 
+    // Action Plan Completion: How many items have status = 'Achieved' (operational metric)
+    const achieved = filteredPlans.filter(p => p.status === 'Achieved').length;
+    const completionRate = filteredPlans.length > 0 
+      ? parseFloat(((achieved / filteredPlans.length) * 100).toFixed(0)) 
       : 0;
     
     // Quality Score: Average of graded items (THE HERO METRIC)
@@ -338,7 +290,7 @@ export default function AdminDashboard({ onNavigate }) {
       : null;
     const gradedCount = gradedItems.length;
     
-    return { submissionProgress, qualityScore, gradedCount };
+    return { completionRate, qualityScore, gradedCount, achievedCount: achieved };
   }, [filteredPlans]);
 
   // Helper: Find department with most items of a given status (for KPI drill-down)
@@ -436,25 +388,12 @@ export default function AdminDashboard({ onNavigate }) {
   const hasComparisonData = comparisonPlans.length > 0 || filteredComparisonHistorical.length > 0;
   const comparisonLabel = comparisonYearValue ? `${comparisonYearValue}` : null;
 
-  // Calculate highlight range for ReferenceArea using strict quarter lookup
+  // Calculate highlight range for ReferenceArea using month range
   const highlightRange = useMemo(() => {
-    if (!startDate && !endDate) return null;
-    
-    // First, check if this is a quarter preset (use strict lookup)
-    const detectedQuarter = detectQuarter(startDate, endDate, selectedYear);
-    if (detectedQuarter) {
-      // Use the strict quarter range mapping
-      return { 
-        x1: QUARTER_RANGES[detectedQuarter].start, 
-        x2: QUARTER_RANGES[detectedQuarter].end 
-      };
-    }
-    
-    // For custom date ranges, convert dates to months
-    const startMonth = startDate ? dateToMonth(startDate) : 'Jan';
-    const endMonth = endDate ? dateToMonth(endDate) : 'Dec';
+    // If full year selected (Jan-Dec), no highlight needed
+    if (startMonth === 'Jan' && endMonth === 'Dec') return null;
     return { x1: startMonth, x2: endMonth };
-  }, [startDate, endDate, selectedYear]);
+  }, [startMonth, endMonth]);
 
   // Org Chart Data - with historical fallback
   const orgChartData = useMemo(() => {
@@ -541,42 +480,34 @@ export default function AdminDashboard({ onNavigate }) {
     return <span className="w-5 h-5 flex items-center justify-center text-gray-400 font-medium">{index + 1}</span>;
   };
 
-  const hasActiveFilters = startDate || endDate || selectedDept !== 'All';
-  const clearDateFilters = () => { setStartDate(''); setEndDate(''); setSelectedQuarter(null); };
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedDept !== 'All';
+  const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedQuarter(null); };
   const clearDeptFilter = () => { setSelectedDept('All'); };
+  
+  // Quarter toggle handler - clicking active quarter deselects it
   const applyQuarterPreset = (quarter) => { 
-    const preset = getQuarterPreset(quarter, selectedYear); 
-    setStartDate(formatDateForInput(preset.start)); 
-    setEndDate(formatDateForInput(preset.end)); 
-    setSelectedQuarter(quarter); 
+    if (selectedQuarter === quarter) {
+      // Already active - toggle OFF (reset to full year)
+      setSelectedQuarter(null);
+      setStartMonth('Jan');
+      setEndMonth('Dec');
+    } else {
+      // Not active - toggle ON
+      const range = QUARTER_RANGES[quarter];
+      setStartMonth(range.start);
+      setEndMonth(range.end);
+      setSelectedQuarter(quarter);
+    }
   };
+  
   const getDateRangeLabel = () => {
-    if (!startDate && !endDate) return 'Year to Date';
-    if (startDate && endDate) return `${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-    if (startDate) return `From ${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-    return `Until ${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
+    if (startMonth === endMonth) return startMonth;
+    return `${startMonth} – ${endMonth}`;
   };
 
   const orgTitle = orgMetric === 'department_code' ? 'Quality Score by Department' : 'Quality Score by PIC';
   const stratTitle = stratMetric === 'goal_strategy' ? 'Quality Score by Strategy' : 'Quality Score by Report Format';
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      const exportData = filteredPlans.map((plan) => ({
-        year: plan.year || selectedYear, department_code: plan.department_code, department_name: getDeptName(plan.department_code),
-        month: plan.month, goal_strategy: plan.goal_strategy, action_plan: plan.action_plan, indicator: plan.indicator,
-        pic: plan.pic, report_format: plan.report_format, status: plan.status, outcome_link: plan.outcome_link || '', remark: plan.remark || '', created_at: plan.created_at,
-      }));
-      const csv = Papa.unparse(exportData);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `werkudara_${selectedYear}_data_${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-    } catch (error) { console.error('Export error:', error); alert('Failed to export data.'); }
-    finally { setExporting(false); }
-  };
 
   if (loading) {
     return (
@@ -592,20 +523,12 @@ export default function AdminDashboard({ onNavigate }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      {/* Header - z-0 to allow KPI tooltips to appear above */}
+      <header className="bg-white border-b border-gray-200 px-6 py-4 relative z-0">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Company Dashboard</h1>
             <p className="text-gray-500 text-sm">Executive Performance Overview — FY {selectedYear}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={handleExport} disabled={exporting || filteredPlans.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
-              <Download className="w-4 h-4" />{exporting ? 'Exporting...' : 'Export CSV'}
-            </button>
-            <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
-              <Upload className="w-4 h-4" />Import CSV
-            </button>
           </div>
         </div>
       </header>
@@ -663,18 +586,42 @@ export default function AdminDashboard({ onNavigate }) {
                 ))}
               </div>
               <div className="h-6 w-px bg-gray-200"></div>
-              <div className="flex items-center gap-2">
-                <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setSelectedQuarter(null); }} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-                <span className="text-gray-400 text-sm">to</span>
-                <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setSelectedQuarter(null); }} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-                {(startDate || endDate) && <button onClick={clearDateFilters} className="p-1.5 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>}
+              {/* Period Filter - Month Range Selector */}
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
+                <span className="text-sm text-gray-500 font-medium">Period:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">From</span>
+                  <select 
+                    value={startMonth} 
+                    onChange={(e) => { setStartMonth(e.target.value); setSelectedQuarter(null); }}
+                    className="text-sm font-bold text-gray-700 bg-transparent border-none focus:ring-0 cursor-pointer p-0 pr-6"
+                  >
+                    {MONTHS_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">To</span>
+                  <select 
+                    value={endMonth} 
+                    onChange={(e) => { setEndMonth(e.target.value); setSelectedQuarter(null); }}
+                    className="text-sm font-bold text-gray-700 bg-transparent border-none focus:ring-0 cursor-pointer p-0 pr-6"
+                  >
+                    {MONTHS_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                  <button onClick={clearDateFilters} className="p-1 text-gray-400 hover:text-gray-600 ml-1">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
           {hasActiveFilters && (
             <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-500">Viewing {selectedYear}:</span>
-              {(startDate || endDate) && <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{getDateRangeLabel()}</span>}
+              {(startMonth !== 'Jan' || endMonth !== 'Dec') && <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{getDateRangeLabel()}</span>}
               {selectedDept !== 'All' && (
                 <span className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
                   {getDeptName(selectedDept)} ({selectedDept})
@@ -719,34 +666,43 @@ export default function AdminDashboard({ onNavigate }) {
                 <p className="text-xs text-gray-400">{qualityStats.gradedCount} items graded</p>
               </div>
             }
+            onClick={onNavigate && qualityStats.gradedCount > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
           />
           
-          {/* Submission Progress - Administrative/Compliance metric */}
-          <KPICard
-            gradient="from-slate-500 to-slate-600"
-            icon={Send}
-            value={`${qualityStats.submissionProgress}%`}
-            label="Submission Progress"
-            labelColor="text-slate-100"
-            size="compact"
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Compliance Status</p>
-                <p>Submitted: <span className="font-bold">{qualityStats.submissionProgress}%</span></p>
-                <p className="text-xs text-gray-400">Tracks finalized items (not quality)</p>
-              </div>
-            }
-            progressBar={{ value: qualityStats.submissionProgress, target: 100 }}
-          />
-          
-          {/* Achieved Plans */}
+          {/* Action Plan Completion - Operational metric (status = Achieved) */}
           <KPICard
             gradient="from-green-500 to-green-600"
             icon={CheckCircle2}
-            value={stats.achieved}
-            label="Achieved Plans"
+            value={`${qualityStats.completionRate}%`}
+            label="Action Plan Completion"
             labelColor="text-green-100"
-            tooltipContent={<ContributionTooltip achieved={stats.achieved} total={stats.total} />}
+            size="compact"
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Operational Completion</p>
+                <p>Achieved: <span className="font-bold text-green-400">{qualityStats.completionRate}%</span></p>
+                <p className="text-xs text-gray-400">{qualityStats.achievedCount} of {stats.total} plans marked Achieved</p>
+                <p className="text-xs text-gray-500 mt-1">Tracks status = 'Achieved' (not admin finalization)</p>
+              </div>
+            }
+            progressBar={{ value: qualityStats.completionRate, target: 100 }}
+            onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
+          />
+          
+          {/* Achieved Plans - Count for drill-down */}
+          <KPICard
+            gradient="from-emerald-500 to-emerald-600"
+            icon={CheckCircle2}
+            value={stats.achieved}
+            label="Achieved Count"
+            labelColor="text-emerald-100"
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Completed Tasks</p>
+                <p>Count: <span className="font-bold text-green-400">{stats.achieved}</span></p>
+                <p className="text-xs text-gray-400">Click to view achieved plans</p>
+              </div>
+            }
             onClick={onNavigate && stats.achieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Achieved' }) : undefined}
             size="compact"
           />
@@ -1058,7 +1014,6 @@ export default function AdminDashboard({ onNavigate }) {
           </div>
         </div>
       </main>
-      <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImportComplete={refetch} />
     </div>
   );
 }

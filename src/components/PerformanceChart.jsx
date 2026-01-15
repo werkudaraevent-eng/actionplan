@@ -8,28 +8,35 @@ const getBarColor = (value) => {
   return '#b91c1c'; // red-700
 };
 
-// Custom tooltip - supports both score and completion modes
+// Custom tooltip - supports both score and completion modes, with text wrapping and volume context
 const CustomTooltip = ({ active, payload, label, mode = 'score' }) => {
   if (active && payload && payload.length) {
     const value = payload[0].value;
     const data = payload[0].payload;
     const isScoreMode = mode === 'score';
+    const fullName = data.fullName || label;
     
     return (
-      <div className="bg-white px-3 py-2 shadow-lg rounded-lg border border-gray-200 z-50">
-        <p className="font-medium text-gray-800 max-w-[200px] truncate">{data.fullName || label}</p>
-        <p className="text-sm" style={{ color: getBarColor(value) }}>
-          {isScoreMode ? 'Avg Score' : 'Completion'}: <span className="font-bold">{value}%</span>
+      <div className="bg-white p-4 shadow-xl rounded-xl border border-gray-100 min-w-[200px] max-w-[260px] z-50">
+        {/* Title with text wrapping */}
+        <p className="text-sm font-bold text-gray-800 mb-2 leading-tight break-words whitespace-normal">
+          {fullName}
         </p>
-        {isScoreMode && data.graded != null && (
-          <p className="text-xs text-gray-500">
-            {data.graded} graded of {data.total} total
-          </p>
-        )}
-        {!isScoreMode && data.total && (
-          <p className="text-xs text-gray-500">
-            {data.achieved} of {data.total} achieved
-          </p>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500 font-medium">{isScoreMode ? 'Avg Score' : 'Completion'}:</span>
+          <span className="text-sm font-bold" style={{ color: getBarColor(value) }}>{value}%</span>
+        </div>
+        {/* Volume context - always show X of Y */}
+        {data.total != null && (
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-400">Volume:</span>
+            <span className="text-xs font-semibold text-gray-700">
+              {isScoreMode 
+                ? `${data.graded || 0} of ${data.total} graded`
+                : `${data.achieved || 0} of ${data.total} achieved`
+              }
+            </span>
+          </div>
         )}
       </div>
     );
@@ -37,7 +44,7 @@ const CustomTooltip = ({ active, payload, label, mode = 'score' }) => {
   return null;
 };
 
-// Custom label on top of bars
+// Custom label on top of bars (vertical)
 const renderCustomLabel = (props) => {
   const { x, y, width, value } = props;
   return (
@@ -54,10 +61,27 @@ const renderCustomLabel = (props) => {
   );
 };
 
+// Custom label for horizontal bars (right side)
+const renderHorizontalLabel = (props) => {
+  const { x, y, width, height, value } = props;
+  return (
+    <text
+      x={x + width + 8}
+      y={y + height / 2 + 4}
+      fill={getBarColor(value)}
+      textAnchor="start"
+      fontSize={11}
+      fontWeight="600"
+    >
+      {value}%
+    </text>
+  );
+};
+
 const MIN_BAR_WIDTH = 50;
 const BAR_GAP = 15;
 
-export default function PerformanceChart({ data, title, subtitle, xKey = 'name', yKey = 'rate', height = 300, hideHeader = false, mode = 'score' }) {
+export default function PerformanceChart({ data, title, subtitle, xKey = 'name', yKey = 'rate', height = 300, hideHeader = false, mode = 'score', layout = 'vertical' }) {
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(600);
 
@@ -90,6 +114,64 @@ export default function PerformanceChart({ data, title, subtitle, xKey = 'name',
     );
   }
 
+  // Horizontal layout (for strategy/PIC breakdown)
+  if (layout === 'horizontal') {
+    const chartHeight = Math.max(height, data.length * 35 + 40);
+    
+    return (
+      <div className={hideHeader ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-6'}>
+        {!hideHeader && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+            {subtitle && <p className="text-sm text-gray-500 mb-2">{subtitle}</p>}
+          </>
+        )}
+        
+        <div ref={containerRef} className="overflow-y-auto" style={{ maxHeight: height }}>
+          <BarChart
+            width={containerWidth - 40}
+            height={chartHeight}
+            data={data}
+            layout="vertical"
+            margin={{ top: 10, right: 50, left: 10, bottom: 10 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+            <XAxis 
+              type="number"
+              domain={[0, 100]}
+              tick={{ fontSize: 10, fill: '#9ca3af' }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v) => `${v}%`}
+            />
+            <YAxis 
+              type="category"
+              dataKey={xKey}
+              tick={{ fontSize: 11, fill: '#374151' }}
+              axisLine={false}
+              tickLine={false}
+              width={120}
+              tickFormatter={(value) => value.length > 18 ? value.substring(0, 16) + '...' : value}
+            />
+            <Tooltip content={<CustomTooltip mode={mode} />} cursor={{ fill: 'transparent' }} />
+            <Bar 
+              dataKey={yKey} 
+              radius={[0, 4, 4, 0]}
+              barSize={20}
+              background={{ fill: '#f3f4f6', radius: [0, 4, 4, 0] }}
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={getBarColor(entry[yKey])} />
+              ))}
+              <LabelList dataKey={yKey} content={renderHorizontalLabel} />
+            </Bar>
+          </BarChart>
+        </div>
+      </div>
+    );
+  }
+
+  // Vertical layout (default - for time series)
   // Calculate dynamic width: ensure minimum width per bar, but fill container if data is small
   const calculatedWidth = data.length * (MIN_BAR_WIDTH + BAR_GAP);
   const chartWidth = Math.max(containerWidth - 40, calculatedWidth);

@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
+import ImportModal from './ImportModal';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
   { id: 'targets', label: 'Company Targets', icon: Target },
   { id: 'historical', label: 'Historical Data', icon: History },
   { id: 'dropdowns', label: 'Dropdown Options', icon: List },
+  { id: 'data', label: 'Data Management', icon: Database },
 ];
 
 const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
@@ -58,6 +60,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
         {activeTab === 'targets' && <TargetsTab />}
         {activeTab === 'historical' && <HistoricalTab />}
         {activeTab === 'dropdowns' && <DropdownOptionsTab />}
+        {activeTab === 'data' && <DataManagementTab />}
       </main>
     </div>
   );
@@ -1276,6 +1279,132 @@ function LoadingState() {
         <Loader2 className="w-5 h-5 animate-spin" />
         Loading...
       </div>
+    </div>
+  );
+}
+
+
+// ==================== DATA MANAGEMENT TAB ====================
+function DataManagementTab() {
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [plans, setPlans] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPlans();
+  }, []);
+
+  const fetchPlans = async () => {
+    const { data, error } = await supabase
+      .from('action_plans')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+    
+    if (error) console.error('Error fetching plans:', error);
+    setPlans(data || []);
+    setLoading(false);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const exportData = plans.map((plan) => ({
+        year: plan.year,
+        department_code: plan.department_code,
+        month: plan.month,
+        goal_strategy: plan.goal_strategy,
+        action_plan: plan.action_plan,
+        indicator: plan.indicator,
+        pic: plan.pic,
+        report_format: plan.report_format,
+        status: plan.status,
+        outcome_link: plan.outcome_link || '',
+        remark: plan.remark || '',
+        created_at: plan.created_at,
+      }));
+      const csv = Papa.unparse(exportData);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `action_plans_export_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export data.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-6">
+      {/* Export Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <Download className="w-6 h-6 text-blue-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-gray-800">Export Data</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Download all action plan records ({plans.length} total) in CSV format for backup or external analysis.
+            </p>
+            <button
+              onClick={handleExport}
+              disabled={exporting || plans.length === 0}
+              className="mt-4 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors disabled:opacity-50"
+            >
+              <FileText className="w-4 h-4" />
+              {exporting ? 'Exporting...' : 'Download CSV'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Import Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-teal-50 rounded-lg">
+            <Upload className="w-6 h-6 text-teal-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-gray-800">Import Action Plans</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Bulk upload action plans using a CSV file. Please ensure your file follows the standard template.
+            </p>
+            
+            {/* Warning Box */}
+            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+              <p className="text-xs text-amber-700">
+                <strong>Warning:</strong> Importing data may add new records to the database. Please double-check your file before uploading.
+              </p>
+            </div>
+            
+            {/* Upload Button */}
+            <div className="mt-4">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2 transition-colors shadow-sm"
+              >
+                <Upload className="w-4 h-4" />
+                Select CSV File
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Import Modal */}
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImportComplete={fetchPlans}
+      />
     </div>
   );
 }

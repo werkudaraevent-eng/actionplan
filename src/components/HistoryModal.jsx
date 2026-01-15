@@ -3,19 +3,20 @@ import { X, Clock, User, FileText, Loader2, History } from 'lucide-react';
 import { supabase, withTimeout } from '../lib/supabase';
 
 const CHANGE_TYPE_LABELS = {
-  'SUBMITTED_FOR_REVIEW': { label: 'Submitted to Admin', color: 'bg-blue-100 text-blue-700' },
-  'MARKED_READY': { label: 'Marked Ready for Leader', color: 'bg-purple-100 text-purple-700' },
-  'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-amber-100 text-amber-700' },
-  'REMARK_UPDATE': { label: 'Remark Updated', color: 'bg-purple-100 text-purple-700' },
-  'OUTCOME_UPDATE': { label: 'Outcome Updated', color: 'bg-teal-100 text-teal-700' },
-  'FULL_UPDATE': { label: 'Record Updated', color: 'bg-gray-100 text-gray-600' },
-  'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700' },
-  'DELETED': { label: 'Deleted', color: 'bg-red-100 text-red-700' },
-  'SOFT_DELETE': { label: 'Moved to Trash', color: 'bg-red-100 text-red-700' },
-  'RESTORE': { label: 'Restored', color: 'bg-green-100 text-green-700' },
-  'APPROVED': { label: 'Approved', color: 'bg-green-100 text-green-700' },
-  'REJECTED': { label: 'Rejected', color: 'bg-red-100 text-red-700' },
-  'LEADER_BATCH_SUBMIT': { label: 'Leader Submitted to Admin', color: 'bg-blue-100 text-blue-700' },
+  'SUBMITTED_FOR_REVIEW': { label: 'Submitted to Admin', color: 'bg-blue-100 text-blue-700', icon: '📤' },
+  'MARKED_READY': { label: 'Marked Ready for Leader', color: 'bg-purple-100 text-purple-700', icon: '✅' },
+  'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-amber-100 text-amber-700', icon: '🔄' },
+  'REMARK_UPDATE': { label: 'Remark Updated', color: 'bg-purple-100 text-purple-700', icon: '📝' },
+  'OUTCOME_UPDATE': { label: 'Outcome Updated', color: 'bg-teal-100 text-teal-700', icon: '🔗' },
+  'FULL_UPDATE': { label: 'Record Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️' },
+  'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700', icon: '➕' },
+  'DELETED': { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: '🗑️' },
+  'SOFT_DELETE': { label: 'Moved to Trash', color: 'bg-red-100 text-red-700', icon: '🗑️' },
+  'RESTORE': { label: 'Restored', color: 'bg-green-100 text-green-700', icon: '♻️' },
+  'APPROVED': { label: 'Approved & Graded', color: 'bg-green-100 text-green-700', icon: '✅' },
+  'REJECTED': { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: '❌' },
+  'REVISION_REQUESTED': { label: '↩️ Revision Requested', color: 'bg-amber-100 text-amber-700', icon: '↩️' },
+  'LEADER_BATCH_SUBMIT': { label: 'Leader Submitted to Admin', color: 'bg-blue-100 text-blue-700', icon: '📤' },
 };
 
 function formatDate(dateString) {
@@ -190,16 +191,39 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                           )}
                         </div>
                         
-                        {/* Show value changes for status updates */}
-                        {log.change_type === 'STATUS_UPDATE' && log.previous_value && (
-                          <div className="mt-3 pt-3 border-t border-gray-200 flex items-center gap-2 text-xs">
-                            <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
-                              {log.previous_value.status || 'Unknown'}
-                            </span>
-                            <span className="text-gray-400">→</span>
-                            <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded">
-                              {log.new_value?.status || 'Unknown'}
-                            </span>
+                        {/* Show value changes for status updates and revision requests */}
+                        {(log.change_type === 'STATUS_UPDATE' || 
+                          log.change_type === 'REVISION_REQUESTED' || 
+                          log.change_type === 'APPROVED') && log.previous_value && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
+                                {log.previous_value.status || log.previous_value.submission_status || 'Unknown'}
+                              </span>
+                              <span className="text-gray-400">→</span>
+                              <span className={`px-2 py-0.5 rounded ${
+                                log.change_type === 'REVISION_REQUESTED' 
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : log.change_type === 'APPROVED'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-teal-100 text-teal-700'
+                              }`}>
+                                {log.new_value?.status || log.new_value?.submission_status || 'Unknown'}
+                              </span>
+                            </div>
+                            {/* Show score for approvals */}
+                            {log.change_type === 'APPROVED' && log.new_value?.quality_score != null && (
+                              <div className="mt-2 text-xs text-gray-600">
+                                Quality Score: <span className="font-bold text-green-600">{log.new_value.quality_score}%</span>
+                              </div>
+                            )}
+                            {/* Show feedback for revision requests */}
+                            {log.change_type === 'REVISION_REQUESTED' && log.new_value?.admin_feedback && (
+                              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                                <span className="font-medium text-amber-800">Feedback: </span>
+                                <span className="text-amber-700">"{log.new_value.admin_feedback}"</span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

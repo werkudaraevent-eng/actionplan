@@ -55,74 +55,66 @@ export default function PriorityFocusWidget({ plans }) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[190px] flex flex-col">
+      {/* Fixed Header */}
+      <div className="flex items-center gap-2 mb-3 flex-shrink-0">
         <AlertTriangle className="w-5 h-5 text-amber-500" />
-        <h3 className="text-lg font-semibold text-gray-800">Priority Focus</h3>
+        <h3 className="font-semibold text-gray-800">Priority Focus</h3>
         <span className="text-xs text-gray-400 ml-1">(Due & Overdue)</span>
       </div>
 
       {priorityItems.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-            <CheckCircle2 className="w-6 h-6 text-green-600" />
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center mb-2">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
           </div>
-          <p className="text-green-700 font-medium">All caught up!</p>
-          <p className="text-gray-400 text-sm mt-1">No overdue or pending items. Good job!</p>
+          <p className="text-green-700 font-medium text-sm">All caught up!</p>
+          <p className="text-gray-400 text-xs mt-1">No overdue items</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto pr-1 space-y-2">
           {priorityItems.map((item) => {
             const statusStyle = getStatusBadge(item.status);
             return (
               <div
                 key={item.id}
-                className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${
+                className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border ${
                   item.isOverdue 
                     ? 'bg-red-50 border-red-200' 
                     : 'bg-amber-50 border-amber-200'
                 }`}
               >
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${item.isOverdue ? 'text-red-800' : 'text-amber-800'}`} title={item.action_plan || item.goal_strategy}>
+                  <p className={`text-xs font-medium truncate ${item.isOverdue ? 'text-red-800' : 'text-amber-800'}`} title={item.action_plan || item.goal_strategy}>
                     {item.action_plan || item.goal_strategy || 'Untitled'}
                   </p>
                   {item.pic && (
-                    <p className="text-xs text-gray-500 mt-0.5">PIC: {item.pic}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">PIC: {item.pic}</p>
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                     item.isOverdue 
                       ? 'bg-red-200 text-red-800' 
                       : 'bg-amber-200 text-amber-800'
                   }`}>
                     {item.isOverdue ? (
-                      <span className="flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
+                      <span className="flex items-center gap-0.5">
+                        <AlertCircle className="w-2.5 h-2.5" />
                         {item.month}
                       </span>
                     ) : (
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
+                      <span className="flex items-center gap-0.5">
+                        <Clock className="w-2.5 h-2.5" />
                         {item.month}
                       </span>
                     )}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-xs ${statusStyle.bg} ${statusStyle.text}`}>
-                    {item.status}
                   </span>
                 </div>
               </div>
             );
           })}
         </div>
-      )}
-
-      {priorityItems.length > 0 && (
-        <p className="text-xs text-gray-400 mt-4 text-center">
-          Showing top {priorityItems.length} item{priorityItems.length !== 1 ? 's' : ''} requiring attention
-        </p>
       )}
     </div>
   );

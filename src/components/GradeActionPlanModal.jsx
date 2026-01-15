@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,6 +12,22 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [showError, setShowError] = useState(false);
   const [showConfirmReject, setShowConfirmReject] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // CRITICAL: Reset all state when modal opens or plan changes
+  // This prevents "sticky state" where old data persists between different plans
+  useEffect(() => {
+    if (isOpen && plan) {
+      // Reset score to existing value (if re-grading) or default to 85
+      setScore(plan.quality_score ?? 85);
+      // WIPE feedback - always start fresh
+      setFeedback('');
+      // Clear all error/validation states
+      setErrorMessage('');
+      setShowError(false);
+      setShowConfirmReject(false);
+      setLoading(false);
+    }
+  }, [isOpen, plan?.id]); // Use plan.id to detect when a different plan is selected
 
   if (!isOpen || !plan) return null;
 

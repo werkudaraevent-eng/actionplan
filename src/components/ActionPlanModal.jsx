@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 
-export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false }) {
+export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
   
   // SECURITY: Determine if this plan is locked (finalized for Management grading)
@@ -11,6 +11,16 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const isPlanLocked = editData?.submission_status === 'submitted' || editData?.status === 'Waiting Approval';
   const isLocked = isPlanLocked && !isAdmin; // Regular users are locked out
   const isAdminOverride = isPlanLocked && isAdmin; // Admin can override the lock
+  
+  // Check if plan can be recalled (locked but NOT graded yet)
+  const canRecall = isPlanLocked && 
+    editData?.quality_score == null && // Not graded yet
+    (isLeader || isAdmin) && // Only Leaders or Admins can recall
+    onRecall; // Recall handler must be provided
+  
+  // Recall confirmation state
+  const [showRecallConfirm, setShowRecallConfirm] = useState(false);
+  const [recalling, setRecalling] = useState(false);
   
   // Get the plan's department (from editData or the prop)
   const planDept = editData?.department_code || departmentCode || '';
@@ -292,13 +302,107 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* REVISION REQUESTED ALERT - Shows when Management sent item back for revision */}
+          {editData?.admin_feedback && 
+           editData?.submission_status !== 'submitted' && 
+           (editData?.status === 'On Progress' || editData?.status === 'Pending') && (
+            <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-4 mb-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-amber-800 text-lg">⚠️ Revision Requested by Management</p>
+                  <p className="text-sm text-amber-700 mt-1">Please address the following feedback before resubmitting:</p>
+                  <div className="mt-3 p-3 bg-white border border-amber-300 rounded-lg">
+                    <p className="text-amber-900 font-medium">"{editData.admin_feedback}"</p>
+                  </div>
+                  {editData?.reviewed_at && (
+                    <p className="text-xs text-amber-600 mt-2">
+                      Returned on: {new Date(editData.reviewed_at).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* LOCKED BANNER - Security: Show when plan is finalized */}
           {isLocked && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-yellow-800">This plan is finalized and locked.</p>
-                <p className="text-sm text-yellow-700">Editing is disabled. Waiting for Management grading.</p>
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+              <div className="flex items-start gap-3">
+                <Lock className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-medium text-yellow-800">This plan is finalized and locked.</p>
+                  <p className="text-sm text-yellow-700">
+                    {editData?.quality_score != null 
+                      ? 'This item has been graded by Management. Contact Admin for changes.'
+                      : 'Editing is disabled. Waiting for Management grading.'}
+                  </p>
+                  
+                  {/* Recall Button - Only show if can recall (not graded yet) */}
+                  {canRecall && !showRecallConfirm && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRecallConfirm(true)}
+                      className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-100 border border-amber-300 rounded-lg hover:bg-amber-200 transition-colors"
+                    >
+                      <Unlock className="w-4 h-4" />
+                      Recall Submission
+                    </button>
+                  )}
+                  
+                  {/* Recall Confirmation */}
+                  {showRecallConfirm && (
+                    <div className="mt-3 p-3 bg-amber-100 border border-amber-300 rounded-lg">
+                      <p className="text-sm text-amber-800 font-medium mb-2">
+                        ⚠️ Are you sure you want to recall this submission?
+                      </p>
+                      <p className="text-xs text-amber-700 mb-3">
+                        This will remove the plan from the Management Grading Queue and allow editing again.
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowRecallConfirm(false)}
+                          disabled={recalling}
+                          className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setRecalling(true);
+                            try {
+                              await onRecall(editData.id);
+                              // Parent (DepartmentView) handles closing modal and showing success
+                              setShowRecallConfirm(false);
+                            } catch (err) {
+                              console.error('Recall failed:', err);
+                              alert('Failed to recall submission. Please try again.');
+                              setRecalling(false);
+                            }
+                          }}
+                          disabled={recalling}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {recalling ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Recalling...
+                            </>
+                          ) : (
+                            <>
+                              <Unlock className="w-3 h-3" />
+                              Yes, Recall
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

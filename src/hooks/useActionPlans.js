@@ -244,6 +244,17 @@ export function useActionPlans(departmentCode = null) {
     // Get previous data from state if not provided
     const original = previousData || plans.find((p) => p.id === id);
     
+    // SMART FEEDBACK CLEARING: When re-submitting after revision, clear old feedback
+    // This prevents stale revision notes from appearing on successfully fixed items
+    const isResubmittingAfterRevision = 
+      updates.status === 'Achieved' && 
+      (original?.status === 'On Progress' || original?.status === 'Pending' || original?.status === 'Not Achieved') &&
+      original?.admin_feedback; // Only clear if there was feedback
+    
+    if (isResubmittingAfterRevision) {
+      updates.admin_feedback = null; // Clear the old revision feedback
+    }
+    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
@@ -709,6 +720,158 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
+  // Bulk recall: Unlock all finalized items for a month (only if none are graded)
+  const recallMonthReport = async (month) => {
+    const { id: userId, name: userName } = await getCurrentUser();
+    
+    // Find all submitted items for this month that are NOT graded yet
+    const itemsToRecall = plans.filter(
+      p => p.month === month && 
+           p.submission_status === 'submitted' && 
+           p.quality_score == null // Only recall ungraded items
+    );
+    
+    if (itemsToRecall.length === 0) {
+      throw new Error('No items to recall for this month');
+    }
+
+    const itemIds = itemsToRecall.map(p => p.id);
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => {
+        if (itemIds.includes(p.id)) {
+          return { 
+            ...p, 
+            submission_status: 'draft',
+            submitted_at: null,
+            submitted_by: null
+          };
+        }
+        return p;
+      })
+    );
+
+    try {
+      const { error } = await supabase
+        .from('action_plans')
+        .update({ 
+          submission_status: 'draft',
+          submitted_at: null,
+          submitted_by: null
+        })
+        .in('id', itemIds);
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Create audit logs for each recalled item
+      if (userId) {
+        for (const item of itemsToRecall) {
+          await createAuditLog(
+            item.id,
+            userId,
+            'STATUS_UPDATE',
+            { submission_status: 'submitted' },
+            { submission_status: 'draft' },
+            `Report recalled for ${month} by ${userName} - item unlocked for editing`
+          );
+        }
+      }
+
+      return itemsToRecall.length;
+    } catch (err) {
+      console.error('Recall report failed:', err);
+      throw err;
+    }
+  };
+
+  // Grade a plan with race condition protection
+  // Only grades if the item is still in 'submitted' status (prevents zombie grading)
+  const gradePlan = async (id, gradeData) => {
+    const original = plans.find((p) => p.id === id);
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...gradeData, updated_at: new Date().toISOString() } : p))
+    );
+
+    try {
+      // CRITICAL GUARD: Only update if submission_status is still 'submitted'
+      // This prevents "zombie grading" when a Leader recalls while Admin is grading
+      const { data, error } = await supabase
+        .from('action_plans')
+        .update(gradeData)
+        .eq('id', id)
+        .eq('submission_status', 'submitted') // <-- Race condition guard
+        .select();
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Check if the update actually happened (data will be empty if condition failed)
+      if (!data || data.length === 0) {
+        // Item was recalled - rollback optimistic update and throw specific error
+        await fetchPlans();
+        const recalledError = new Error('ITEM_RECALLED');
+        recalledError.code = 'ITEM_RECALLED';
+        recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+        throw recalledError;
+      }
+
+      // Update succeeded
+      setPlans((prev) =>
+        prev.map((p) => (p.id === id ? data[0] : p))
+      );
+
+      // Audit log
+      const userId = await getCurrentUserId();
+      if (userId) {
+        const isApproval = gradeData.quality_score != null;
+        const isRevisionRequest = gradeData.status === 'On Progress' && gradeData.submission_status === 'draft';
+        
+        // Determine action type
+        let actionType = 'APPROVED';
+        let description = `Graded with score ${gradeData.quality_score}%`;
+        
+        if (isRevisionRequest) {
+          actionType = 'REVISION_REQUESTED';
+          description = `Returned for revision. Reason: "${gradeData.admin_feedback || 'No reason provided'}"`;
+        } else if (!isApproval) {
+          actionType = 'REJECTED';
+          description = `Rejected: ${gradeData.admin_feedback?.substring(0, 100) || 'No feedback'}`;
+        }
+        
+        await createAuditLog(
+          id,
+          userId,
+          actionType,
+          { 
+            quality_score: original?.quality_score, 
+            status: original?.status,
+            submission_status: original?.submission_status 
+          },
+          { 
+            quality_score: gradeData.quality_score,
+            status: gradeData.status,
+            submission_status: gradeData.submission_status,
+            admin_feedback: gradeData.admin_feedback
+          },
+          description
+        );
+      }
+
+      return data[0];
+    } catch (err) {
+      console.error('Grade failed:', err);
+      throw err;
+    }
+  };
+
   return {
     plans,
     setPlans,
@@ -724,7 +887,9 @@ export function useActionPlans(departmentCode = null) {
     permanentlyDeletePlan,
     updateStatus,
     finalizeMonthReport,
+    recallMonthReport,
     unlockItem,
+    gradePlan,
   };
 }
 

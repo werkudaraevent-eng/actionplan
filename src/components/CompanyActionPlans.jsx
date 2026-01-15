@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
 import DashboardCards from './DashboardCards';
-import DataTable from './DataTable';
+import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
 import GradeActionPlanModal from './GradeActionPlanModal';
@@ -26,16 +26,19 @@ const jsonToCSV = (data, columns) => {
   return [header, ...rows].join('\n');
 };
 
-export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '' }) {
+export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
   const { isAdmin } = useAuth();
   // Fetch ALL plans (no department filter)
-  const { plans, loading, updatePlan, deletePlan, updateStatus } = useActionPlans(null);
+  const { plans, loading, updatePlan, deletePlan, updateStatus, gradePlan } = useActionPlans(null);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   
-  // Tab state for Admin Grading Inbox
-  const [activeTab, setActiveTab] = useState('needs_grading');
+  // Tab state for Admin Grading Inbox - use initialActiveTab prop
+  const [activeTab, setActiveTab] = useState(initialActiveTab);
+  
+  // Column visibility
+  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +66,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       setSelectedDept(initialDeptFilter);
     }
   }, [initialDeptFilter]);
+
+  // Update active tab when prop changes (from dashboard navigation)
+  useEffect(() => {
+    if (initialActiveTab) {
+      setActiveTab(initialActiveTab);
+    }
+  }, [initialActiveTab]);
 
   // Count items needing grading (submitted but not yet graded)
   const needsGradingCount = useMemo(() => {
@@ -256,10 +266,14 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   const handleGrade = async (planId, gradeData) => {
     try {
-      await updatePlan(planId, gradeData);
+      await gradePlan(planId, gradeData);
       setGradeModal({ isOpen: false, plan: null });
     } catch (error) {
       console.error('Grade failed:', error);
+      // Check for specific "recalled" error
+      if (error.code === 'ITEM_RECALLED') {
+        throw new Error('This item has been RECALLED by the department. Please refresh and try again.');
+      }
       throw error;
     }
   };
@@ -326,7 +340,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
         {/* KPI Cards - Only show on All Records tab */}
         {activeTab === 'all_records' && (
-          <DashboardCards data={filteredPlans} />
+          <DashboardCards data={filteredPlans} selectedMonth={selectedMonth} />
         )}
         
         {/* Control Toolbar - Only show on All Records tab */}
@@ -369,6 +383,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                   ))}
                 </select>
               </div>
+              
+              {/* Column Toggle */}
+              <ColumnToggle 
+                visibleColumns={visibleColumns} 
+                toggleColumn={toggleColumn} 
+                resetColumns={resetColumns} 
+              />
               
               {/* Month Filter */}
               <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
@@ -490,6 +511,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={handleOpenGradeModal}
           showDepartmentColumn={true}
+          visibleColumns={visibleColumns}
         />
         )}
       </main>

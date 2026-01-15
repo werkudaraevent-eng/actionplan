@@ -17,10 +17,10 @@ export default function KPICard({
   
   return (
     <div 
-      className={`group relative bg-gradient-to-br ${gradient} rounded-xl ${isCompact ? 'p-4' : 'p-5'} text-white ${
+      className={`group relative bg-gradient-to-br ${gradient} rounded-xl ${isCompact ? 'p-4' : 'p-5'} text-white hover:z-[60] ${
         isClickable 
           ? 'cursor-pointer hover:scale-[1.02] hover:shadow-lg transition-all duration-200' 
-          : 'cursor-help'
+          : 'cursor-help transition-all duration-200'
       }`}
       onClick={onClick}
       role={isClickable ? 'button' : undefined}
@@ -131,6 +131,7 @@ export function FailureRateTooltip({ failed, total, breakdown }) {
     <div className="space-y-1">
       <p className="font-medium border-b border-gray-600 pb-1 mb-1">Risk Analysis</p>
       <p>Failure Rate: <span className="font-bold text-red-400">{rate}%</span></p>
+      <p className="text-xs text-gray-400">{failed} of {total} not achieved</p>
       {breakdown && (
         <>
           {breakdown.notAchieved !== undefined && (

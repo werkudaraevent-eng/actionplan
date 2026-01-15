@@ -66,29 +66,75 @@ function AccessDeniedScreen({ message, onGoBack }) {
 
 function AppContent() {
   const { user, profile, loading, profileError, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
-  const [currentView, setCurrentView] = useState(null);
   const [userFilter, setUserFilter] = useState(''); // For deep linking to Team Management with filter
   const [statusFilter, setStatusFilter] = useState(''); // For KPI card drill-down to action plans
+  const [activeTab, setActiveTab] = useState('all_records'); // For controlling CompanyActionPlans tab
 
-  // Set initial view based on role after profile loads
+  // Initialize currentView from localStorage, with role-based validation
+  const [currentView, setCurrentView] = useState(() => {
+    // Don't restore from storage during initial load - wait for profile
+    return null;
+  });
+
+  // Helper: Get default view for a role
+  const getDefaultViewForRole = (isAdminUser, isStaffUser, deptCode) => {
+    if (isAdminUser) return 'dashboard';
+    if (isStaffUser) return 'my-workspace';
+    if (deptCode) return `dept-dashboard-${deptCode}`;
+    return 'dashboard';
+  };
+
+  // Helper: Check if a view is allowed for the current role
+  const isViewAllowedForRole = (view, isAdminUser, isStaffUser, deptCode) => {
+    if (!view) return false;
+    
+    // Admin can access everything
+    if (isAdminUser) return true;
+    
+    // Staff restrictions
+    if (isStaffUser) {
+      // Staff can only access my-workspace and their dept dashboard (read-only)
+      if (view === 'my-workspace') return true;
+      if (view === `dept-dashboard-${deptCode}`) return true;
+      return false;
+    }
+    
+    // Leader restrictions
+    // Leaders can access their own department views
+    if (view.startsWith('dept-') && view.includes(deptCode)) return true;
+    
+    return false;
+  };
+
+  // Set initial view based on role after profile loads, with localStorage persistence
   useEffect(() => {
-    if (profile && !currentView) {
-      if (isAdmin) {
-        setCurrentView('dashboard');
-      } else if (isStaff) {
-        // Staff users go to their personal workspace
-        setCurrentView('my-workspace');
-      } else if (departmentCode) {
-        // Leaders land on their dashboard first
-        setCurrentView(`dept-dashboard-${departmentCode}`);
+    if (profile && currentView === null) {
+      // Try to restore from localStorage
+      const savedView = localStorage.getItem('apt_last_active_page');
+      
+      // Validate the saved view against current user's role
+      if (savedView && isViewAllowedForRole(savedView, isAdmin, isStaff, departmentCode)) {
+        setCurrentView(savedView);
+      } else {
+        // Fall back to default view for this role
+        setCurrentView(getDefaultViewForRole(isAdmin, isStaff, departmentCode));
       }
     }
   }, [profile, isAdmin, isStaff, isLeader, departmentCode, currentView]);
+
+  // Persist currentView to localStorage whenever it changes
+  useEffect(() => {
+    if (currentView) {
+      localStorage.setItem('apt_last_active_page', currentView);
+    }
+  }, [currentView]);
 
   // Reset view when user logs out
   useEffect(() => {
     if (!user) {
       setCurrentView(null);
+      // Clear localStorage on logout to prevent cross-user session persistence
+      localStorage.removeItem('apt_last_active_page');
     }
   }, [user]);
 
@@ -139,6 +185,13 @@ function AppContent() {
       setStatusFilter(options.statusFilter);
     } else {
       setStatusFilter(''); // Clear filter when navigating without it
+    }
+    
+    // Handle active tab for CompanyActionPlans (default to 'all_records' when coming from dashboard)
+    if (options.activeTab !== undefined) {
+      setActiveTab(options.activeTab);
+    } else if (view === 'all-plans') {
+      setActiveTab('all_records'); // Default to all records when navigating to all-plans
     }
     
     setCurrentView(view);
@@ -219,7 +272,7 @@ function AppContent() {
 
     // Render company-wide action plans (admin only)
     if (currentView === 'all-plans' && isAdmin) {
-      return <CompanyActionPlans initialStatusFilter={statusFilter} />;
+      return <CompanyActionPlans initialStatusFilter={statusFilter} initialActiveTab={activeTab} />;
     }
 
     // Render department dashboard (dept head landing page)

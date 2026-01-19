@@ -4,10 +4,12 @@ import { supabase, DEPARTMENTS } from '../lib/supabase';
 import UserModal from './UserModal';
 import ConfirmationModal from './ConfirmationModal';
 import CredentialSuccessModal from './CredentialSuccessModal';
+import { useToast } from './Toast';
 
 const TEMP_PASSWORD = 'Werkudara123!';
 
 export default function UserManagement({ initialFilter = '' }) {
+  const { toast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,7 +160,11 @@ export default function UserManagement({ initialFilter = '' }) {
       fetchUsers();
     } catch (err) {
       console.error('Delete failed:', err);
-      alert('Failed to delete user. They may have associated data.');
+      toast({ 
+        title: 'Delete Failed', 
+        description: 'Failed to delete user. They may have associated data.', 
+        variant: 'error' 
+      });
     } finally {
       setDeleting(false);
     }
@@ -166,8 +172,8 @@ export default function UserManagement({ initialFilter = '' }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      {/* Header - Sticky with high z-index */}
+      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Team Management</h1>

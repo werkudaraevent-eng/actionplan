@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Trash2, RotateCcw, Loader2, AlertCircle } from 'lucide-react';
+import { useToast } from './Toast';
+import ConfirmDialog from './ConfirmDialog';
 
 export default function RecycleBinModal({ 
   isOpen, 
@@ -9,10 +11,12 @@ export default function RecycleBinModal({
   onPermanentDelete,
   isAdmin 
 }) {
+  const { toast } = useToast();
   const [deletedPlans, setDeletedPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [restoringId, setRestoringId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null); // For ConfirmDialog
 
   useEffect(() => {
     if (isOpen) {
@@ -39,16 +43,20 @@ export default function RecycleBinModal({
       setDeletedPlans((prev) => prev.filter((p) => p.id !== id));
     } catch (error) {
       console.error('Restore failed:', error);
-      alert('Failed to restore. Please try again.');
+      toast({ title: 'Restore Failed', description: 'Failed to restore. Please try again.', variant: 'error' });
     } finally {
       setRestoringId(null);
     }
   };
 
   const handlePermanentDelete = async (id) => {
-    if (!window.confirm('This will permanently delete the item. This action cannot be undone. Continue?')) {
-      return;
-    }
+    setConfirmDelete(id);
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!confirmDelete) return;
+    const id = confirmDelete;
+    setConfirmDelete(null);
     
     setDeletingId(id);
     try {
@@ -56,7 +64,7 @@ export default function RecycleBinModal({
       setDeletedPlans((prev) => prev.filter((p) => p.id !== id));
     } catch (error) {
       console.error('Permanent delete failed:', error);
-      alert('Failed to delete permanently. Please try again.');
+      toast({ title: 'Delete Failed', description: 'Failed to delete permanently. Please try again.', variant: 'error' });
     } finally {
       setDeletingId(null);
     }
@@ -217,6 +225,18 @@ export default function RecycleBinModal({
           </div>
         </div>
       </div>
+
+      {/* Permanent Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={confirmPermanentDelete}
+        title="Permanently Delete?"
+        message="This will permanently delete the item. This action cannot be undone."
+        confirmText="Delete Forever"
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar } from 'lucide-react';
 import Papa from 'papaparse';
 import { supabase, DEPARTMENTS } from '../lib/supabase';
+import { useToast } from './Toast';
 
 const TEMPLATE_HEADERS = [
   'department_code',
@@ -21,6 +22,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 const AVAILABLE_YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 export default function ImportModal({ isOpen, onClose, onImportComplete }) {
+  const { toast } = useToast();
   const [step, setStep] = useState(1); // 1: upload, 2: processing, 3: results
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [dragActive, setDragActive] = useState(false);
@@ -71,7 +73,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
   const handleFile = (file) => {
     if (!file.name.endsWith('.csv')) {
-      alert('Please upload a CSV file');
+      toast({ title: 'Invalid File', description: 'Please upload a CSV file', variant: 'warning' });
       return;
     }
     setFile(file);

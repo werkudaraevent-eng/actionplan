@@ -9,8 +9,13 @@ import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
 import RecycleBinModal from './RecycleBinModal';
 import GradeActionPlanModal from './GradeActionPlanModal';
+import { useToast } from './Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
+
+// Month order for sorting and filtering
+const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 // Convert JSON data to CSV string
 const jsonToCSV = (data, columns) => {
@@ -30,6 +35,7 @@ const jsonToCSV = (data, columns) => {
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
   const { isAdmin, isLeader } = useAuth();
+  const { toast } = useToast();
   const canManagePlans = isAdmin || isLeader; // Leaders can add/edit plans in their department
   const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,11 +47,16 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   
   // Filter states - initialize status from prop if provided
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [startMonth, setStartMonth] = useState('Jan');
+  const [endMonth, setEndMonth] = useState('Dec');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [exporting, setExporting] = useState(false);
-  const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
+  const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
+  const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  
+  // Legacy: Keep selectedMonth for backward compatibility with submit/recall logic
+  const selectedMonth = startMonth === endMonth ? startMonth : 'all';
   
   // Batch submit state
   const [submitting, setSubmitting] = useState(false);
@@ -164,11 +175,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     );
   }, [plans, selectedMonth]);
 
-  // BASE DATA: Filtered by Month and Search ONLY (for Stats Cards - stable context)
+  // BASE DATA: Filtered by Month Range and Search ONLY (for Stats Cards - stable context)
   const basePlans = useMemo(() => {
+    const startIdx = MONTH_INDEX[startMonth] ?? 0;
+    const endIdx = MONTH_INDEX[endMonth] ?? 11;
+    
     return plans.filter((plan) => {
-      // Month filter
-      if (selectedMonth !== 'all' && plan.month !== selectedMonth) {
+      // Month range filter
+      const planMonthIdx = MONTH_INDEX[plan.month];
+      if (planMonthIdx !== undefined && (planMonthIdx < startIdx || planMonthIdx > endIdx)) {
         return false;
       }
       
@@ -192,21 +207,36 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       
       return true;
     });
-  }, [plans, selectedMonth, searchQuery]);
+  }, [plans, startMonth, endMonth, searchQuery]);
 
-  // TABLE DATA: Base data filtered FURTHER by Status (for Table - dynamic)
+  // TABLE DATA: Base data filtered FURTHER by Status, then SORTED by Month (for Table - dynamic)
   const tablePlans = useMemo(() => {
-    if (selectedStatus === 'all') return basePlans;
-    return basePlans.filter((plan) => plan.status === selectedStatus);
+    let filtered = basePlans;
+    if (selectedStatus !== 'all') {
+      filtered = basePlans.filter((plan) => plan.status === selectedStatus);
+    }
+    
+    // Sort by month chronologically (Jan -> Dec), then by ID descending (newest first within same month)
+    return [...filtered].sort((a, b) => {
+      const monthDiff = (MONTH_INDEX[a.month] ?? 99) - (MONTH_INDEX[b.month] ?? 99);
+      if (monthDiff !== 0) return monthDiff;
+      return (b.id || 0) - (a.id || 0); // Newest first within same month
+    });
   }, [basePlans, selectedStatus]);
 
   // Check if any filters are active
-  const hasActiveFilters = selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setSelectedMonth('all');
+    setStartMonth('Jan');
+    setEndMonth('Dec');
     setSelectedStatus('all');
+  };
+  
+  const clearMonthFilter = () => {
+    setStartMonth('Jan');
+    setEndMonth('Dec');
   };
 
   // Pre-flight validation for finalize button
@@ -438,7 +468,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       URL.revokeObjectURL(link.href);
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export data. Please try again.');
+      toast({ title: 'Export Failed', description: 'Failed to export data. Please try again.', variant: 'error' });
     } finally {
       setExporting(false);
     }
@@ -488,7 +518,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       setEditData(null);
     } catch (error) {
       console.error('Save failed:', error);
-      alert('Failed to save. Please try again.');
+      toast({ title: 'Save Failed', description: 'Failed to save. Please try again.', variant: 'error' });
     }
   };
 
@@ -496,7 +526,11 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     // Safety check: Prevent deletion of achieved items for non-admins
     // Admins have "God Mode" and can delete anything
     if (item.status?.toLowerCase() === 'achieved' && !isAdmin) {
-      alert('Action Denied: You cannot delete a verified achievement. Please contact an Admin if this was marked in error.');
+      toast({ 
+        title: 'Action Denied', 
+        description: 'You cannot delete a verified achievement. Please contact an Admin if this was marked in error.', 
+        variant: 'warning' 
+      });
       return;
     }
     
@@ -517,7 +551,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       setDeleteModal({ isOpen: false, planId: null, planTitle: '' });
     } catch (error) {
       console.error('Delete failed:', error);
-      alert('Failed to delete. Please try again.');
+      toast({ title: 'Delete Failed', description: 'Failed to delete. Please try again.', variant: 'error' });
     } finally {
       setDeleting(false);
     }
@@ -539,7 +573,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       await updateStatus(id, newStatus);
     } catch (error) {
       console.error('Status update failed:', error);
-      alert('Failed to update status. Please try again.');
+      toast({ title: 'Update Failed', description: 'Failed to update status. Please try again.', variant: 'error' });
     }
   };
 
@@ -597,7 +631,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header - Clean, only title and Add button */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-20">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">{currentDept?.name}</h1>
@@ -771,44 +805,112 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                 resetColumns={resetColumns} 
               />
               
-              {/* Month Filter - Custom Dropdown */}
-              <div className="relative">
-                <button 
-                  onClick={() => setIsMonthDropdownOpen(!isMonthDropdownOpen)}
-                  className="flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 hover:border-teal-500 transition-all min-w-[140px]"
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-gray-500" />
-                    <span className="font-medium">{selectedMonth === 'all' ? 'All Months' : selectedMonth}</span>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMonthDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
+              {/* Month Range Filter */}
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <Calendar className="w-4 h-4 text-gray-500" />
                 
-                {isMonthDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsMonthDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-2 w-[160px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
-                      <div className="max-h-60 overflow-y-auto p-1">
-                        {[{ value: 'all', label: 'All Months' }, ...MONTHS.map(m => ({ value: m, label: m }))].map((option) => (
-                          <button
-                            key={option.value}
-                            onClick={() => {
-                              setSelectedMonth(option.value);
-                              setIsMonthDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                              selectedMonth === option.value 
-                                ? 'bg-teal-50 text-teal-700' 
-                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                            }`}
-                          >
-                            {option.label}
-                            {selectedMonth === option.value && <Check className="w-3 h-3 text-teal-600" />}
-                          </button>
-                        ))}
+                {/* Start Month Dropdown */}
+                <div className="relative">
+                  <button 
+                    onClick={() => {
+                      setIsStartMonthDropdownOpen(!isStartMonthDropdownOpen);
+                      setIsEndMonthDropdownOpen(false);
+                      setIsStatusDropdownOpen(false);
+                    }}
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                  >
+                    <span>{startMonth}</span>
+                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isStartMonthDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsStartMonthDropdownOpen(false)} />
+                      <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="max-h-48 overflow-y-auto p-1">
+                          {MONTHS_ORDER.map((month) => (
+                            <button
+                              key={month}
+                              onClick={() => {
+                                setStartMonth(month);
+                                // Auto-adjust end month if start > end
+                                if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
+                                  setEndMonth(month);
+                                }
+                                setIsStartMonthDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                                startMonth === month 
+                                  ? 'bg-teal-50 text-teal-700' 
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {month}
+                              {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </>
+                    </>
+                  )}
+                </div>
+                
+                <span className="text-gray-400 text-sm">—</span>
+                
+                {/* End Month Dropdown */}
+                <div className="relative">
+                  <button 
+                    onClick={() => {
+                      setIsEndMonthDropdownOpen(!isEndMonthDropdownOpen);
+                      setIsStartMonthDropdownOpen(false);
+                      setIsStatusDropdownOpen(false);
+                    }}
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                  >
+                    <span>{endMonth}</span>
+                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isEndMonthDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsEndMonthDropdownOpen(false)} />
+                      <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="max-h-48 overflow-y-auto p-1">
+                          {MONTHS_ORDER.map((month) => (
+                            <button
+                              key={month}
+                              onClick={() => {
+                                setEndMonth(month);
+                                // Auto-adjust start month if end < start
+                                if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
+                                  setStartMonth(month);
+                                }
+                                setIsEndMonthDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                                endMonth === month 
+                                  ? 'bg-teal-50 text-teal-700' 
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {month}
+                              {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* Clear month filter button */}
+                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                  <button
+                    onClick={clearMonthFilter}
+                    className="ml-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
               
@@ -869,10 +971,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                 </span>
               )}
               
-              {selectedMonth !== 'all' && (
+              {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                  Month: {selectedMonth}
-                  <button onClick={() => setSelectedMonth('all')} className="hover:text-blue-900">
+                  {startMonth === endMonth ? startMonth : `${startMonth} — ${endMonth}`}
+                  <button onClick={clearMonthFilter} className="hover:text-blue-900">
                     <X className="w-3 h-3" />
                   </button>
                 </span>

@@ -16,7 +16,7 @@ export default function Sidebar({ currentView, onNavigate }) {
   };
 
   return (
-    <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col">
+    <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col relative z-[999]">
       {/* Header */}
       <div className="p-4 border-b border-teal-700 flex-shrink-0">
         <div className="flex items-center gap-3">

@@ -3,6 +3,8 @@ import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Lo
 import { supabase } from '../lib/supabase';
 import Papa from 'papaparse';
 import ImportModal from './ImportModal';
+import { useToast } from './Toast';
+import ConfirmDialog from './ConfirmDialog';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -19,7 +21,8 @@ export default function AdminSettings({ onNavigateToUsers }) {
   
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      {/* Header - Sticky with high z-index */}
+      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
             <Settings className="w-5 h-5 text-teal-600" />
@@ -68,6 +71,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
 
 // ==================== DEPARTMENTS TAB ====================
 function DepartmentsTab({ onNavigateToUsers }) {
+  const { toast } = useToast();
   const [departments, setDepartments] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +81,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -122,9 +127,10 @@ function DepartmentsTab({ onNavigateToUsers }) {
       setIsAdding(false);
       setNewCode('');
       setNewName('');
+      toast({ title: 'Department Created', description: `${newName.trim()} has been added.`, variant: 'success' });
     } catch (error) {
       console.error('Save error:', error);
-      alert('Failed to save department: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Save', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
@@ -144,16 +150,15 @@ function DepartmentsTab({ onNavigateToUsers }) {
       await fetchData();
       setEditingCode(null);
       setEditName('');
+      toast({ title: 'Department Updated', description: `${code} has been updated.`, variant: 'success' });
     } catch (error) {
       console.error('Update error:', error);
-      alert('Failed to update department: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
 
   const handleDelete = async (code) => {
-    if (!confirm(`Delete department "${code}"? This cannot be undone.`)) return;
-    
     try {
       const { error } = await supabase
         .from('departments')
@@ -163,9 +168,10 @@ function DepartmentsTab({ onNavigateToUsers }) {
       if (error) throw error;
       
       await fetchData();
+      toast({ title: 'Department Deleted', description: `${code} has been removed.`, variant: 'success' });
     } catch (error) {
       console.error('Delete error:', error);
-      alert('Failed to delete department: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Delete', description: error.message || 'Unknown error', variant: 'error' });
     }
   };
 
@@ -321,7 +327,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
                     <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button onClick={() => handleDelete(dept.code)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                    <button onClick={() => setConfirmDelete(dept.code)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -335,12 +341,24 @@ function DepartmentsTab({ onNavigateToUsers }) {
           <div key="empty-state" className="p-8 text-center text-gray-500">No departments found. Add one to get started.</div>
         )}
       </div>
+
+      {/* Confirm Delete Dialog */}
+      <ConfirmDialog
+        isOpen={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => handleDelete(confirmDelete)}
+        title="Delete Department"
+        message={`Delete department "${confirmDelete}"? This cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 }
 
 // ==================== TARGETS TAB ====================
 function TargetsTab() {
+  const { toast } = useToast();
   const [targets, setTargets] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
@@ -373,7 +391,11 @@ function TargetsTab() {
       .from('annual_targets')
       .upsert({ year, target_percentage: value }, { onConflict: 'year' });
     
-    if (error) alert('Failed to save target');
+    if (error) {
+      toast({ title: 'Failed to Save', description: 'Could not save target', variant: 'error' });
+    } else {
+      toast({ title: 'Target Saved', description: `${year} target set to ${value}%`, variant: 'success' });
+    }
     setSaving(null);
   };
 
@@ -423,6 +445,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const CSV_MONTH_HEADERS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 function HistoricalTab() {
+  const { toast } = useToast();
   const [departments, setDepartments] = useState([]);
   const [gridData, setGridData] = useState({}); // { "DEPT_CODE": { 1: 80, 2: 75, ... } }
   const [quickFill, setQuickFill] = useState({}); // { "DEPT_CODE": "80" }
@@ -550,10 +573,14 @@ function HistoricalTab() {
       }
 
       setHasChanges(false);
-      alert(`Saved ${records.length} records for ${selectedYear}`);
+      toast({ 
+        title: 'Data Saved Successfully', 
+        description: `Saved ${records.length} records for ${selectedYear}. Dashboard updated.`, 
+        variant: 'success' 
+      });
     } catch (error) {
       console.error('Save error:', error);
-      alert('Failed to save: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Save', description: error.message || 'Unknown error', variant: 'error' });
     }
     
     setSaving(false);
@@ -629,7 +656,7 @@ function HistoricalTab() {
           });
 
           if (records.length === 0) {
-            alert('No valid data found in CSV. Please check the format.');
+            toast({ title: 'Import Failed', description: 'No valid data found in CSV. Please check the format.', variant: 'warning' });
             setImporting(false);
             return;
           }
@@ -653,11 +680,11 @@ function HistoricalTab() {
           if (error) throw error;
 
           // Show success message
-          let message = `Successfully imported ${records.length} monthly records for ${importedCount} departments.`;
+          let description = `Imported ${records.length} monthly records for ${importedCount} departments.`;
           if (skippedDepts.length > 0) {
-            message += `\n\nSkipped unknown departments: ${[...new Set(skippedDepts)].join(', ')}`;
+            description += ` Skipped: ${[...new Set(skippedDepts)].join(', ')}`;
           }
-          alert(message);
+          toast({ title: 'Import Successful', description, variant: 'success' });
 
           // Refresh grid if current year was imported
           if (importYears.includes(selectedYear)) {
@@ -666,7 +693,7 @@ function HistoricalTab() {
 
         } catch (error) {
           console.error('Import error:', error);
-          alert('Failed to import: ' + (error.message || 'Unknown error'));
+          toast({ title: 'Import Failed', description: error.message || 'Unknown error', variant: 'error' });
         }
         
         setImporting(false);
@@ -677,7 +704,7 @@ function HistoricalTab() {
       },
       error: (error) => {
         console.error('Parse error:', error);
-        alert('Failed to parse CSV file');
+        toast({ title: 'Parse Error', description: 'Failed to parse CSV file', variant: 'error' });
         setImporting(false);
       }
     });
@@ -850,6 +877,7 @@ const DROPDOWN_CATEGORIES = [
 ];
 
 function DropdownOptionsTab() {
+  const { toast } = useToast();
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -892,7 +920,7 @@ function DropdownOptionsTab() {
     
     // Prevent adding "Other" as a custom option
     if (label.toLowerCase() === 'other') {
-      alert('"Other" is a system option. Use the toggle below to enable/disable it.');
+      toast({ title: 'Invalid Option', description: '"Other" is a system option. Use the toggle below to enable/disable it.', variant: 'warning' });
       return;
     }
 
@@ -922,9 +950,10 @@ function DropdownOptionsTab() {
         setOptions(prev => [...prev, data]);
       }
       setNewLabels(prev => ({ ...prev, [category]: '' }));
+      toast({ title: 'Option Added', description: `"${label}" has been added.`, variant: 'success' });
     } catch (error) {
       console.error('Add error:', error);
-      alert('Failed to add option: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Add', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
@@ -945,7 +974,7 @@ function DropdownOptionsTab() {
       ));
     } catch (error) {
       console.error('Toggle error:', error);
-      alert('Failed to update option: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
@@ -990,7 +1019,7 @@ function DropdownOptionsTab() {
       }
     } catch (error) {
       console.error('Toggle Other error:', error);
-      alert('Failed to update option: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
@@ -1054,7 +1083,7 @@ function DropdownOptionsTab() {
         }
         return item;
       }));
-      alert('Failed to reorder: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Reorder', description: error.message || 'Unknown error', variant: 'error' });
     }
   };
 
@@ -1071,16 +1100,17 @@ function DropdownOptionsTab() {
 
       if (error) {
         console.error('Error deleting option:', error);
-        alert('Failed to delete. Check console for details.');
+        toast({ title: 'Failed to Delete', description: 'Check console for details.', variant: 'error' });
         setSaving(false);
         return;
       }
       
       // Immediately update local state to reflect the deletion
       setOptions(prev => prev.filter(item => item.id !== optionToDelete.id));
+      toast({ title: 'Option Deleted', description: `"${optionToDelete.label}" has been removed.`, variant: 'success' });
     } catch (error) {
       console.error('Delete error:', error);
-      alert('Failed to delete option: ' + (error.message || 'Unknown error'));
+      toast({ title: 'Failed to Delete', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
     setIsDeleteModalOpen(false);
@@ -1286,6 +1316,7 @@ function LoadingState() {
 
 // ==================== DATA MANAGEMENT TAB ====================
 function DataManagementTab() {
+  const { toast } = useToast();
   const [showImportModal, setShowImportModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [plans, setPlans] = useState([]);
@@ -1330,9 +1361,10 @@ function DataManagementTab() {
       link.href = URL.createObjectURL(blob);
       link.download = `action_plans_export_${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
+      toast({ title: 'Export Complete', description: `Exported ${exportData.length} records.`, variant: 'success' });
     } catch (error) {
       console.error('Export error:', error);
-      alert('Failed to export data.');
+      toast({ title: 'Export Failed', description: 'Failed to export data.', variant: 'error' });
     } finally {
       setExporting(false);
     }

@@ -2,9 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
+import { useToast } from './Toast';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
+  const { toast } = useToast();
   
   // SECURITY: Determine if this plan is locked (finalized for Management grading)
   // Admin God Mode: Admins can edit locked plans, others cannot
@@ -223,7 +225,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     
     // Validation: If status is "Not Achieved", require a failure reason
     if (formData.status === 'Not Achieved' && !failureReason) {
-      alert('Please select a Root Cause / Reason for Failure.');
+      toast({ title: 'Missing Information', description: 'Please select a Root Cause / Reason for Failure.', variant: 'warning' });
       return;
     }
     
@@ -270,7 +272,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       onClose();
     } catch (error) {
       console.error('Error saving:', error);
-      alert('Failed to save. Please try again.');
+      toast({ title: 'Save Failed', description: 'Failed to save. Please try again.', variant: 'error' });
     } finally {
       setLoading(false);
       setShowConfirm(false);
@@ -380,7 +382,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                               setShowRecallConfirm(false);
                             } catch (err) {
                               console.error('Recall failed:', err);
-                              alert('Failed to recall submission. Please try again.');
+                              toast({ title: 'Recall Failed', description: 'Failed to recall submission. Please try again.', variant: 'error' });
                               setRecalling(false);
                             }
                           }}

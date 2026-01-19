@@ -71,7 +71,7 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
       .map(([code, stats]) => ({
         code,
         name: getDeptName ? getDeptName(code) : code,
-        rate: stats.total > 0 ? Math.round((stats.achieved / stats.total) * 100) : 0,
+        rate: stats.total > 0 ? Number(((stats.achieved  / stats.total) * 100).toFixed(1)) : 0,
         achieved: stats.achieved,
         total: stats.total,
       }))
@@ -288,3 +288,4 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
     </div>
   );
 }
+

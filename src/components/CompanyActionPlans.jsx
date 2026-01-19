@@ -8,6 +8,7 @@ import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
 import GradeActionPlanModal from './GradeActionPlanModal';
+import { useToast } from './Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -28,6 +29,7 @@ const jsonToCSV = (data, columns) => {
 
 export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
   const { isAdmin } = useAuth();
+  const { toast } = useToast();
   // Fetch ALL plans (no department filter)
   const { plans, loading, updatePlan, deletePlan, updateStatus, gradePlan } = useActionPlans(null);
   
@@ -185,7 +187,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       URL.revokeObjectURL(link.href);
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export data. Please try again.');
+      toast({ title: 'Export Failed', description: 'Failed to export data. Please try again.', variant: 'error' });
     } finally {
       setExporting(false);
     }
@@ -210,13 +212,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       setIsModalOpen(false);
     } catch (error) {
       console.error('Save failed:', error);
-      alert('Failed to save. Please try again.');
+      toast({ title: 'Save Failed', description: 'Failed to save. Please try again.', variant: 'error' });
     }
   };
 
   const handleDelete = (item) => {
     if (item.status?.toLowerCase() === 'achieved') {
-      alert('Cannot delete achieved items.');
+      toast({ title: 'Action Denied', description: 'Cannot delete achieved items.', variant: 'warning' });
       return;
     }
     setDeleteModal({
@@ -234,7 +236,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       setDeleteModal({ isOpen: false, planId: null, planTitle: '' });
     } catch (error) {
       console.error('Delete failed:', error);
-      alert('Failed to delete. Please try again.');
+      toast({ title: 'Delete Failed', description: 'Failed to delete. Please try again.', variant: 'error' });
     } finally {
       setDeleting(false);
     }
@@ -250,7 +252,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       await updateStatus(id, newStatus);
     } catch (error) {
       console.error('Status update failed:', error);
-      alert('Failed to update status. Please try again.');
+      toast({ title: 'Update Failed', description: 'Failed to update status. Please try again.', variant: 'error' });
     }
   };
 
@@ -281,7 +283,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-20">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">All Action Plans</h1>
@@ -340,7 +342,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
         {/* KPI Cards - Only show on All Records tab */}
         {activeTab === 'all_records' && (
-          <DashboardCards data={filteredPlans} selectedMonth={selectedMonth} />
+          <DashboardCards 
+            data={filteredPlans} 
+            selectedMonth={selectedMonth}
+            onFilterChange={(status) => setSelectedStatus(status === 'all' ? 'all' : status)}
+            activeFilter={selectedStatus}
+          />
         )}
         
         {/* Control Toolbar - Only show on All Records tab */}

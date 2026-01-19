@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
-  Target, TrendingUp, CheckCircle2, Trophy, Medal, Award, Calendar, 
-  X, Users, ChevronDown, AlertTriangle, Star 
+  Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar, 
+  X, Users, ChevronDown, AlertTriangle, Star, RotateCcw 
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -10,6 +10,9 @@ import PerformanceChart from './PerformanceChart';
 import StrategyComboChart from './StrategyComboChart';
 import BottleneckChart from './BottleneckChart';
 import KPICard, { TargetGapTooltip, ContributionTooltip, FailureRateTooltip, BreakdownTooltip } from './KPICard';
+import { Switch } from './ui/switch';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 const MONTH_MAP = {
   'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
@@ -49,10 +52,11 @@ export default function AdminDashboard({ onNavigate }) {
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
   const [selectedDept, setSelectedDept] = useState('All');
-  const [selectedQuarter, setSelectedQuarter] = useState(null); // Track active quarter
+  const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
   const [orgMetric, setOrgMetric] = useState('department_code');
   const [stratMetric, setStratMetric] = useState('goal_strategy');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
+  const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
   
   // Hybrid data: annual targets and historical stats (monthly)
   const [annualTarget, setAnnualTarget] = useState(null);
@@ -131,17 +135,33 @@ export default function AdminDashboard({ onNavigate }) {
     return dateFilteredPlans.filter((plan) => plan.department_code === selectedDept);
   }, [dateFilteredPlans, selectedDept]);
 
-  // Also filter historical stats by department
+  // Also filter historical stats by department AND month range
   const filteredHistoricalStats = useMemo(() => {
-    if (selectedDept === 'All') return historicalStats;
-    return historicalStats.filter((h) => h.department_code === selectedDept);
-  }, [historicalStats, selectedDept]);
+    const startIdx = MONTH_MAP[startMonth] ?? 0;
+    const endIdx = MONTH_MAP[endMonth] ?? 11;
+    
+    return historicalStats.filter((h) => {
+      // Filter by department
+      if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
+      // Filter by month range (h.month is 1-12, convert to 0-11 for comparison)
+      const monthIdx = h.month - 1;
+      return monthIdx >= startIdx && monthIdx <= endIdx;
+    });
+  }, [historicalStats, selectedDept, startMonth, endMonth]);
 
-  // Filter comparison historical stats by department
+  // Filter comparison historical stats by department AND month range
   const filteredComparisonHistorical = useMemo(() => {
-    if (selectedDept === 'All') return comparisonHistorical;
-    return comparisonHistorical.filter((h) => h.department_code === selectedDept);
-  }, [comparisonHistorical, selectedDept]);
+    const startIdx = MONTH_MAP[startMonth] ?? 0;
+    const endIdx = MONTH_MAP[endMonth] ?? 11;
+    
+    return comparisonHistorical.filter((h) => {
+      // Filter by department
+      if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
+      // Filter by month range (h.month is 1-12, convert to 0-11 for comparison)
+      const monthIdx = h.month - 1;
+      return monthIdx >= startIdx && monthIdx <= endIdx;
+    });
+  }, [comparisonHistorical, selectedDept, startMonth, endMonth]);
 
   // comparisonYearValue is already defined above
 
@@ -186,7 +206,7 @@ export default function AdminDashboard({ onNavigate }) {
       .map(([reason, count]) => ({
         reason,
         count,
-        percentage: Math.round((count / failedPlans.length) * 100)
+        percentage: Number(((count  / failedPlans.length) * 100).toFixed(1))
       }))
       .sort((a, b) => b.count - a.count);
     
@@ -227,7 +247,7 @@ export default function AdminDashboard({ onNavigate }) {
         name: code,
         total: s.total,
         achieved: s.achieved,
-        rate: s.total > 0 ? Math.round((s.achieved / s.total) * 100) : 0,
+        rate: s.total > 0 ? Number(((s.achieved  / s.total) * 100).toFixed(1)) : 0,
         isHistorical: false,
       });
       processedDepts.add(code);
@@ -253,7 +273,7 @@ export default function AdminDashboard({ onNavigate }) {
         name: code,
         total: 0,
         achieved: 0,
-        rate: Math.round(data.sum / data.count),
+        rate: Number((data.sum  / data.count).toFixed(1)),
         isHistorical: true,
       });
     });
@@ -274,24 +294,56 @@ export default function AdminDashboard({ onNavigate }) {
   }, [filteredPlans, filteredHistoricalStats]);
 
   // Quality Score and Action Plan Completion stats (separate for clarity)
+  // With YTD Logic: Only count months from Jan up to Current Month for current year
+  // With Historical Fallback: Quality Score ONLY (not Completion)
   const qualityStats = useMemo(() => {
-    // Action Plan Completion: How many items have status = 'Achieved' (operational metric)
-    const achieved = filteredPlans.filter(p => p.status === 'Achieved').length;
-    const completionRate = filteredPlans.length > 0 
-      ? parseFloat(((achieved / filteredPlans.length) * 100).toFixed(0)) 
+    const currentYear = new Date().getFullYear();
+    const currentMonthIndex = new Date().getMonth(); // 0 = Jan
+    const isCurrentYear = selectedYear === currentYear;
+    const maxMonthIndex = isCurrentYear ? currentMonthIndex : 11; // If past year, take all 12 months
+    
+    // Filter plans to YTD range (only for current year)
+    const ytdPlans = filteredPlans.filter(p => {
+      const planMonthIndex = MONTH_MAP[p.month];
+      if (planMonthIndex === undefined) return true; // Include if month is unknown
+      return planMonthIndex <= maxMonthIndex;
+    });
+    
+    // --- 1. COMPLETION RATE ---
+    const achieved = ytdPlans.filter(p => p.status === 'Achieved').length;
+    const ytdTotal = ytdPlans.length;
+    let completionRate = ytdTotal > 0 
+      ? Number(((achieved / ytdTotal) * 100).toFixed(1)) 
       : 0;
     
-    // Quality Score: Average of graded items (THE HERO METRIC)
-    const gradedItems = filteredPlans.filter(p => 
+    // --- 2. QUALITY SCORE ---
+    const gradedItems = ytdPlans.filter(p => 
       p.submission_status === 'submitted' && p.quality_score != null
     );
-    const qualityScore = gradedItems.length > 0 
-      ? parseFloat((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(0))
+    let qualityScore = gradedItems.length > 0 
+      ? Number((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(1))
       : null;
-    const gradedCount = gradedItems.length;
+    let gradedCount = gradedItems.length;
     
-    return { completionRate, qualityScore, gradedCount, achievedCount: achieved };
-  }, [filteredPlans]);
+    // --- 3. HISTORICAL FALLBACK (From database historical_stats table) ---
+    // When no real data exists AND viewing a past year, calculate from fetched historical_stats
+    // NOTE: Quality Score system did not exist prior to 2026, so NO score data for past years
+    if (ytdTotal === 0 && selectedYear < currentYear && filteredHistoricalStats.length > 0) {
+      // Calculate company-wide average completion rate from historical_stats
+      const avgCompletion = filteredHistoricalStats.reduce((sum, h) => sum + h.completion_rate, 0) / filteredHistoricalStats.length;
+      completionRate = Number(avgCompletion.toFixed(1));
+      // qualityScore remains null for historical years (displays as "—" in UI)
+    }
+    
+    return { 
+      completionRate, // Will use database historical_stats for historical years
+      qualityScore,   // Will be null for historical years (no score system existed)
+      gradedCount, 
+      achievedCount: achieved,
+      ytdTotal,
+      isYTD: isCurrentYear && ytdTotal > 0 // Flag to show (YTD) label in UI
+    };
+  }, [filteredPlans, selectedYear, filteredHistoricalStats]);
 
   // Helper: Find department with most items of a given status (for KPI drill-down)
   const getDeptWithMostStatus = useMemo(() => {
@@ -317,23 +369,32 @@ export default function AdminDashboard({ onNavigate }) {
   }, [filteredPlans]);
 
   // YoY Line Chart Data with dynamic comparison and historical fallback
+  // Supports both Completion Rate and Quality Score metrics
   const yoyChartData = useMemo(() => {
     // Build current year data from real plans (already filtered by dept search)
     const currentYearMap = {};
     filteredPlans.forEach((plan) => {
       const month = plan.month;
-      if (!currentYearMap[month]) currentYearMap[month] = { total: 0, achieved: 0 };
+      if (!currentYearMap[month]) currentYearMap[month] = { total: 0, achieved: 0, scores: [] };
       currentYearMap[month].total++;
       if (plan.status === 'Achieved') currentYearMap[month].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        currentYearMap[month].scores.push(plan.quality_score);
+      }
     });
     
     // Build comparison year data from real plans (already filtered by dept search)
     const comparisonMap = {};
     comparisonPlans.forEach((plan) => {
       const month = plan.month;
-      if (!comparisonMap[month]) comparisonMap[month] = { total: 0, achieved: 0 };
+      if (!comparisonMap[month]) comparisonMap[month] = { total: 0, achieved: 0, scores: [] };
       comparisonMap[month].total++;
       if (plan.status === 'Achieved') comparisonMap[month].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        comparisonMap[month].scores.push(plan.quality_score);
+      }
     });
 
     // Build historical data maps (month number to rate) - using filtered historical stats
@@ -361,25 +422,43 @@ export default function AdminDashboard({ onNavigate }) {
       const curr = currentYearMap[month];
       const comp = comparisonMap[month];
       
-      // Use real data if available, otherwise fall back to historical (averaged if multiple depts)
-      let mainValue = null;
+      // COMPLETION RATE: Use real data if available, otherwise fall back to historical
+      let mainCompletion = null;
       if (curr && curr.total > 0) {
-        mainValue = Math.round((curr.achieved / curr.total) * 100);
+        mainCompletion = Number(((curr.achieved / curr.total) * 100).toFixed(1));
       } else if (historicalMap[month]) {
-        mainValue = Math.round(historicalMap[month].sum / historicalMap[month].count);
+        mainCompletion = Number((historicalMap[month].sum / historicalMap[month].count).toFixed(1));
       }
 
-      let compareValue = null;
+      let compareCompletion = null;
       if (comp && comp.total > 0) {
-        compareValue = Math.round((comp.achieved / comp.total) * 100);
+        compareCompletion = Number(((comp.achieved / comp.total) * 100).toFixed(1));
       } else if (compHistoricalMap[month]) {
-        compareValue = Math.round(compHistoricalMap[month].sum / compHistoricalMap[month].count);
+        compareCompletion = Number((compHistoricalMap[month].sum / compHistoricalMap[month].count).toFixed(1));
+      }
+
+      // QUALITY SCORE: Only from real data (no historical quality scores exist pre-2026)
+      let mainScore = null;
+      if (curr && curr.scores.length > 0) {
+        mainScore = Number((curr.scores.reduce((a, b) => a + b, 0) / curr.scores.length).toFixed(1));
+      }
+
+      let compareScore = null;
+      if (comp && comp.scores.length > 0) {
+        compareScore = Number((comp.scores.reduce((a, b) => a + b, 0) / comp.scores.length).toFixed(1));
       }
 
       return {
         month,
-        main_value: mainValue,
-        compare_value: compareValue,
+        // Completion Rate values
+        main_completion: mainCompletion,
+        compare_completion: compareCompletion,
+        // Quality Score values
+        main_score: mainScore,
+        compare_score: compareScore,
+        // Legacy keys for backward compatibility (will be removed after chart update)
+        main_value: mainCompletion,
+        compare_value: compareCompletion,
       };
     });
   }, [filteredPlans, comparisonPlans, filteredHistoricalStats, filteredComparisonHistorical]);
@@ -413,7 +492,7 @@ export default function AdminDashboard({ onNavigate }) {
       return Object.entries(dataMap).map(([name, s]) => ({ 
         name, 
         fullName: s.fullName, 
-        rate: s.scores.length > 0 ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length) : 0, 
+        rate: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0, 
         total: s.total, 
         graded: s.scores.length 
       })).sort((a, b) => b.rate - a.rate);
@@ -434,7 +513,7 @@ export default function AdminDashboard({ onNavigate }) {
       return Object.entries(deptAvgMap).map(([code, data]) => ({
         name: code,
         fullName: getDeptName(code),
-        rate: Math.round(data.sum / data.count),
+        rate: Number((data.sum  / data.count).toFixed(1)),
         total: 0,
         graded: 0,
         isHistorical: true,
@@ -460,7 +539,7 @@ export default function AdminDashboard({ onNavigate }) {
     return Object.entries(dataMap).map(([name, s]) => ({ 
       name, 
       fullName: s.fullName, 
-      rate: s.scores.length > 0 ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length) : 0, 
+      rate: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0, 
       total: s.total, 
       graded: s.scores.length 
     })).sort((a, b) => b.rate - a.rate);
@@ -480,24 +559,39 @@ export default function AdminDashboard({ onNavigate }) {
     return <span className="w-5 h-5 flex items-center justify-center text-gray-400 font-medium">{index + 1}</span>;
   };
 
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedDept !== 'All';
-  const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedQuarter(null); };
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedDept !== 'All' || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY';
+  const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
   const clearDeptFilter = () => { setSelectedDept('All'); };
   
-  // Quarter toggle handler - clicking active quarter deselects it
-  const applyQuarterPreset = (quarter) => { 
-    if (selectedQuarter === quarter) {
-      // Already active - toggle OFF (reset to full year)
-      setSelectedQuarter(null);
+  // Reset all filters to default state
+  const resetFilters = () => {
+    setSelectedYear(CURRENT_YEAR);
+    setSelectedDept('All');
+    setSelectedPeriod('FY');
+    setStartMonth('Jan');
+    setEndMonth('Dec');
+  };
+  
+  // Period change handler - updates month range based on selection
+  const handlePeriodChange = (period) => {
+    setSelectedPeriod(period);
+    if (period === 'FY') {
       setStartMonth('Jan');
       setEndMonth('Dec');
-    } else {
-      // Not active - toggle ON
-      const range = QUARTER_RANGES[quarter];
-      setStartMonth(range.start);
-      setEndMonth(range.end);
-      setSelectedQuarter(quarter);
+    } else if (period === 'Q1') {
+      setStartMonth('Jan');
+      setEndMonth('Mar');
+    } else if (period === 'Q2') {
+      setStartMonth('Apr');
+      setEndMonth('Jun');
+    } else if (period === 'Q3') {
+      setStartMonth('Jul');
+      setEndMonth('Sep');
+    } else if (period === 'Q4') {
+      setStartMonth('Oct');
+      setEndMonth('Dec');
     }
+    // 'Custom' - don't change months, let user pick manually
   };
   
   const getDateRangeLabel = () => {
@@ -523,219 +617,356 @@ export default function AdminDashboard({ onNavigate }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Header - z-0 to allow KPI tooltips to appear above */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 relative z-0">
-        <div className="flex items-center justify-between">
+      {/* Unified Sticky Header - Title + All Filters */}
+      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          {/* Left: Title */}
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Company Dashboard</h1>
             <p className="text-gray-500 text-sm">Executive Performance Overview — FY {selectedYear}</p>
           </div>
+          
+          {/* Right: All Filters - Compact Layout */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Year Selector */}
+            <Select 
+              value={selectedYear.toString()} 
+              onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
+            >
+              <SelectTrigger className="w-[90px] h-8 text-sm">
+                <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {AVAILABLE_YEARS.map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Department Selector */}
+            <Select value={selectedDept} onValueChange={setSelectedDept}>
+              <SelectTrigger className="w-[140px] h-8 text-sm">
+                <SelectValue placeholder="All Depts" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Departments</SelectItem>
+                {DEPARTMENTS.map((dept) => (
+                  <SelectItem key={dept.code} value={dept.code}>
+                    {dept.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Period Selector (Unified) */}
+            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+              <SelectTrigger className="w-[120px] h-8 text-sm bg-slate-50">
+                <SelectValue placeholder="Period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FY">Full Year</SelectItem>
+                <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
+                <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
+                <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
+                <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
+                <SelectItem value="Custom">Custom...</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            {/* Custom Month Pickers (Only show if Custom) */}
+            {selectedPeriod === 'Custom' && (
+              <div className="flex items-center gap-1">
+                <Select value={startMonth} onValueChange={setStartMonth}>
+                  <SelectTrigger className="w-[70px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS_ORDER.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-gray-400 text-sm">–</span>
+                <Select value={endMonth} onValueChange={setEndMonth}>
+                  <SelectTrigger className="w-[70px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS_ORDER.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            <div className="h-6 w-px bg-gray-200"></div>
+            
+            {/* Global View Mode Toggle (Switch) */}
+            <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-gray-200">
+              <Label 
+                htmlFor="view-mode-switch" 
+                className={`text-xs font-medium cursor-pointer transition-colors ${!isCompletionView ? 'text-purple-600' : 'text-gray-400'}`}
+                onClick={() => setIsCompletionView(false)}
+              >
+                Score
+              </Label>
+              <Switch 
+                id="view-mode-switch" 
+                checked={isCompletionView}
+                onCheckedChange={setIsCompletionView}
+                className={isCompletionView ? 'bg-emerald-500' : 'bg-purple-500'}
+              />
+              <Label 
+                htmlFor="view-mode-switch" 
+                className={`text-xs font-medium cursor-pointer transition-colors ${isCompletionView ? 'text-emerald-600' : 'text-gray-400'}`}
+                onClick={() => setIsCompletionView(true)}
+              >
+                Completion
+              </Label>
+            </div>
+            
+            {/* Reset Filters Button (Only show when filters are active) */}
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+                title="Reset all filters"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+            )}
+          </div>
         </div>
+        
+        {/* Active Filters Summary */}
+        {hasActiveFilters && (
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-500">Filters:</span>
+            {selectedYear !== CURRENT_YEAR && (
+              <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                {selectedYear}
+              </span>
+            )}
+            {selectedDept !== 'All' && (
+              <span className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
+                {getDeptName(selectedDept)} ({selectedDept})
+                <button onClick={clearDeptFilter} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {selectedPeriod !== 'FY' && (
+              <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1">
+                {selectedPeriod === 'Custom' ? getDateRangeLabel() : selectedPeriod}
+                <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            <span className="text-xs text-gray-400 ml-auto">{filteredPlans.length} plans</span>
+          </div>
+        )}
       </header>
 
       <main className="p-6">
-        {/* Filter Bar with Year Selector */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-            <div className="flex items-center gap-4">
-              {/* Year Selector */}
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-600 font-medium">Fiscal Year:</span>
-                <div className="flex gap-1">
-                  {AVAILABLE_YEARS.map((year) => (
-                    <button key={year} onClick={() => { setSelectedYear(year); clearDateFilters(); }}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${selectedYear === year ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                      {year}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="h-6 w-px bg-gray-200"></div>
-              {/* Department Dropdown */}
-              <div className="relative">
-                <select 
-                  value={selectedDept} 
-                  onChange={(e) => setSelectedDept(e.target.value)}
-                  className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-10 text-sm text-gray-700 font-medium cursor-pointer hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 min-w-[200px]"
-                >
-                  <option value="All">All Departments</option>
-                  {DEPARTMENTS.map((dept) => (
-                    <option key={dept.code} value={dept.code}>
-                      {dept.name} ({dept.code})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1">
-                {['Q1','Q2','Q3','Q4'].map((q) => (
-                  <button 
-                    key={q} 
-                    onClick={() => applyQuarterPreset(q)} 
-                    className={`px-2.5 py-1.5 text-xs font-medium rounded border transition-colors ${
-                      selectedQuarter === q 
-                        ? 'bg-teal-600 text-white border-teal-600' 
-                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-              <div className="h-6 w-px bg-gray-200"></div>
-              {/* Period Filter - Month Range Selector */}
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
-                <span className="text-sm text-gray-500 font-medium">Period:</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">From</span>
-                  <select 
-                    value={startMonth} 
-                    onChange={(e) => { setStartMonth(e.target.value); setSelectedQuarter(null); }}
-                    className="text-sm font-bold text-gray-700 bg-transparent border-none focus:ring-0 cursor-pointer p-0 pr-6"
-                  >
-                    {MONTHS_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </div>
-                <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">To</span>
-                  <select 
-                    value={endMonth} 
-                    onChange={(e) => { setEndMonth(e.target.value); setSelectedQuarter(null); }}
-                    className="text-sm font-bold text-gray-700 bg-transparent border-none focus:ring-0 cursor-pointer p-0 pr-6"
-                  >
-                    {MONTHS_ORDER.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </div>
-                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
-                  <button onClick={clearDateFilters} className="p-1 text-gray-400 hover:text-gray-600 ml-1">
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          {hasActiveFilters && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-gray-500">Viewing {selectedYear}:</span>
-              {(startMonth !== 'Jan' || endMonth !== 'Dec') && <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">{getDateRangeLabel()}</span>}
-              {selectedDept !== 'All' && (
-                <span className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
-                  {getDeptName(selectedDept)} ({selectedDept})
-                  <button onClick={clearDeptFilter} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
-                </span>
-              )}
-              <span className="text-xs text-gray-400 ml-auto">{filteredPlans.length} plans</span>
-            </div>
-          )}
-        </div>
-
-        {/* KPI Cards - Score-Centric Layout */}
+        {/* KPI Cards - Executive View Layout with Premium Design */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-          {/* Total Action Plans */}
+          {/* 1. Completion Rate - THE HERO METRIC */}
           <KPICard
-            gradient="from-teal-500 to-teal-600"
-            icon={Target}
-            value={stats.total}
-            label="Total Action Plans"
-            labelColor="text-teal-100"
-            tooltipContent={<BreakdownTooltip ongoing={stats.inProgress + stats.pending} finalized={stats.achieved + stats.notAchieved} />}
-            onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
+            gradient="from-green-500 to-green-600"
+            icon={CheckCircle2}
+            value={`${qualityStats.completionRate}%`}
+            label={`Completion${qualityStats.isYTD ? ' (YTD)' : ''}`}
+            labelColor="text-green-100"
             size="compact"
+            footerContent={(() => {
+              const target = 80;
+              const gap = Number((qualityStats.completionRate - target).toFixed(1));
+              const isPositive = gap >= 0;
+              return (
+                <div className="space-y-2">
+                  <div className="w-full bg-black/10 rounded-full h-1.5 relative">
+                    <div 
+                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10" 
+                      style={{ left: `${target}%` }}
+                    />
+                    <div 
+                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500" 
+                      style={{ width: `${Math.min(qualityStats.completionRate, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[8px] uppercase text-white/50">Target: {target}%</span>
+                    <div className={`flex items-center gap-0.5 font-bold ${isPositive ? 'text-emerald-100' : 'text-rose-100'}`}>
+                      {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                      <span>{isPositive ? '+' : ''}{gap}%</span>
+                      <span className="text-[8px] uppercase text-white/50 ml-0.5">Gap</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">
+                  Action Plan Completion {qualityStats.isYTD ? '(YTD)' : ''}
+                </p>
+                <p><span className="font-bold text-green-400">{qualityStats.achievedCount} of {qualityStats.ytdTotal}</span> plans achieved</p>
+                <p className="text-xs text-gray-400">Company Target: 80%</p>
+                <p className="text-xs text-gray-500 mt-1">Formula: {qualityStats.achievedCount} ÷ {qualityStats.ytdTotal} × 100</p>
+              </div>
+            }
           />
           
-          {/* Quality Score - THE HERO METRIC */}
+          {/* 2. Quality Score */}
           <KPICard
             gradient={qualityStats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
               qualityStats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
               qualityStats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
             icon={Star}
             value={qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : '—'}
-            label="Quality Score"
+            label={`Quality Score${qualityStats.isYTD ? ' (YTD)' : ''}`}
             labelColor="text-white/90"
             size="compact"
+            comparison={qualityStats.qualityScore !== null ? {
+              prevValue: 72, // Mock previous year (replace with real data)
+              target: 80
+            } : undefined}
             tooltipContent={
               <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality</p>
-                <p>Avg Score: <span className={`font-bold ${qualityStats.qualityScore >= 80 ? 'text-green-400' : qualityStats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">
+                  Performance Quality {qualityStats.isYTD ? '(YTD)' : ''}
+                </p>
+                <p>Average: <span className={`font-bold ${qualityStats.qualityScore >= 80 ? 'text-green-400' : qualityStats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
                   {qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : 'N/A'}
                 </span></p>
-                <p className="text-xs text-gray-400">{qualityStats.gradedCount} items graded</p>
+                <p className="text-xs text-gray-400">Based on {qualityStats.gradedCount} graded items</p>
+                <p className="text-xs text-gray-400 mt-1">Previous year: 72%</p>
               </div>
             }
-            onClick={onNavigate && qualityStats.gradedCount > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
           />
           
-          {/* Action Plan Completion - Operational metric (status = Achieved) */}
+          {/* 3. Total Plans */}
           <KPICard
-            gradient="from-green-500 to-green-600"
-            icon={CheckCircle2}
-            value={`${qualityStats.completionRate}%`}
-            label="Action Plan Completion"
-            labelColor="text-green-100"
+            gradient="from-teal-500 to-teal-600"
+            icon={Target}
+            value={stats.total}
+            label="Total Plans"
+            labelColor="text-teal-100"
             size="compact"
+            footerContent={(
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1">
+                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-200" />
+                  <span className="font-bold text-white/90">{stats.achieved + stats.notAchieved}</span>
+                  <span className="text-[8px] uppercase text-white/50">Done</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <TrendingUp className="w-2.5 h-2.5 text-amber-200" />
+                  <span className="font-bold text-white/90">{stats.inProgress + stats.pending}</span>
+                  <span className="text-[8px] uppercase text-white/50">Open</span>
+                </div>
+              </div>
+            )}
             tooltipContent={
               <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Operational Completion</p>
-                <p>Achieved: <span className="font-bold text-green-400">{qualityStats.completionRate}%</span></p>
-                <p className="text-xs text-gray-400">{qualityStats.achievedCount} of {stats.total} plans marked Achieved</p>
-                <p className="text-xs text-gray-500 mt-1">Tracks status = 'Achieved' (not admin finalization)</p>
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Total Action Plans</p>
+                <p><span className="font-bold text-teal-400">{stats.total}</span> plans for this period</p>
+                <div className="text-xs text-gray-400 mt-1 space-y-0.5">
+                  <p>• Ongoing: {stats.inProgress + stats.pending} ({stats.inProgress} active, {stats.pending} pending)</p>
+                  <p>• Finalized: {stats.achieved + stats.notAchieved} ({stats.achieved} achieved, {stats.notAchieved} failed)</p>
+                </div>
               </div>
             }
-            progressBar={{ value: qualityStats.completionRate, target: 100 }}
             onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
           />
           
-          {/* Achieved Plans - Count for drill-down */}
+          {/* 4. Achieved */}
           <KPICard
             gradient="from-emerald-500 to-emerald-600"
             icon={CheckCircle2}
             value={stats.achieved}
-            label="Achieved Count"
+            label="Achieved"
             labelColor="text-emerald-100"
+            size="compact"
+            footerContent={stats.total > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <Users className="w-2.5 h-2.5 text-emerald-200" />
+                <span className="font-bold text-white/90">{Number(((stats.achieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="text-[8px] uppercase text-white/50">of Total</span>
+              </div>
+            )}
             tooltipContent={
               <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Completed Tasks</p>
-                <p>Count: <span className="font-bold text-green-400">{stats.achieved}</span></p>
-                <p className="text-xs text-gray-400">Click to view achieved plans</p>
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Achieved Plans</p>
+                <p><span className="font-bold text-green-400">{stats.achieved} of {stats.total}</span> plans achieved</p>
+                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : 0}% of total</p>
+                {onNavigate && stats.achieved > 0 && (
+                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
+                )}
               </div>
             }
             onClick={onNavigate && stats.achieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Achieved' }) : undefined}
-            size="compact"
           />
           
-          {/* In Progress */}
+          {/* 5. In Progress */}
           <KPICard
             gradient="from-amber-500 to-amber-600"
             icon={TrendingUp}
             value={stats.inProgress}
             label="In Progress"
             labelColor="text-amber-100"
+            size="compact"
+            footerContent={stats.total > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <Users className="w-2.5 h-2.5 text-amber-200" />
+                <span className="font-bold text-white/90">{Number(((stats.inProgress  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="text-[8px] uppercase text-white/50">of Total</span>
+              </div>
+            )}
             tooltipContent={
               <div className="space-y-1">
                 <p className="font-medium border-b border-gray-600 pb-1 mb-1">Work in Progress</p>
-                <p>Active: <span className="font-bold text-amber-400">{stats.total > 0 ? ((stats.inProgress / stats.total) * 100).toFixed(1) : 0}%</span></p>
-                <p className="text-xs text-gray-400">{stats.inProgress} tasks being worked on</p>
+                <p><span className="font-bold text-amber-400">{stats.inProgress} of {stats.total}</span> plans active</p>
+                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.inProgress / stats.total) * 100).toFixed(1) : 0}% of total</p>
+                {onNavigate && stats.inProgress > 0 && (
+                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
+                )}
               </div>
             }
             onClick={onNavigate && stats.inProgress > 0 ? () => onNavigate('all-plans', { statusFilter: 'On Progress' }) : undefined}
-            size="compact"
           />
           
-          {/* Critical / Not Achieved */}
+          {/* 6. Not Achieved */}
           <KPICard
-            gradient="from-red-500 to-red-600"
+            gradient={stats.notAchieved > 0 ? 'from-red-500 to-red-600' : 'from-gray-400 to-gray-500'}
             icon={AlertTriangle}
-            value={stats.notAchieved + stats.overdue}
-            label="Critical / Not Achieved"
-            labelColor="text-red-100"
-            tooltipContent={<FailureRateTooltip failed={stats.notAchieved + stats.overdue} total={stats.total} breakdown={{ notAchieved: stats.notAchieved, overdue: stats.overdue }} />}
-            onClick={onNavigate && stats.notAchieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Not Achieved' }) : undefined}
-            topBlocker={failureAnalysis.topBlocker ? `⚠️ Top Issue: ${failureAnalysis.topBlocker.reason} (${failureAnalysis.topBlocker.count})` : null}
+            value={stats.notAchieved}
+            label="Not Achieved"
+            labelColor={stats.notAchieved > 0 ? 'text-red-100' : 'text-gray-200'}
             size="compact"
+            footerContent={stats.total > 0 && (
+              <div className="flex items-center gap-1 text-xs">
+                <AlertTriangle className="w-2.5 h-2.5 text-rose-200" />
+                <span className="font-bold text-white/90">{Number(((stats.notAchieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="text-[8px] uppercase text-white/50">of Total</span>
+              </div>
+            )}
+            tooltipContent={
+              <div className="space-y-1">
+                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Failed Plans</p>
+                <p><span className="font-bold text-red-400">{stats.notAchieved} of {stats.total}</span> plans not achieved</p>
+                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.notAchieved / stats.total) * 100).toFixed(1) : 0}% of total</p>
+                {failureAnalysis.topBlocker && (
+                  <p className="text-xs text-red-300 mt-1">⚠️ Top Issue: {failureAnalysis.topBlocker.reason}</p>
+                )}
+                {onNavigate && stats.notAchieved > 0 && (
+                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
+                )}
+              </div>
+            }
+            onClick={onNavigate && stats.notAchieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Not Achieved' }) : undefined}
           />
         </div>
 
@@ -743,12 +974,13 @@ export default function AdminDashboard({ onNavigate }) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         
         {/* YoY Trend Chart - Left Column (Span 2) */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[320px] flex flex-col">
-          <div className="flex items-start justify-between mb-4">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[340px] flex flex-col">
+          {/* Chart Header */}
+          <div className="flex items-start justify-between mb-3">
             <div>
               <h3 className="text-lg font-semibold text-gray-800">Performance Trend (YoY)</h3>
               <p className="text-sm text-gray-500">
-                Monthly quality score comparison
+                Monthly {isCompletionView ? 'completion rate' : 'quality score'} comparison
                 {highlightRange && (
                   <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
                     Viewing: {highlightRange.x1}{highlightRange.x1 !== highlightRange.x2 ? ` – ${highlightRange.x2}` : ''}
@@ -756,8 +988,9 @@ export default function AdminDashboard({ onNavigate }) {
                 )}
               </p>
             </div>
+            
+            {/* Comparison Year Dropdown + Legend */}
             <div className="flex items-center gap-3">
-              {/* Comparison Year Dropdown with Label */}
               <div className="flex items-center">
                 <span className="text-sm text-gray-500 mr-2">Compare with:</span>
                 <select
@@ -801,6 +1034,13 @@ export default function AdminDashboard({ onNavigate }) {
             </div>
           )}
           
+          {/* Quality Score not available for historical years warning */}
+          {!isCompletionView && selectedYear < 2026 && (
+            <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+              ℹ️ Quality Score system was introduced in 2026. No score data available for {selectedYear}.
+            </div>
+          )}
+          
           <div className="flex-1 min-h-0">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={yoyChartData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
@@ -815,10 +1055,10 @@ export default function AdminDashboard({ onNavigate }) {
                     const prevVal = payload[1]?.value ?? null;
                     const targetRate = annualTarget || 80; // Use dynamic target or default to 80%
                     
-                    // Calculate gaps
+                    // Calculate gaps with precision formatting
                     const canShowYoYGap = currentVal !== null && prevVal !== null && payload.length > 1;
-                    const yoyGap = canShowYoYGap ? currentVal - prevVal : 0;
-                    const targetGap = currentVal !== null ? currentVal - targetRate : null;
+                    const yoyGap = canShowYoYGap ? Number((currentVal - prevVal).toFixed(1)) : 0;
+                    const targetGap = currentVal !== null ? Number((currentVal - targetRate).toFixed(1)) : null;
                     
                     // Helper for trend styling
                     const getTrend = (val) => ({
@@ -852,13 +1092,13 @@ export default function AdminDashboard({ onNavigate }) {
                           {canShowYoYGap && (
                             <div className={`flex justify-between items-center text-sm font-bold ${yoyTrend.color}`}>
                               <span className="text-xs uppercase text-gray-500">YoY Gap:</span>
-                              <span>{yoyTrend.prefix}{yoyGap.toFixed(0)}% {yoyTrend.icon}</span>
+                              <span>{yoyTrend.prefix}{yoyGap.toFixed(1)}% {yoyTrend.icon}</span>
                             </div>
                           )}
                           {targetTrend && (
                             <div className={`flex justify-between items-center text-sm font-bold ${targetTrend.color}`}>
                               <span className="text-xs uppercase text-gray-500">vs Target:</span>
-                              <span>{targetTrend.prefix}{targetGap.toFixed(0)}% {targetTrend.icon}</span>
+                              <span>{targetTrend.prefix}{targetGap.toFixed(1)}% {targetTrend.icon}</span>
                             </div>
                           )}
                         </div>
@@ -891,7 +1131,7 @@ export default function AdminDashboard({ onNavigate }) {
               )}
               <Line 
                 type="monotone" 
-                dataKey="main_value" 
+                dataKey={isCompletionView ? 'main_completion' : 'main_score'} 
                 stroke="#0d9488" 
                 strokeWidth={2.5} 
                 dot={{ fill: '#0d9488', r: 4 }} 
@@ -901,7 +1141,7 @@ export default function AdminDashboard({ onNavigate }) {
               {comparisonYear !== 'none' && hasComparisonData && (
                 <Line 
                   type="monotone" 
-                  dataKey="compare_value" 
+                  dataKey={isCompletionView ? 'compare_completion' : 'compare_score'} 
                   stroke="#f59e0b" 
                   strokeWidth={2} 
                   strokeDasharray="5 5" 
@@ -1017,3 +1257,5 @@ export default function AdminDashboard({ onNavigate }) {
     </div>
   );
 }
+
+

@@ -28,7 +28,7 @@ export default function StrategyComboChart({ plans }) {
     const data = Object.entries(strategyMap)
       .map(([name, stats]) => {
         const avgScore = stats.scores.length > 0 
-          ? Math.round(stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length)
+          ? Number((stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length).toFixed(1))
           : null;
         return {
           fullName: name,
@@ -37,7 +37,7 @@ export default function StrategyComboChart({ plans }) {
           achieved: stats.achieved,
           submitted: stats.submitted,
           avg_score: avgScore,
-          completion_rate: stats.total > 0 ? Math.round((stats.achieved / stats.total) * 100) : 0,
+          completion_rate: stats.total > 0 ? Number(((stats.achieved  / stats.total) * 100).toFixed(1)) : 0,
         };
       })
       .sort((a, b) => b.count - a.count) // Sort by count descending
@@ -173,3 +173,5 @@ export default function StrategyComboChart({ plans }) {
     </div>
   );
 }
+
+

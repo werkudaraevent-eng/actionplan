@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileText } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import ImportModal from './ImportModal';
 import { useToast } from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -874,6 +874,10 @@ function HistoricalTab() {
 const DROPDOWN_CATEGORIES = [
   { id: 'failure_reason', label: 'Failure Reasons', description: 'Options shown when marking a plan as "Not Achieved"' },
   { id: 'delete_reason', label: 'Deletion Reasons', description: 'Options shown when deleting/cancelling a plan' },
+  { id: 'area_focus', label: 'Focus Areas', description: 'Area of focus for action plans (e.g., Workforce Optimization)' },
+  { id: 'category', label: 'Categories', description: 'Priority/category classification for action plans' },
+  { id: 'goal', label: 'Strategic Goals / Initiatives', description: 'Pre-defined goals and strategies for quick selection in forms' },
+  { id: 'action_plan', label: 'Action Plan Templates', description: 'Standard action plan templates for common tasks' },
 ];
 
 function DropdownOptionsTab() {
@@ -884,16 +888,17 @@ function DropdownOptionsTab() {
   const [newLabels, setNewLabels] = useState({}); // { category: 'new label' }
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [optionToDelete, setOptionToDelete] = useState(null); // { id, label, category }
+  const [showArchived, setShowArchived] = useState(false); // Toggle for archived view
 
   useEffect(() => {
     fetchOptions();
   }, []);
 
   const fetchOptions = async () => {
+    // Fetch ALL options (both active and inactive) for local filtering
     const { data, error } = await supabase
       .from('dropdown_options')
       .select('*')
-      .eq('is_active', true)
       .order('sort_order', { ascending: true });
     
     if (error) {
@@ -904,10 +909,21 @@ function DropdownOptionsTab() {
   };
 
   // Separate standard options from "Other" option (sorted by sort_order)
+  // Now filters based on showArchived toggle
   const getStandardOptions = (category) => {
     return options
-      .filter(opt => opt.category === category && opt.label !== 'Other')
+      .filter(opt => opt.category === category && opt.label !== 'Other' && opt.is_active === !showArchived)
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  };
+
+  // Get archived count for a category
+  const getArchivedCount = (category) => {
+    return options.filter(opt => opt.category === category && opt.label !== 'Other' && !opt.is_active).length;
+  };
+
+  // Get active count for a category
+  const getActiveCount = (category) => {
+    return options.filter(opt => opt.category === category && opt.label !== 'Other' && opt.is_active).length;
   };
 
   const getOtherOption = (category) => {
@@ -915,47 +931,130 @@ function DropdownOptionsTab() {
   };
 
   const handleAddOption = async (category) => {
-    const label = newLabels[category]?.trim();
-    if (!label) return;
+    const rawInput = newLabels[category]?.trim();
+    if (!rawInput) return;
     
-    // Prevent adding "Other" as a custom option
-    if (label.toLowerCase() === 'other') {
-      toast({ title: 'Invalid Option', description: '"Other" is a system option. Use the toggle below to enable/disable it.', variant: 'warning' });
+    // 1. SPLIT & CLEAN - Split by ';', trim whitespace, and remove empty strings
+    const labelsToProcess = rawInput
+      .split(';')
+      .map(item => item.trim())
+      .filter(item => item !== '' && item.toLowerCase() !== 'other'); // Also filter out "Other"
+
+    if (labelsToProcess.length === 0) {
+      toast({ title: 'Invalid Input', description: '"Other" is a system option. Use the toggle below to enable/disable it.', variant: 'warning' });
       return;
     }
 
     setSaving(true);
-    try {
-      // Get max sort_order for this category (excluding "Other" which should always be last)
-      const standardOptions = getStandardOptions(category);
-      const maxSort = standardOptions.length > 0 
-        ? Math.max(...standardOptions.map(o => o.sort_order || 0)) 
-        : 0;
+    
+    let addedCount = 0;
+    let restoredCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    const addedLabels = [];
+    const restoredLabels = [];
 
-      const { data, error } = await supabase
-        .from('dropdown_options')
-        .insert({ 
-          category, 
-          label, 
-          sort_order: maxSort + 1,
-          is_active: true 
-        })
-        .select()
-        .single();
+    // Get current max sort_order for this category
+    const allCategoryOptions = options.filter(opt => opt.category === category && opt.label !== 'Other');
+    let currentMaxSort = allCategoryOptions.length > 0 
+      ? Math.max(...allCategoryOptions.map(o => o.sort_order || 0)) 
+      : 0;
 
-      if (error) throw error;
+    // 2. PROCESS EACH LABEL
+    for (const label of labelsToProcess) {
+      try {
+        // A. Check if option already exists (including inactive/soft-deleted ones)
+        const { data: existing, error: checkError } = await supabase
+          .from('dropdown_options')
+          .select('*')
+          .eq('category', category)
+          .ilike('label', label) // Case-insensitive match
+          .maybeSingle();
 
-      // Immediately update local state
-      if (data) {
-        setOptions(prev => [...prev, data]);
+        if (checkError) throw checkError;
+
+        if (existing) {
+          if (existing.is_active) {
+            // Already active - skip
+            skippedCount++;
+          } else {
+            // B. Restore if inactive
+            const { data: restored, error: updateError } = await supabase
+              .from('dropdown_options')
+              .update({ is_active: true })
+              .eq('id', existing.id)
+              .select()
+              .single();
+
+            if (updateError) throw updateError;
+
+            // Update local state
+            if (restored) {
+              setOptions(prev => prev.map(item => 
+                item.id === existing.id ? restored : item
+              ));
+            }
+            restoredCount++;
+            restoredLabels.push(label);
+          }
+        } else {
+          // C. Insert new option
+          currentMaxSort++;
+          const { data, error } = await supabase
+            .from('dropdown_options')
+            .insert({ 
+              category, 
+              label, 
+              sort_order: currentMaxSort,
+              is_active: true 
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          // Update local state
+          if (data) {
+            setOptions(prev => [...prev, data]);
+          }
+          addedCount++;
+          addedLabels.push(label);
+        }
+      } catch (err) {
+        console.error(`Error processing "${label}":`, err);
+        errorCount++;
       }
-      setNewLabels(prev => ({ ...prev, [category]: '' }));
-      toast({ title: 'Option Added', description: `"${label}" has been added.`, variant: 'success' });
-    } catch (error) {
-      console.error('Add error:', error);
-      toast({ title: 'Failed to Add', description: error.message || 'Unknown error', variant: 'error' });
     }
+
+    // 3. Clear input
+    setNewLabels(prev => ({ ...prev, [category]: '' }));
     setSaving(false);
+
+    // 4. FINAL SUMMARY TOAST
+    if (errorCount > 0) {
+      toast({ 
+        title: 'Completed with Errors', 
+        description: `Added: ${addedCount}, Restored: ${restoredCount}, Skipped: ${skippedCount}, Failed: ${errorCount}`, 
+        variant: 'warning' 
+      });
+    } else if (addedCount === 0 && restoredCount === 0) {
+      toast({ 
+        title: 'No Changes', 
+        description: `All ${skippedCount} option(s) already exist and are active.`, 
+        variant: 'info' 
+      });
+    } else {
+      const parts = [];
+      if (addedCount > 0) parts.push(`Added ${addedCount}`);
+      if (restoredCount > 0) parts.push(`Restored ${restoredCount}`);
+      if (skippedCount > 0) parts.push(`Skipped ${skippedCount} existing`);
+      
+      toast({ 
+        title: 'Success!', 
+        description: parts.join(', '), 
+        variant: 'success' 
+      });
+    }
   };
 
   const handleToggleActive = async (option) => {
@@ -975,6 +1074,30 @@ function DropdownOptionsTab() {
     } catch (error) {
       console.error('Toggle error:', error);
       toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
+    }
+    setSaving(false);
+  };
+
+  // Restore an archived option (set is_active = true)
+  const handleRestoreOption = async (option) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('dropdown_options')
+        .update({ is_active: true })
+        .eq('id', option.id);
+
+      if (error) throw error;
+      
+      // Immediately update local state
+      setOptions(prev => prev.map(item => 
+        item.id === option.id ? { ...item, is_active: true } : item
+      ));
+      
+      toast({ title: 'Option Restored', description: `"${option.label}" has been restored.`, variant: 'success' });
+    } catch (error) {
+      console.error('Restore error:', error);
+      toast({ title: 'Failed to Restore', description: error.message || 'Unknown error', variant: 'error' });
     }
     setSaving(false);
   };
@@ -1125,157 +1248,206 @@ function DropdownOptionsTab() {
   if (loading) return <LoadingState />;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {DROPDOWN_CATEGORIES.map((cat) => {
-        const standardOptions = getStandardOptions(cat.id);
-        const otherOption = getOtherOption(cat.id);
-        const activeCount = standardOptions.filter(o => o.is_active).length + (otherOption?.is_active ? 1 : 0);
-        const inactiveCount = standardOptions.filter(o => !o.is_active).length + (otherOption && !otherOption.is_active ? 1 : 0);
+    <div className="space-y-6">
+      {/* Archive Toggle Header */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-800">Dropdown Options Management</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              {showArchived 
+                ? 'Viewing archived options. Click "Restore" to reactivate.' 
+                : 'Manage active dropdown options for forms.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showArchived 
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {showArchived ? (
+              <>
+                <ToggleRight className="w-5 h-5" />
+                Viewing Archived
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                Show Archived
+              </>
+            )}
+          </button>
+        </div>
+      </div>
 
-        return (
-          <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100">
-            {/* Header */}
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-800">{cat.label}</h3>
-              <p className="text-sm text-gray-500 mt-1">{cat.description}</p>
-              <div className="flex gap-3 mt-2 text-xs">
-                <span className="text-green-600">{activeCount} active</span>
-                {inactiveCount > 0 && <span className="text-gray-400">{inactiveCount} inactive</span>}
-              </div>
-            </div>
+      {/* Category Cards Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {DROPDOWN_CATEGORIES.map((cat) => {
+          const standardOptions = getStandardOptions(cat.id);
+          const otherOption = getOtherOption(cat.id);
+          const activeCount = getActiveCount(cat.id) + (otherOption?.is_active ? 1 : 0);
+          const archivedCount = getArchivedCount(cat.id) + (otherOption && !otherOption.is_active ? 1 : 0);
 
-            {/* Add New */}
-            <div className="p-3 bg-gray-50 border-b border-gray-100">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newLabels[cat.id] || ''}
-                  onChange={(e) => setNewLabels(prev => ({ ...prev, [cat.id]: e.target.value }))}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddOption(cat.id)}
-                  placeholder="Add new option..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                />
-                <button
-                  onClick={() => handleAddOption(cat.id)}
-                  disabled={saving || !newLabels[cat.id]?.trim()}
-                  className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add
-                </button>
-              </div>
-            </div>
-
-            {/* Standard Options List */}
-            <div className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
-              {standardOptions.length === 0 ? (
-                <div className="p-6 text-center text-gray-400 text-sm">
-                  No custom options yet. Add one above.
+          return (
+            <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100">
+              {/* Header */}
+              <div className={`p-4 border-b ${showArchived ? 'bg-amber-50 border-amber-100' : 'border-gray-100'}`}>
+                <h3 className="font-semibold text-gray-800">{cat.label}</h3>
+                <p className="text-sm text-gray-500 mt-1">{cat.description}</p>
+                <div className="flex gap-3 mt-2 text-xs">
+                  <span className={`${!showArchived ? 'text-green-600 font-medium' : 'text-gray-400'}`}>
+                    {activeCount} active
+                  </span>
+                  {archivedCount > 0 && (
+                    <span className={`${showArchived ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                      {archivedCount} archived
+                    </span>
+                  )}
                 </div>
-              ) : (
-                standardOptions.map((option, index) => (
-                  <div 
-                    key={option.id} 
-                    className={`p-3 flex items-center gap-2 hover:bg-gray-50 ${!option.is_active ? 'opacity-50 bg-gray-50' : ''}`}
-                  >
-                    {/* Toggle Active */}
+              </div>
+
+              {/* Add New - Only show when NOT in archived view */}
+              {!showArchived && (
+                <div className="p-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newLabels[cat.id] || ''}
+                      onChange={(e) => setNewLabels(prev => ({ ...prev, [cat.id]: e.target.value }))}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddOption(cat.id)}
+                      placeholder="Add option(s)... Use ; for bulk add"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    />
                     <button
-                      onClick={() => handleToggleActive(option)}
+                      onClick={() => handleAddOption(cat.id)}
+                      disabled={saving || !newLabels[cat.id]?.trim()}
+                      className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Options List */}
+              <div className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
+                {standardOptions.length === 0 ? (
+                  <div className="p-6 text-center text-gray-400 text-sm">
+                    {showArchived 
+                      ? 'No archived options in this category.' 
+                      : 'No custom options yet. Add one above.'}
+                  </div>
+                ) : (
+                  standardOptions.map((option, index) => (
+                    <div 
+                      key={option.id} 
+                      className={`p-3 flex items-center gap-2 hover:bg-gray-50 ${showArchived ? 'bg-amber-50/50' : ''}`}
+                    >
+                      {/* Label */}
+                      <span className={`flex-1 text-sm ${showArchived ? 'text-gray-500' : 'text-gray-800'}`}>
+                        {option.label}
+                      </span>
+
+                      {showArchived ? (
+                        /* Restore Button - Show in archived view */
+                        <button
+                          onClick={() => handleRestoreOption(option)}
+                          disabled={saving}
+                          className="px-3 py-1.5 text-sm font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex items-center gap-1"
+                          title="Restore this option"
+                        >
+                          <ToggleRight className="w-4 h-4" />
+                          Restore
+                        </button>
+                      ) : (
+                        <>
+                          {/* Reorder Buttons */}
+                          <div className="flex flex-col">
+                            <button
+                              onClick={() => handleMove(cat.id, index, 'up')}
+                              disabled={saving || index === 0}
+                              className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Move up"
+                            >
+                              <ChevronUp className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleMove(cat.id, index, 'down')}
+                              disabled={saving || index === standardOptions.length - 1}
+                              className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              title="Move down"
+                            >
+                              <ChevronDown className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Archive/Delete Button */}
+                          <button
+                            onClick={() => handleDelete(option)}
+                            disabled={saving}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Archive option"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* System Option: "Other" Toggle - Only show when NOT in archived view */}
+              {!showArchived && (
+                <div className="p-4 bg-slate-50 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">Allow Custom Input</span>
+                        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">System</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        When enabled, users can select "Other" and type a custom reason.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleToggleOther(cat.id)}
                       disabled={saving}
-                      className={`p-1 rounded transition-colors ${
-                        option.is_active 
-                          ? 'text-green-600 hover:bg-green-50' 
+                      className={`p-1 rounded-lg transition-colors ${
+                        otherOption?.is_active 
+                          ? 'text-teal-600 hover:bg-teal-50' 
                           : 'text-gray-400 hover:bg-gray-100'
                       }`}
-                      title={option.is_active ? 'Click to deactivate' : 'Click to activate'}
+                      title={otherOption?.is_active ? 'Click to disable "Other" option' : 'Click to enable "Other" option'}
                     >
-                      {option.is_active ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                    </button>
-
-                    {/* Label */}
-                    <span className={`flex-1 text-sm ${option.is_active ? 'text-gray-800' : 'text-gray-500 line-through'}`}>
-                      {option.label}
-                    </span>
-
-                    {/* Reorder Buttons */}
-                    <div className="flex flex-col">
-                      <button
-                        onClick={() => handleMove(cat.id, index, 'up')}
-                        disabled={saving || index === 0}
-                        className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        title="Move up"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleMove(cat.id, index, 'down')}
-                        disabled={saving || index === standardOptions.length - 1}
-                        className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        title="Move down"
-                      >
-                        <ChevronDown className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Delete */}
-                    <button
-                      onClick={() => handleDelete(option)}
-                      disabled={saving}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                      title="Delete permanently"
-                    >
-                      <Trash2 className="w-4 h-4" />
+                      {otherOption?.is_active ? (
+                        <ToggleRight className="w-8 h-8" />
+                      ) : (
+                        <ToggleLeft className="w-8 h-8" />
+                      )}
                     </button>
                   </div>
-                ))
+                </div>
               )}
             </div>
-
-            {/* System Option: "Other" Toggle */}
-            <div className="p-4 bg-slate-50 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">Allow Custom Input</span>
-                    <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">System</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    When enabled, users can select "Other" and type a custom reason.
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleToggleOther(cat.id)}
-                  disabled={saving}
-                  className={`p-1 rounded-lg transition-colors ${
-                    otherOption?.is_active 
-                      ? 'text-teal-600 hover:bg-teal-50' 
-                      : 'text-gray-400 hover:bg-gray-100'
-                  }`}
-                  title={otherOption?.is_active ? 'Click to disable "Other" option' : 'Click to enable "Other" option'}
-                >
-                  {otherOption?.is_active ? (
-                    <ToggleRight className="w-8 h-8" />
-                  ) : (
-                    <ToggleLeft className="w-8 h-8" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && optionToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Delete Option?</h3>
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Archive Option?</h3>
             <p className="text-gray-600 text-sm mb-4">
-              Are you sure you want to delete <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>? 
-              This action cannot be undone.
+              Are you sure you want to archive <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>? 
             </p>
-            <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mb-4">
-              💡 Tip: Consider deactivating instead to preserve historical data.
+            <p className="text-xs text-teal-600 bg-teal-50 px-3 py-2 rounded-lg mb-4">
+              💡 You can restore this option later from the "Show Archived" view.
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -1342,25 +1514,49 @@ function DataManagementTab() {
     setExporting(true);
     try {
       const exportData = plans.map((plan) => ({
-        year: plan.year,
-        department_code: plan.department_code,
-        month: plan.month,
-        goal_strategy: plan.goal_strategy,
-        action_plan: plan.action_plan,
-        indicator: plan.indicator,
-        pic: plan.pic,
-        report_format: plan.report_format,
-        status: plan.status,
-        outcome_link: plan.outcome_link || '',
-        remark: plan.remark || '',
-        created_at: plan.created_at,
+        'Year': plan.year,
+        'Department': plan.department_code,
+        'Month': plan.month,
+        'Category': plan.category || '',
+        'Focus Area': plan.area_focus || '',
+        'Goal/Strategy': plan.goal_strategy,
+        'Action Plan': plan.action_plan,
+        'Indicator': plan.indicator,
+        'PIC': plan.pic,
+        'Evidence': plan.evidence || '',
+        'Status': plan.status,
+        'Score': plan.score || '',
+        'Proof of Evidence': plan.outcome_link || '',
+        'Remarks': plan.remark || '',
+        'Created At': plan.created_at,
       }));
-      const csv = Papa.unparse(exportData);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `action_plans_export_${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
+      
+      // Create worksheet and workbook
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },  // Year
+        { wch: 12 }, // Department
+        { wch: 8 },  // Month
+        { wch: 12 }, // Category
+        { wch: 25 }, // Focus Area
+        { wch: 30 }, // Goal/Strategy
+        { wch: 35 }, // Action Plan
+        { wch: 25 }, // Indicator
+        { wch: 15 }, // PIC
+        { wch: 25 }, // Evidence
+        { wch: 12 }, // Status
+        { wch: 8 },  // Score
+        { wch: 35 }, // Proof of Evidence
+        { wch: 30 }, // Remarks
+        { wch: 20 }, // Created At
+      ];
+      
+      // Download
+      XLSX.writeFile(wb, `action_plans_export_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast({ title: 'Export Complete', description: `Exported ${exportData.length} records.`, variant: 'success' });
     } catch (error) {
       console.error('Export error:', error);
@@ -1383,15 +1579,15 @@ function DataManagementTab() {
           <div className="flex-1">
             <h3 className="text-lg font-bold text-gray-800">Export Data</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Download all action plan records ({plans.length} total) in CSV format for backup or external analysis.
+              Download all action plan records ({plans.length} total) in Excel (.xlsx) format for backup or external analysis.
             </p>
             <button
               onClick={handleExport}
               disabled={exporting || plans.length === 0}
               className="mt-4 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors disabled:opacity-50"
             >
-              <FileText className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Download CSV'}
+              <FileSpreadsheet className="w-4 h-4" />
+              {exporting ? 'Exporting...' : 'Download Excel'}
             </button>
           </div>
         </div>
@@ -1406,7 +1602,7 @@ function DataManagementTab() {
           <div className="flex-1">
             <h3 className="text-lg font-bold text-gray-800">Import Action Plans</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Bulk upload action plans using a CSV file. Please ensure your file follows the standard template.
+              Bulk upload action plans using an Excel file (.xlsx). Please ensure your file follows the standard template.
             </p>
             
             {/* Warning Box */}
@@ -1424,7 +1620,7 @@ function DataManagementTab() {
                 className="px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2 transition-colors shadow-sm"
               >
                 <Upload className="w-4 h-4" />
-                Select CSV File
+                Select Excel File
               </button>
             </div>
           </div>

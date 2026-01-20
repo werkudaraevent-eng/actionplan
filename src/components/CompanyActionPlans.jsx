@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper } from 'lucide-react';
+import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper, ChevronDown, Check, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -12,20 +13,9 @@ import { useToast } from './Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-// Convert JSON data to CSV string
-const jsonToCSV = (data, columns) => {
-  const header = columns.map(col => col.label).join(',');
-  const rows = data.map(row => 
-    columns.map(col => {
-      let value = row[col.key] ?? '';
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-        value = `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    }).join(',')
-  );
-  return [header, ...rows].join('\n');
-};
+// Month order for sorting and filtering
+const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
   const { isAdmin } = useAuth();
@@ -40,14 +30,20 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [activeTab, setActiveTab] = useState(initialActiveTab);
   
   // Column visibility
-  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
+  const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [startMonth, setStartMonth] = useState('Jan');
+  const [endMonth, setEndMonth] = useState('Dec');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [selectedDept, setSelectedDept] = useState(initialDeptFilter || 'all');
   const [exporting, setExporting] = useState(false);
+  const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
+  const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
+  
+  // Legacy: Keep selectedMonth for backward compatibility with DashboardCards
+  const selectedMonth = startMonth === endMonth ? startMonth : 'all';
   
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
@@ -83,11 +79,20 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     ).length;
   }, [plans]);
 
-  // Items needing grading - sorted by department then month
+  // Department filter for grading tab
+  const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
+
+  // Items needing grading - sorted by department then month, with optional dept filter
   const needsGradingPlans = useMemo(() => {
     const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return plans
-      .filter(p => p.submission_status === 'submitted' && p.quality_score == null)
+      .filter(p => {
+        // Must be submitted and not yet graded
+        if (p.submission_status !== 'submitted' || p.quality_score != null) return false;
+        // Apply department filter if set
+        if (gradingDeptFilter !== 'all' && p.department_code !== gradingDeptFilter) return false;
+        return true;
+      })
       .sort((a, b) => {
         // First sort by department
         if (a.department_code !== b.department_code) {
@@ -96,7 +101,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         // Then by month (oldest first)
         return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
       });
-  }, [plans]);
+  }, [plans, gradingDeptFilter]);
 
   // Combined filter logic - respects active tab
   const filteredPlans = useMemo(() => {
@@ -105,6 +110,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       return needsGradingPlans;
     }
     
+    const startIdx = MONTH_INDEX[startMonth] ?? 0;
+    const endIdx = MONTH_INDEX[endMonth] ?? 11;
+    
     // Otherwise apply normal filters for "all_records" tab
     return plans.filter((plan) => {
       // Department filter
@@ -112,8 +120,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         return false;
       }
       
-      // Month filter
-      if (selectedMonth !== 'all' && plan.month !== selectedMonth) {
+      // Month range filter
+      const planMonthIdx = MONTH_INDEX[plan.month];
+      if (planMonthIdx !== undefined && (planMonthIdx < startIdx || planMonthIdx > endIdx)) {
         return false;
       }
       
@@ -143,48 +152,67 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       
       return true;
     });
-  }, [plans, selectedDept, selectedMonth, selectedStatus, searchQuery, activeTab, needsGradingPlans]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, searchQuery, activeTab, needsGradingPlans]);
 
-  const hasActiveFilters = selectedDept !== 'all' || selectedMonth !== 'all' || selectedStatus !== 'all' || searchQuery.trim();
+  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setSelectedMonth('all');
+    setStartMonth('Jan');
+    setEndMonth('Dec');
     setSelectedStatus('all');
     setSelectedDept('all');
   };
+  
+  const clearMonthFilter = () => {
+    setStartMonth('Jan');
+    setEndMonth('Dec');
+  };
 
-  // Export CSV handler
-  const handleExportCSV = async () => {
+  // Export Excel handler
+  const handleExportExcel = async () => {
     setExporting(true);
     try {
       const columns = [
         { key: 'department_code', label: 'Department' },
         { key: 'month', label: 'Month' },
+        { key: 'category', label: 'Category' },
+        { key: 'area_focus', label: 'Focus Area' },
         { key: 'goal_strategy', label: 'Goal/Strategy' },
         { key: 'action_plan', label: 'Action Plan' },
         { key: 'indicator', label: 'Indicator' },
         { key: 'pic', label: 'PIC' },
-        { key: 'report_format', label: 'Report Format' },
+        { key: 'evidence', label: 'Evidence' },
         { key: 'status', label: 'Status' },
-        { key: 'outcome_link', label: 'Outcome' },
-        { key: 'remark', label: 'Remark' },
+        { key: 'score', label: 'Score' },
+        { key: 'outcome_link', label: 'Proof of Evidence' },
+        { key: 'remark', label: 'Remarks' },
         { key: 'created_at', label: 'Created At' },
       ];
 
-      const exportData = filteredPlans.map(plan => ({
-        ...plan,
-        created_at: plan.created_at ? new Date(plan.created_at).toLocaleDateString() : '',
-      }));
+      const exportData = filteredPlans.map(plan => {
+        const row = {};
+        columns.forEach(col => {
+          let value = plan[col.key] ?? '';
+          if (col.key === 'created_at' && value) {
+            value = new Date(value).toLocaleDateString();
+          }
+          row[col.label] = value;
+        });
+        return row;
+      });
 
-      const csv = jsonToCSV(exportData, columns);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      // Create worksheet and workbook
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
+      
+      // Set column widths
+      ws['!cols'] = columns.map(() => ({ wch: 20 }));
+      
+      // Generate filename and download
       const timestamp = new Date().toISOString().split('T')[0];
-      link.href = URL.createObjectURL(blob);
-      link.download = `All_Action_Plans_${CURRENT_YEAR}_${timestamp}.csv`;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      XLSX.writeFile(wb, `All_Action_Plans_${CURRENT_YEAR}_${timestamp}.xlsx`);
     } catch (error) {
       console.error('Export failed:', error);
       toast({ title: 'Export Failed', description: 'Failed to export data. Please try again.', variant: 'error' });
@@ -291,12 +319,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
               disabled={exporting || filteredPlans.length === 0}
               className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Export CSV'}
+              <FileSpreadsheet className="w-4 h-4" />
+              {exporting ? 'Exporting...' : 'Export Excel'}
             </button>
           </div>
         </div>
@@ -304,7 +332,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
       <main className="p-6">
         {/* Tab Navigation - Admin Grading Inbox */}
-        <div className="flex items-center gap-2 mb-6">
+        <div className="flex items-center gap-2 mb-6 flex-wrap">
           <button
             onClick={() => setActiveTab('needs_grading')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
@@ -338,6 +366,30 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
               {plans.length}
             </span>
           </button>
+          
+          {/* Department Filter for Grading Tab */}
+          {activeTab === 'needs_grading' && needsGradingCount > 0 && (
+            <div className="flex items-center gap-2 ml-auto">
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2">
+                <Building2 className="w-4 h-4 text-purple-500" />
+                <select
+                  value={gradingDeptFilter}
+                  onChange={(e) => setGradingDeptFilter(e.target.value)}
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                >
+                  <option value="all">All Departments</option>
+                  {DEPARTMENTS.map((dept) => (
+                    <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
+                  ))}
+                </select>
+              </div>
+              {gradingDeptFilter !== 'all' && (
+                <span className="text-xs text-gray-500">
+                  Showing {needsGradingPlans.length} items
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* KPI Cards - Only show on All Records tab */}
@@ -345,6 +397,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           <DashboardCards 
             data={filteredPlans} 
             selectedMonth={selectedMonth}
+            startMonth={startMonth}
+            endMonth={endMonth}
             onFilterChange={(status) => setSelectedStatus(status === 'all' ? 'all' : status)}
             activeFilter={selectedStatus}
           />
@@ -394,23 +448,118 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
               {/* Column Toggle */}
               <ColumnToggle 
                 visibleColumns={visibleColumns} 
+                columnOrder={columnOrder}
                 toggleColumn={toggleColumn} 
+                moveColumn={moveColumn}
+                reorderColumns={reorderColumns}
                 resetColumns={resetColumns} 
               />
               
-              {/* Month Filter */}
+              {/* Month Range Filter */}
               <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                 <Calendar className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                >
-                  <option value="all">All Months</option>
-                  {MONTHS.map((month) => (
-                    <option key={month} value={month}>{month}</option>
-                  ))}
-                </select>
+                
+                {/* Start Month Dropdown */}
+                <div className="relative">
+                  <button 
+                    onClick={() => {
+                      setIsStartMonthDropdownOpen(!isStartMonthDropdownOpen);
+                      setIsEndMonthDropdownOpen(false);
+                    }}
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                  >
+                    <span>{startMonth}</span>
+                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isStartMonthDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsStartMonthDropdownOpen(false)} />
+                      <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="max-h-48 overflow-y-auto p-1">
+                          {MONTHS_ORDER.map((month) => (
+                            <button
+                              key={month}
+                              onClick={() => {
+                                setStartMonth(month);
+                                // Auto-adjust end month if start > end
+                                if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
+                                  setEndMonth(month);
+                                }
+                                setIsStartMonthDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                                startMonth === month 
+                                  ? 'bg-teal-50 text-teal-700' 
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {month}
+                              {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                <span className="text-gray-400 text-sm">—</span>
+                
+                {/* End Month Dropdown */}
+                <div className="relative">
+                  <button 
+                    onClick={() => {
+                      setIsEndMonthDropdownOpen(!isEndMonthDropdownOpen);
+                      setIsStartMonthDropdownOpen(false);
+                    }}
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                  >
+                    <span>{endMonth}</span>
+                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isEndMonthDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsEndMonthDropdownOpen(false)} />
+                      <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="max-h-48 overflow-y-auto p-1">
+                          {MONTHS_ORDER.map((month) => (
+                            <button
+                              key={month}
+                              onClick={() => {
+                                setEndMonth(month);
+                                // Auto-adjust start month if end < start
+                                if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
+                                  setStartMonth(month);
+                                }
+                                setIsEndMonthDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
+                                endMonth === month 
+                                  ? 'bg-teal-50 text-teal-700' 
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {month}
+                              {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* Clear month filter button */}
+                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                  <button
+                    onClick={clearMonthFilter}
+                    className="ml-1 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
               
               {/* Status Filter */}
@@ -453,10 +602,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 </span>
               )}
               
-              {selectedMonth !== 'all' && (
+              {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                  Month: {selectedMonth}
-                  <button onClick={() => setSelectedMonth('all')} className="hover:text-blue-900">
+                  {startMonth === endMonth ? startMonth : `${startMonth} — ${endMonth}`}
+                  <button onClick={clearMonthFilter} className="hover:text-blue-900">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -519,6 +668,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           onGrade={handleOpenGradeModal}
           showDepartmentColumn={true}
           visibleColumns={visibleColumns}
+          columnOrder={columnOrder}
         />
         )}
       </main>

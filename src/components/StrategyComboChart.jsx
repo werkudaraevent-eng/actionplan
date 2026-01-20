@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Target, Star } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { Target, Star, CheckCircle2 } from 'lucide-react';
 
-export default function StrategyComboChart({ plans }) {
+export default function StrategyComboChart({ plans, isCompletionView = true }) {
   const chartData = useMemo(() => {
     if (!plans || plans.length === 0) return [];
 
-    // Group by goal_strategy and calculate count + average quality score
+    // Group by goal_strategy and calculate count + both metrics
     const strategyMap = {};
     plans.forEach((plan) => {
       const strategy = plan.goal_strategy?.trim() || 'Uncategorized';
@@ -24,34 +24,51 @@ export default function StrategyComboChart({ plans }) {
       }
     });
 
-    // Convert to array with both metrics
+    // Convert to array with both metrics - NO LIMIT, show ALL strategies
     const data = Object.entries(strategyMap)
       .map(([name, stats]) => {
         const avgScore = stats.scores.length > 0 
           ? Number((stats.scores.reduce((a, b) => a + b, 0) / stats.scores.length).toFixed(1))
-          : null;
+          : 0;
+        const completionRate = stats.total > 0 
+          ? Number(((stats.achieved / stats.total) * 100).toFixed(1)) 
+          : 0;
         return {
           fullName: name,
-          name: name.length > 20 ? name.substring(0, 17) + '...' : name,
+          name: name.length > 30 ? name.substring(0, 27) + '...' : name,
           count: stats.total,
           achieved: stats.achieved,
           submitted: stats.submitted,
-          avg_score: avgScore,
-          completion_rate: stats.total > 0 ? Number(((stats.achieved  / stats.total) * 100).toFixed(1)) : 0,
+          score: avgScore,
+          completion: completionRate,
         };
       })
-      .sort((a, b) => b.count - a.count) // Sort by count descending
-      .slice(0, 10); // Top 10
+      // Sort by the active metric descending
+      .sort((a, b) => {
+        const valA = isCompletionView ? a.completion : a.score;
+        const valB = isCompletionView ? b.completion : b.score;
+        return valB - valA;
+      });
+      // REMOVED: .slice(0, 10) - Now shows ALL strategies
 
     return data;
-  }, [plans]);
+  }, [plans, isCompletionView]);
+
+  // Dynamic colors based on toggle
+  const activeColor = isCompletionView ? '#10b981' : '#f59e0b'; // Emerald vs Amber
+  const activeDataKey = isCompletionView ? 'completion' : 'score';
+  const activeLabel = isCompletionView ? 'Completion Rate' : 'Quality Score';
+  
+  // Dynamic height: Base 100px + 45px per item (ensures bars are thick enough)
+  const dynamicHeight = Math.max(300, chartData.length * 45);
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0]?.payload;
       if (!data) return null;
       
-      const scoreColor = data.avg_score >= 80 ? '#15803d' : data.avg_score >= 60 ? '#b45309' : '#b91c1c';
+      const value = isCompletionView ? data.completion : data.score;
+      const valueColor = value >= 80 ? '#15803d' : value >= 60 ? '#b45309' : '#b91c1c';
       
       return (
         <div className="bg-white px-4 py-3 shadow-lg rounded-lg border border-gray-200">
@@ -60,20 +77,25 @@ export default function StrategyComboChart({ plans }) {
           </p>
           <div className="space-y-1">
             <p className="text-sm flex items-center gap-2">
-              <span className="w-3 h-3 rounded bg-teal-600"></span>
-              <span className="text-gray-600">Total Plans:</span>
-              <span className="font-bold text-gray-800">{data.count}</span>
-            </p>
-            <p className="text-sm flex items-center gap-2">
-              <Star className="w-3 h-3 text-purple-500" />
-              <span className="text-gray-600">Avg Score:</span>
-              <span className="font-bold" style={{ color: data.avg_score !== null ? scoreColor : '#9ca3af' }}>
-                {data.avg_score !== null ? `${data.avg_score}%` : '—'}
+              {isCompletionView ? (
+                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+              ) : (
+                <Star className="w-3 h-3 text-amber-500" />
+              )}
+              <span className="text-gray-600">{activeLabel}:</span>
+              <span className="font-bold" style={{ color: valueColor }}>
+                {value}%
               </span>
             </p>
-            <p className="text-xs text-gray-400 mt-1">
-              ({data.submitted} graded of {data.count} total)
-            </p>
+            {isCompletionView ? (
+              <p className="text-xs text-gray-400 mt-1">
+                {data.achieved} of {data.count} plans achieved
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-1">
+                {data.submitted} graded of {data.count} total
+              </p>
+            )}
           </div>
         </div>
       );
@@ -100,78 +122,76 @@ export default function StrategyComboChart({ plans }) {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <Target className="w-5 h-5 text-teal-600" />
-          <h3 className="text-lg font-semibold text-gray-800">Strategy Performance</h3>
+          <h3 className="text-lg font-semibold text-gray-800">
+            Strategy Performance: {activeLabel}
+          </h3>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded bg-teal-600"></span>
-            Volume (Plans)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-4 h-0.5 bg-purple-500 rounded"></span>
-            Quality Score %
+            <span 
+              className="w-3 h-3 rounded" 
+              style={{ backgroundColor: activeColor }}
+            ></span>
+            {activeLabel}
           </span>
         </div>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Effort vs. Quality by strategic goal ({chartData.length} strategies)
+        {isCompletionView 
+          ? `Percentage of action plans achieved per strategy (${chartData.length} strategies)`
+          : `Average quality rating of deliverables per strategy (${chartData.length} strategies)`
+        }
       </p>
 
-      <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart
-          data={chartData}
-          margin={{ top: 20, right: 30, left: 0, bottom: 60 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis
-            dataKey="name"
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-            angle={-35}
-            textAnchor="end"
-            height={60}
-            interval={0}
-          />
-          <YAxis
-            yAxisId="left"
-            orientation="left"
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-            label={{ value: 'Volume', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 11 }}
-          />
-          <YAxis
-            yAxisId="right"
-            orientation="right"
-            domain={[0, 100]}
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-            tickFormatter={(v) => `${v}%`}
-            label={{ value: 'Quality %', angle: 90, position: 'insideRight', fill: '#6b7280', fontSize: 11 }}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Bar
-            yAxisId="left"
-            dataKey="count"
-            fill="#0d9488"
-            radius={[4, 4, 0, 0]}
-            barSize={30}
-            name="Total Plans"
-          />
-          <Line
-            yAxisId="right"
-            type="monotone"
-            dataKey="avg_score"
-            stroke="#a855f7"
-            strokeWidth={3}
-            dot={{ fill: '#a855f7', r: 5, strokeWidth: 2, stroke: '#fff' }}
-            name="Quality Score %"
-            connectNulls={false}
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
+      {/* Scrollable wrapper for many strategies - Fixed height window */}
+      <div className="w-full h-[300px] overflow-y-auto overflow-x-hidden pr-2">
+        <div style={{ width: '100%', height: `${dynamicHeight}px` }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              layout="vertical"
+              margin={{ top: 5, right: 50, left: 10, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#e2e8f0" />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={200}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                interval={0}
+              />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                tickFormatter={(v) => `${v}%`}
+              />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f1f5f9' }} />
+              <Bar
+                dataKey={activeDataKey}
+                fill={activeColor}
+                radius={[0, 4, 4, 0]}
+                barSize={28}
+                animationDuration={500}
+              >
+                <LabelList
+                  dataKey={activeDataKey}
+                  position="right"
+                  formatter={(val) => `${val}%`}
+                  style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
       <p className="text-xs text-gray-400 mt-2 text-center">
-        Bars show workload volume • Line shows average quality score
+        {isCompletionView 
+          ? 'Bars show completion rate (achieved ÷ total × 100)'
+          : 'Bars show average quality score of graded items'
+        }
       </p>
     </div>
   );
 }
-
-

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { STATUS_OPTIONS, DEPARTMENTS } from '../lib/supabase';
 import HistoryModal from './HistoryModal';
@@ -20,33 +20,36 @@ const MONTH_ORDER = {
   'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
 };
 
+// Column configuration with mandatory default order
+// Order: # → Dept → Month → Category → Area Focus → Goal/Strategy → Action Plan → Indicator → PIC → Evidence → Status → Score → Proof of Evidence → Remark → Actions
+// Note: # (index), Dept, and Actions are handled separately as sticky/conditional columns
+const COLUMN_CONFIG = [
+  { id: 'month', label: 'MONTH', defaultVisible: true },
+  { id: 'category', label: 'CATEGORY', defaultVisible: true },
+  { id: 'area_focus', label: 'AREA TO BE FOCUS', defaultVisible: true },
+  { id: 'goal_strategy', label: 'GOAL/STRATEGI', defaultVisible: true },
+  { id: 'action_plan', label: 'ACTION PLAN', defaultVisible: true },
+  { id: 'indicator', label: 'INDICATOR', defaultVisible: true },
+  { id: 'pic', label: 'PIC', defaultVisible: true },
+  { id: 'evidence', label: 'EVIDENCE', defaultVisible: true }, // Free text field
+  { id: 'status', label: 'STATUS', defaultVisible: true },
+  { id: 'score', label: 'SCORE', defaultVisible: true },
+  { id: 'outcome', label: 'PROOF OF EVIDENCE', defaultVisible: true }, // The link field (renamed from Outcome)
+  { id: 'remark', label: 'REMARK', defaultVisible: true },
+];
+
+// Default column order (array of column IDs)
+const DEFAULT_COLUMN_ORDER = COLUMN_CONFIG.map(col => col.id);
+
 // Default column visibility config
-const DEFAULT_COLUMNS = {
-  month: true,
-  goal_strategy: true,
-  action_plan: true,
-  indicator: true,
-  pic: true,
-  report_format: true,
-  status: true,
-  score: true,
-  outcome: true,
-  remark: true,
-};
+const DEFAULT_COLUMNS = Object.fromEntries(
+  COLUMN_CONFIG.map(col => [col.id, col.defaultVisible])
+);
 
 // Column labels for the toggle UI
-const COLUMN_LABELS = {
-  month: 'Month',
-  goal_strategy: 'Goal/Strategy',
-  action_plan: 'Action Plan',
-  indicator: 'Indicator',
-  pic: 'PIC',
-  report_format: 'Report Format',
-  status: 'Status',
-  score: 'Score',
-  outcome: 'Outcome',
-  remark: 'Remark',
-};
+const COLUMN_LABELS = Object.fromEntries(
+  COLUMN_CONFIG.map(col => [col.id, col.label])
+);
 
 // Statuses that require proof (outcome/remark) before saving
 const COMPLETION_STATUSES = ['Achieved', 'Not Achieved'];
@@ -71,36 +74,94 @@ const getDeptName = (code) => {
   return dept?.name || code;
 };
 
-// Shared hook for column visibility - can be used by parent components
+// LocalStorage keys - increment version to force reset for all users
+const STORAGE_KEY_PREFERENCES = 'datatable_column_preferences_v2';
+const STORAGE_KEY_ORDER = 'datatable_column_order_v2';
+
+// Shared hook for column visibility and order - can be used by parent components
 export function useColumnVisibility() {
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
-      const saved = localStorage.getItem('datatable_column_preferences');
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
       return saved ? { ...DEFAULT_COLUMNS, ...JSON.parse(saved) } : DEFAULT_COLUMNS;
     } catch {
       return DEFAULT_COLUMNS;
     }
   });
 
+  const [columnOrder, setColumnOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ORDER);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Validate and merge with defaults (in case new columns were added)
+        const validOrder = parsed.filter(id => DEFAULT_COLUMN_ORDER.includes(id));
+        const missingColumns = DEFAULT_COLUMN_ORDER.filter(id => !validOrder.includes(id));
+        return [...validOrder, ...missingColumns];
+      }
+      return DEFAULT_COLUMN_ORDER;
+    } catch {
+      return DEFAULT_COLUMN_ORDER;
+    }
+  });
+
   useEffect(() => {
-    localStorage.setItem('datatable_column_preferences', JSON.stringify(visibleColumns));
+    localStorage.setItem(STORAGE_KEY_PREFERENCES, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_ORDER, JSON.stringify(columnOrder));
+  }, [columnOrder]);
 
   const toggleColumn = (key) => {
     setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const resetColumns = () => {
-    setVisibleColumns(DEFAULT_COLUMNS);
+  const moveColumn = (columnId, direction) => {
+    setColumnOrder(prev => {
+      const currentIndex = prev.indexOf(columnId);
+      if (currentIndex === -1) return prev;
+      
+      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (newIndex < 0 || newIndex >= prev.length) return prev;
+      
+      const newOrder = [...prev];
+      [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
+      return newOrder;
+    });
   };
 
-  return { visibleColumns, toggleColumn, resetColumns };
+  // Reorder columns via drag and drop (move from sourceIndex to targetIndex)
+  const reorderColumns = (sourceIndex, targetIndex) => {
+    setColumnOrder(prev => {
+      if (sourceIndex < 0 || sourceIndex >= prev.length) return prev;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      if (sourceIndex === targetIndex) return prev;
+      
+      const newOrder = [...prev];
+      const [removed] = newOrder.splice(sourceIndex, 1);
+      newOrder.splice(targetIndex, 0, removed);
+      return newOrder;
+    });
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(DEFAULT_COLUMNS);
+    setColumnOrder(DEFAULT_COLUMN_ORDER);
+  };
+
+  return { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns };
 }
 
-// Column Toggle Button Component - render in parent toolbar
-export function ColumnToggle({ visibleColumns, toggleColumn, resetColumns }) {
+// Column Toggle Button Component with Reordering - render in parent toolbar
+export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveColumn, resetColumns, reorderColumns }) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dragOverItem, setDragOverItem] = useState(null);
+  
+  // Use provided columnOrder or default
+  const orderedColumns = columnOrder || DEFAULT_COLUMN_ORDER;
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -114,6 +175,52 @@ export function ColumnToggle({ visibleColumns, toggleColumn, resetColumns }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMenu]);
 
+  // Drag and drop handlers
+  const handleDragStart = (e, columnId) => {
+    setDraggedItem(columnId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', columnId);
+    // Add a slight delay to show the drag effect
+    setTimeout(() => {
+      e.target.style.opacity = '0.5';
+    }, 0);
+  };
+
+  const handleDragEnd = (e) => {
+    e.target.style.opacity = '1';
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  const handleDragOver = (e, columnId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (columnId !== draggedItem) {
+      setDragOverItem(columnId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverItem(null);
+  };
+
+  const handleDrop = (e, targetColumnId) => {
+    e.preventDefault();
+    const sourceColumnId = draggedItem;
+    
+    if (sourceColumnId && sourceColumnId !== targetColumnId && reorderColumns) {
+      const sourceIndex = orderedColumns.indexOf(sourceColumnId);
+      const targetIndex = orderedColumns.indexOf(targetColumnId);
+      
+      if (sourceIndex !== -1 && targetIndex !== -1) {
+        reorderColumns(sourceIndex, targetIndex);
+      }
+    }
+    
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -125,32 +232,79 @@ export function ColumnToggle({ visibleColumns, toggleColumn, resetColumns }) {
       </button>
       
       {showMenu && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-200 z-50 py-2">
+        <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-50 py-2">
           <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-700">Toggle Columns</span>
+            <span className="text-sm font-semibold text-gray-700">Columns</span>
             <button
               onClick={resetColumns}
               className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
             >
               <RotateCcw className="w-3 h-3" />
-              Reset
+              Reset All
             </button>
           </div>
-          <div className="max-h-64 overflow-y-auto py-1">
-            {Object.entries(COLUMN_LABELS).map(([key, label]) => (
-              <label
+          <p className="px-3 py-1.5 text-xs text-gray-400">Drag to reorder • Click eye to toggle</p>
+          <div className="max-h-80 overflow-y-auto py-1">
+            {orderedColumns.map((key, index) => (
+              <div
                 key={key}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                draggable
+                onDragStart={(e) => handleDragStart(e, key)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, key)}
+                className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-50 group cursor-grab active:cursor-grabbing transition-all ${
+                  !visibleColumns[key] ? 'opacity-50' : ''
+                } ${dragOverItem === key ? 'bg-teal-50 border-t-2 border-teal-400' : ''} ${
+                  draggedItem === key ? 'opacity-50' : ''
+                }`}
               >
-                <input
-                  type="checkbox"
-                  checked={visibleColumns[key]}
-                  onChange={() => toggleColumn(key)}
-                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
-                />
-                <span className="text-sm text-gray-700">{label}</span>
-              </label>
+                {/* Reorder buttons */}
+                <div className="flex flex-col -my-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveColumn && moveColumn(key, 'up'); }}
+                    disabled={index === 0}
+                    className="p-0.5 text-gray-300 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Move up"
+                  >
+                    <ChevronUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveColumn && moveColumn(key, 'down'); }}
+                    disabled={index === orderedColumns.length - 1}
+                    className="p-0.5 text-gray-300 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Move down"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </div>
+                
+                {/* Drag handle indicator */}
+                <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                
+                {/* Column label */}
+                <span className={`flex-1 text-sm select-none ${visibleColumns[key] ? 'text-gray-700' : 'text-gray-400'}`}>
+                  {COLUMN_LABELS[key]}
+                </span>
+                
+                {/* Visibility toggle */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleColumn(key); }}
+                  className={`p-1 rounded transition-colors ${
+                    visibleColumns[key] 
+                      ? 'text-teal-600 hover:bg-teal-50' 
+                      : 'text-gray-400 hover:bg-gray-100'
+                  }`}
+                  title={visibleColumns[key] ? 'Hide column' : 'Show column'}
+                >
+                  {visibleColumns[key] ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </button>
+              </div>
             ))}
+          </div>
+          <div className="px-3 py-2 border-t border-gray-100 text-xs text-gray-400">
+            {Object.values(visibleColumns).filter(Boolean).length} of {orderedColumns.length} columns visible
           </div>
         </div>
       )}
@@ -158,7 +312,7 @@ export function ColumnToggle({ visibleColumns, toggleColumn, resetColumns }) {
   );
 }
 
-export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns }) {
+export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder }) {
   const { isAdmin, isStaff, profile } = useAuth();
   const [updatingId, setUpdatingId] = useState(null);
   const [historyModal, setHistoryModal] = useState({ isOpen: false, planId: null, planTitle: '' });
@@ -167,14 +321,31 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   // Use external visibleColumns if provided, otherwise use internal state
   const [internalVisibleColumns, setInternalVisibleColumns] = useState(() => {
     try {
-      const saved = localStorage.getItem('datatable_column_preferences');
+      const saved = localStorage.getItem(STORAGE_KEY_PREFERENCES);
       return saved ? { ...DEFAULT_COLUMNS, ...JSON.parse(saved) } : DEFAULT_COLUMNS;
     } catch {
       return DEFAULT_COLUMNS;
     }
   });
   
+  // Use external columnOrder if provided, otherwise use internal state
+  const [internalColumnOrder, setInternalColumnOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ORDER);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const validOrder = parsed.filter(id => DEFAULT_COLUMN_ORDER.includes(id));
+        const missingColumns = DEFAULT_COLUMN_ORDER.filter(id => !validOrder.includes(id));
+        return [...validOrder, ...missingColumns];
+      }
+      return DEFAULT_COLUMN_ORDER;
+    } catch {
+      return DEFAULT_COLUMN_ORDER;
+    }
+  });
+  
   const visibleColumns = externalVisibleColumns || internalVisibleColumns;
+  const columnOrder = externalColumnOrder || internalColumnOrder;
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -268,6 +439,116 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     );
   };
 
+  // Column header renderer - renders headers based on columnOrder
+  const renderColumnHeader = (colId) => {
+    if (!visibleColumns[colId]) return null;
+    
+    const headerConfig = {
+      month: <SortableHeader key={colId} columnKey="month">MONTH</SortableHeader>,
+      category: <SortableHeader key={colId} columnKey="category" className="min-w-[100px]">CATEGORY</SortableHeader>,
+      area_focus: <SortableHeader key={colId} columnKey="area_focus" className="min-w-[150px]">AREA TO BE FOCUS</SortableHeader>,
+      goal_strategy: <SortableHeader key={colId} columnKey="goal_strategy" className="min-w-[200px]">GOAL/STRATEGI</SortableHeader>,
+      action_plan: <SortableHeader key={colId} columnKey="action_plan" className="min-w-[250px]">ACTION PLAN</SortableHeader>,
+      indicator: <SortableHeader key={colId} columnKey="indicator" className="min-w-[200px]">INDICATOR</SortableHeader>,
+      pic: <SortableHeader key={colId} columnKey="pic" className="min-w-[120px]">PIC</SortableHeader>,
+      evidence: <SortableHeader key={colId} columnKey="evidence" className="min-w-[200px]">EVIDENCE</SortableHeader>,
+      status: <SortableHeader key={colId} columnKey="status" className="min-w-[120px]">STATUS</SortableHeader>,
+      score: <SortableHeader key={colId} columnKey="quality_score" className="w-[80px]" align="center">SCORE</SortableHeader>,
+      outcome: <SortableHeader key={colId} columnKey="outcome_link" className="min-w-[150px]">PROOF OF EVIDENCE</SortableHeader>,
+      remark: <SortableHeader key={colId} columnKey="remark" className="min-w-[150px]">REMARK</SortableHeader>,
+    };
+    
+    return headerConfig[colId] || null;
+  };
+
+  // Column cell renderer - renders cells based on columnOrder
+  const renderColumnCell = (colId, item) => {
+    if (!visibleColumns[colId]) return null;
+    
+    const cellClass = "px-4 py-3 text-sm text-gray-700 border-b border-gray-100";
+    
+    switch (colId) {
+      case 'month':
+        return <td key={colId} className="px-4 py-3 text-sm font-medium text-gray-800 border-b border-gray-100">{item.month}</td>;
+      case 'category':
+        return (
+          <td key={colId} className={cellClass}>
+            {item.category ? (
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                item.category.includes('High') || item.category === 'Urgent' 
+                  ? 'bg-red-50 text-red-700' 
+                  : item.category.includes('Medium') 
+                  ? 'bg-amber-50 text-amber-700'
+                  : item.category.includes('Low')
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-purple-50 text-purple-700'
+              }`}>
+                {item.category}
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+        );
+      case 'area_focus':
+        return (
+          <td key={colId} className={cellClass}>
+            {item.area_focus ? (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                {item.area_focus}
+              </span>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </td>
+        );
+      case 'goal_strategy':
+        return <td key={colId} className={cellClass}>{item.goal_strategy}</td>;
+      case 'action_plan':
+        return <td key={colId} className={cellClass}>{item.action_plan}</td>;
+      case 'indicator':
+        return <td key={colId} className={cellClass}>{item.indicator}</td>;
+      case 'pic':
+        return <td key={colId} className={cellClass}>{item.pic}</td>;
+      case 'evidence':
+        return (
+          <td key={colId} className="px-4 py-3 border-b border-gray-100">
+            {item.evidence ? (
+              <span className="text-sm text-gray-700 max-w-[200px] truncate block" title={item.evidence}>{item.evidence}</span>
+            ) : (
+              <span className="text-gray-400 text-sm">—</span>
+            )}
+          </td>
+        );
+      case 'outcome':
+        return (
+          <td key={colId} className="px-4 py-3 border-b border-gray-100">
+            {item.outcome_link ? (
+              isUrl(item.outcome_link) ? (
+                <a href={item.outcome_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm">
+                  <ExternalLink className="w-4 h-4" />
+                  View
+                </a>
+              ) : (
+                <span className="text-sm text-gray-700 max-w-[150px] truncate block" title={item.outcome_link}>{item.outcome_link}</span>
+              )
+            ) : (
+              <span className="text-gray-400 text-sm">—</span>
+            )}
+          </td>
+        );
+      case 'remark':
+        return (
+          <td key={colId} className="px-4 py-3 text-sm text-gray-700 max-w-[150px] truncate border-b border-gray-100" title={item.remark}>
+            {item.remark || <span className="text-gray-400">—</span>}
+          </td>
+        );
+      // Status and Score are handled separately due to their complexity
+      default:
+        return null;
+    }
+  };
+
   const handleStatusChange = async (item, newStatus) => {
     if (newStatus === 'Achieved' && !isAdmin) {
       if (onCompletionStatusChange) {
@@ -334,16 +615,17 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 {showDepartmentColumn && (
                   <SortableHeader columnKey="department_code">Dept</SortableHeader>
                 )}
-                {visibleColumns.month && <SortableHeader columnKey="month">Month</SortableHeader>}
-                {visibleColumns.goal_strategy && <SortableHeader columnKey="goal_strategy" className="min-w-[200px]">Goal/Strategy</SortableHeader>}
-                {visibleColumns.action_plan && <SortableHeader columnKey="action_plan" className="min-w-[200px]">Action Plan</SortableHeader>}
-                {visibleColumns.indicator && <SortableHeader columnKey="indicator" className="min-w-[150px]">Indicator</SortableHeader>}
-                {visibleColumns.pic && <SortableHeader columnKey="pic">PIC</SortableHeader>}
-                {visibleColumns.report_format && <SortableHeader columnKey="report_format">Report Format</SortableHeader>}
-                {visibleColumns.status && <SortableHeader columnKey="status" className="min-w-[120px]">Status</SortableHeader>}
-                {visibleColumns.score && <SortableHeader columnKey="quality_score" className="w-[80px]" align="center">Score</SortableHeader>}
-                {visibleColumns.outcome && <SortableHeader columnKey="outcome_link">Outcome</SortableHeader>}
-                {visibleColumns.remark && <SortableHeader columnKey="remark" className="min-w-[200px]">Remark</SortableHeader>}
+                {/* Dynamic columns based on columnOrder */}
+                {columnOrder.map(colId => {
+                  // Status and Score need special handling - render inline
+                  if (colId === 'status') {
+                    return visibleColumns.status && <SortableHeader key={colId} columnKey="status" className="min-w-[120px]">Status</SortableHeader>;
+                  }
+                  if (colId === 'score') {
+                    return visibleColumns.score && <SortableHeader key={colId} columnKey="quality_score" className="w-[80px]" align="center">Score</SortableHeader>;
+                  }
+                  return renderColumnHeader(colId);
+                })}
                 {/* Last column header - sticky right */}
                 <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider sticky right-0 z-10 bg-gray-50 border-b border-l border-gray-200">Actions</th>
               </tr>
@@ -371,195 +653,108 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                         </span>
                       </td>
                     )}
-                    {visibleColumns.month && <td className="px-4 py-3 text-sm font-medium text-gray-800 border-b border-gray-100">{item.month}</td>}
-                    {visibleColumns.goal_strategy && <td className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">{item.goal_strategy}</td>}
-                    {visibleColumns.action_plan && <td className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">{item.action_plan}</td>}
-                    {visibleColumns.indicator && <td className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">{item.indicator}</td>}
-                    {visibleColumns.pic && <td className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">{item.pic}</td>}
-                    {visibleColumns.report_format && <td className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">{item.report_format}</td>}
-                    {visibleColumns.status && (
-                    <td className="px-4 py-3 border-b border-gray-100">
-                      <div className="relative flex flex-col gap-1">
-                        {updatingId === item.id && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
-                            <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
-                          </div>
-                        )}
-                        
-                        {/* Status Badge/Dropdown */}
-                        <div className="flex items-center gap-1">
-                          {/* Locked items (submitted) show badge instead of dropdown */}
-                          {item.submission_status === 'submitted' ? (
-                            (() => {
-                              // Smart tooltip: Check if graded or still waiting
-                              const hasScore = item.quality_score !== null && item.quality_score !== undefined;
-                              const tooltip = hasScore 
-                                ? "Finalized & Graded" 
-                                : "Locked. Waiting for Management Grading.";
-                              return (
-                                <span 
-                                  className={`px-3 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 cursor-help ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
-                                  title={tooltip}
-                                >
-                                  <Lock className="w-3 h-3" />
-                                  {item.status}
-                                </span>
-                              );
-                            })()
-                          ) : (
-                            <select
-                              value={item.status}
-                              onChange={(e) => handleStatusChange(item, e.target.value)}
-                              disabled={updatingId === item.id}
-                              className={`px-3 py-1.5 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
-                            >
-                              {VISIBLE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          )}
-                          
-                          {/* Revision Requested Indicator - Shows when item was sent back with feedback */}
-                          {item.admin_feedback && 
-                           item.submission_status !== 'submitted' && 
-                           (item.status === 'On Progress' || item.status === 'Pending') && (
-                            <span 
-                              className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium cursor-help"
-                              title={`Revision Requested: ${item.admin_feedback}`}
-                            >
-                              <MessageSquare className="w-3 h-3" />
-                              Revision
-                            </span>
-                          )}
-                        </div>
-                        
-                        {/* Revision Feedback Alert - Prominent display when item needs revision */}
-                        {item.admin_feedback && 
-                         item.submission_status !== 'submitted' && 
-                         (item.status === 'On Progress' || item.status === 'Pending') && (
-                          <div className="flex items-start gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs">
-                            <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-600" />
-                            <div>
-                              <span className="font-semibold text-amber-800">Revision Requested:</span>
-                              <p className="mt-0.5 text-amber-700">{item.admin_feedback}</p>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Management Feedback (Info) - Only shows for Not Achieved items */}
-                        {/* Hide auto-generated system messages to reduce visual clutter */}
-                        {(() => {
-                          const isSystemMessage = item.admin_feedback === 'System: Auto-graded (Not Achieved)';
-                          
-                          // Only show feedback for Not Achieved items (success items should be clean)
-                          const showFeedback = item.status === 'Not Achieved'
-                            && item.admin_feedback 
-                            && !isSystemMessage;
-                          
-                          if (!showFeedback) return null;
-                          
-                          return (
-                            <div className="flex items-start gap-1.5 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs">
-                              <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-gray-500" />
-                              <div>
-                                <span className="font-semibold text-gray-700">Management Feedback:</span>
-                                <p className="mt-0.5 text-gray-600">{item.admin_feedback}</p>
+                    {/* Dynamic columns based on columnOrder */}
+                    {columnOrder.map(colId => {
+                      // Status cell - complex with dropdown/badge
+                      if (colId === 'status' && visibleColumns.status) {
+                        return (
+                          <td key={colId} className="px-4 py-3 border-b border-gray-100">
+                            <div className="relative flex flex-col gap-1">
+                              {updatingId === item.id && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
+                                  <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1">
+                                {item.submission_status === 'submitted' ? (
+                                  <span 
+                                    className={`px-3 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 cursor-help ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
+                                    title={item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading."}
+                                  >
+                                    <Lock className="w-3 h-3" />
+                                    {item.status}
+                                  </span>
+                                ) : (
+                                  <select
+                                    value={item.status}
+                                    onChange={(e) => handleStatusChange(item, e.target.value)}
+                                    disabled={updatingId === item.id}
+                                    className={`px-3 py-1.5 rounded-full text-xs font-medium border-0 cursor-pointer ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
+                                  >
+                                    {VISIBLE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                )}
+                                {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Pending') && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium cursor-help" title={`Revision Requested: ${item.admin_feedback}`}>
+                                    <MessageSquare className="w-3 h-3" />
+                                    Revision
+                                  </span>
+                                )}
                               </div>
+                              {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Pending') && (
+                                <div className="flex items-start gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs">
+                                  <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-600" />
+                                  <div>
+                                    <span className="font-semibold text-amber-800">Revision Requested:</span>
+                                    <p className="mt-0.5 text-amber-700">{item.admin_feedback}</p>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          );
-                        })()}
-                      </div>
-                    </td>
-                    )}
-                    {/* Dedicated Score Column */}
-                    {visibleColumns.score && (
-                    <td className="px-4 py-3 text-center border-b border-gray-100">
-                      {item.quality_score != null ? (
-                        <span 
-                          className={`px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 ${
-                            item.quality_score >= 80 ? 'bg-green-500 text-white' :
-                            item.quality_score >= 60 ? 'bg-amber-500 text-white' : 
-                            item.quality_score > 0 ? 'bg-red-500 text-white' :
-                            'bg-gray-400 text-white' // Score 0 gets gray
-                          }`} 
-                          title={`Quality Score: ${item.quality_score}/100${item.admin_feedback && item.admin_feedback !== 'System: Auto-graded (Not Achieved)' ? `\nFeedback: ${item.admin_feedback}` : ''}`}
-                        >
-                          <Star className={`w-3 h-3 ${item.quality_score === 0 ? 'opacity-60' : ''}`} />
-                          {item.quality_score}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 text-sm">—</span>
-                      )}
-                    </td>
-                    )}
-                    {visibleColumns.outcome && (
-                    <td className="px-4 py-3 border-b border-gray-100">
-                      {item.outcome_link ? (
-                        isUrl(item.outcome_link) ? (
-                          <a href={item.outcome_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm">
-                            <ExternalLink className="w-4 h-4" />
-                            View
-                          </a>
-                        ) : (
-                          <span className="text-sm text-gray-700 max-w-[150px] truncate block" title={item.outcome_link}>{item.outcome_link}</span>
-                        )
-                      ) : (
-                        <span className="text-gray-400 text-sm">-</span>
-                      )}
-                    </td>
-                    )}
-                    {visibleColumns.remark && (
-                    <td className="px-4 py-3 text-sm text-gray-700 max-w-[200px] truncate border-b border-gray-100" title={item.remark}>
-                      {item.remark || <span className="text-gray-400">-</span>}
-                    </td>
-                    )}
+                          </td>
+                        );
+                      }
+                      // Score cell
+                      if (colId === 'score' && visibleColumns.score) {
+                        return (
+                          <td key={colId} className="px-4 py-3 text-center border-b border-gray-100">
+                            {item.quality_score != null ? (
+                              <span 
+                                className={`px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 ${
+                                  item.quality_score >= 80 ? 'bg-green-500 text-white' :
+                                  item.quality_score >= 60 ? 'bg-amber-500 text-white' : 
+                                  item.quality_score > 0 ? 'bg-red-500 text-white' :
+                                  'bg-gray-400 text-white'
+                                }`} 
+                                title={`Quality Score: ${item.quality_score}/100`}
+                              >
+                                <Star className={`w-3 h-3 ${item.quality_score === 0 ? 'opacity-60' : ''}`} />
+                                {item.quality_score}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
+                          </td>
+                        );
+                      }
+                      // Other columns use the renderer
+                      return renderColumnCell(colId, item);
+                    })}
                     {/* Last column - sticky right, z-0 to stay below headers */}
                     <td className="px-4 py-3 sticky right-0 z-0 bg-white group-hover/row:bg-gray-50 border-b border-l border-gray-100">
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={() => openHistory(item)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="View History">
                           <Clock className="w-4 h-4" />
                         </button>
-                        
-                        {/* Grade Button - Admin only, for submitted/locked items without a score yet */}
                         {isAdmin && item.submission_status === 'submitted' && item.quality_score == null && onGrade && (
-                          <button 
-                            onClick={() => onGrade(item)} 
-                            className="p-1.5 text-purple-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors" 
-                            title="Grade & Verify"
-                          >
+                          <button onClick={() => onGrade(item)} className="p-1.5 text-purple-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors" title="Grade & Verify">
                             <ClipboardCheck className="w-4 h-4" />
                           </button>
                         )}
-                        
-                        {/* Edit Button - Simplified lock logic based on submission_status */}
                         {(() => {
                           const isOwnItem = item.pic?.toLowerCase() === profile?.full_name?.toLowerCase();
                           const canEdit = isAdmin || !isStaff || isOwnItem;
                           const isLocked = item.submission_status === 'submitted';
-                          
-                          // Locked items: Only admin/leader can edit, Staff cannot
-                          if (isLocked && isStaff) {
-                            return <button disabled className="p-1.5 text-gray-300 cursor-help rounded-lg" title="Finalized & Locked. Waiting for Management Grading."><Lock className="w-4 h-4" /></button>;
-                          }
-                          // Staff can only edit their own items
-                          if (!canEdit) {
-                            return <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg" title="You can only edit your own tasks"><Lock className="w-4 h-4" /></button>;
-                          }
+                          if (isLocked && isStaff) return <button disabled className="p-1.5 text-gray-300 cursor-help rounded-lg" title="Finalized & Locked"><Lock className="w-4 h-4" /></button>;
+                          if (!canEdit) return <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg" title="You can only edit your own tasks"><Lock className="w-4 h-4" /></button>;
                           return <button onClick={() => onEdit(item)} className="p-1.5 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>;
                         })()}
-                        
-                        {/* Delete Button - Simplified lock logic */}
                         {(() => {
                           const isLocked = item.submission_status === 'submitted';
                           const isAchieved = item.status?.toLowerCase() === 'achieved';
-                          
-                          if (isStaff) {
-                            return <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg" title="Staff cannot delete items"><Lock className="w-4 h-4" /></button>;
-                          }
-                          if (isLocked && !isAdmin) {
-                            return <span className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg inline-block" title="Locked by Leader"><Trash2 className="w-4 h-4" /></span>;
-                          }
-                          if (isAchieved && !isAdmin) {
-                            return <span className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg inline-block" title="Cannot delete achieved items"><Trash2 className="w-4 h-4" /></span>;
-                          }
+                          if (isStaff) return <button disabled className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg" title="Staff cannot delete items"><Lock className="w-4 h-4" /></button>;
+                          if (isLocked && !isAdmin) return <span className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg inline-block" title="Locked by Leader"><Trash2 className="w-4 h-4" /></span>;
+                          if (isAchieved && !isAdmin) return <span className="p-1.5 text-gray-300 cursor-not-allowed rounded-lg inline-block" title="Cannot delete achieved items"><Trash2 className="w-4 h-4" /></span>;
                           return <button onClick={() => onDelete(item)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>;
                         })()}
                       </div>

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, ShieldCheck, Send, ChevronDown, Check } from 'lucide-react';
+import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, ShieldCheck, Send, ChevronDown, Check, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
@@ -17,22 +18,6 @@ const CURRENT_YEAR = new Date().getFullYear();
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
-// Convert JSON data to CSV string
-const jsonToCSV = (data, columns) => {
-  const header = columns.map(col => col.label).join(',');
-  const rows = data.map(row => 
-    columns.map(col => {
-      let value = row[col.key] ?? '';
-      // Escape quotes and wrap in quotes if contains comma, quote, or newline
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-        value = `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    }).join(',')
-  );
-  return [header, ...rows].join('\n');
-};
-
 export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
   const { isAdmin, isLeader } = useAuth();
   const { toast } = useToast();
@@ -43,7 +28,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
   
   // Column visibility
-  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
+  const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
   
   // Filter states - initialize status from prop if provided
   const [searchQuery, setSearchQuery] = useState('');
@@ -430,42 +415,52 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     }
   };
 
-  // Export CSV handler
-  const handleExportCSV = async () => {
+  // Export Excel handler
+  const handleExportExcel = async () => {
     setExporting(true);
     try {
       // Define columns for export
       const columns = [
         { key: 'month', label: 'Month' },
+        { key: 'category', label: 'Category' },
+        { key: 'area_focus', label: 'Focus Area' },
         { key: 'goal_strategy', label: 'Goal/Strategy' },
         { key: 'action_plan', label: 'Action Plan' },
         { key: 'indicator', label: 'Indicator' },
         { key: 'pic', label: 'PIC' },
-        { key: 'report_format', label: 'Report Format' },
+        { key: 'evidence', label: 'Evidence' },
         { key: 'status', label: 'Status' },
-        { key: 'outcome_link', label: 'Outcome' },
-        { key: 'remark', label: 'Remark' },
+        { key: 'score', label: 'Score' },
+        { key: 'outcome_link', label: 'Proof of Evidence' },
+        { key: 'remark', label: 'Remarks' },
         { key: 'created_at', label: 'Created At' },
       ];
 
       // Use all plans (full dataset for the year, not filtered/paginated)
-      const exportData = plans.map(plan => ({
-        ...plan,
-        created_at: plan.created_at ? new Date(plan.created_at).toLocaleDateString() : '',
-      }));
+      const exportData = plans.map(plan => {
+        const row = {};
+        columns.forEach(col => {
+          let value = plan[col.key] ?? '';
+          if (col.key === 'created_at' && value) {
+            value = new Date(value).toLocaleDateString();
+          }
+          row[col.label] = value;
+        });
+        return row;
+      });
 
-      // Generate CSV
-      const csv = jsonToCSV(exportData, columns);
+      // Create worksheet and workbook
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
       
-      // Create and trigger download
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      // Set column widths
+      ws['!cols'] = columns.map(() => ({ wch: 20 }));
+      
+      // Generate filename and download
       const timestamp = new Date().toISOString().split('T')[0];
       const year = plans[0]?.year || CURRENT_YEAR;
-      link.href = URL.createObjectURL(blob);
-      link.download = `${departmentCode}_Action_Plans_${year}_${timestamp}.csv`;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      XLSX.writeFile(wb, `${departmentCode}_Action_Plans_${year}_${timestamp}.xlsx`);
     } catch (error) {
       console.error('Export failed:', error);
       toast({ title: 'Export Failed', description: 'Failed to export data. Please try again.', variant: 'error' });
@@ -647,14 +642,14 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               <Trash2 className="w-4 h-4" />
             </button>
 
-            {/* Export CSV Button */}
+            {/* Export Excel Button */}
             <button
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
               disabled={exporting || plans.length === 0}
               className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Export CSV'}
+              <FileSpreadsheet className="w-4 h-4" />
+              {exporting ? 'Exporting...' : 'Export Excel'}
             </button>
 
             {/* Leader Submit/Recall Report Button - ONLY visible for Leaders (not Admins) */}
@@ -771,6 +766,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onFilterChange={setSelectedStatus}
           activeFilter={selectedStatus}
           selectedMonth={selectedMonth}
+          startMonth={startMonth}
+          endMonth={endMonth}
         />
         
         {/* Control Toolbar */}
@@ -801,7 +798,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               {/* Column Toggle */}
               <ColumnToggle 
                 visibleColumns={visibleColumns} 
+                columnOrder={columnOrder}
                 toggleColumn={toggleColumn} 
+                moveColumn={moveColumn}
+                reorderColumns={reorderColumns}
                 resetColumns={resetColumns} 
               />
               
@@ -1013,6 +1013,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={isAdmin ? handleOpenGradeModal : undefined}
           visibleColumns={visibleColumns}
+          columnOrder={columnOrder}
         />
       </main>
 
@@ -1043,7 +1044,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Month Selector Modal - Smart UX for finalize when no month selected */}
       {showMonthSelector && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
@@ -1107,7 +1108,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Incomplete Items Blocking Modal */}
       {showIncompleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
@@ -1166,7 +1167,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Recall Success Modal - Big Green Popup for Reassurance (supports bulk and single) */}
       {recallSuccess.isOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 text-center animate-in fade-in zoom-in-95 duration-300">
             {/* Large Shield Icon */}
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-lg">
@@ -1273,7 +1274,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Custom Modal System (replaces native alerts) */}
       {modalConfig.isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             {/* Icon based on type */}
             <div className="flex items-center gap-3 mb-4">

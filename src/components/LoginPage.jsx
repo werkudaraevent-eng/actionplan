@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Building2, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from './Toast';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [shake, setShake] = useState(false);
   const { signIn } = useAuth();
+  const { toast } = useToast();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,19 +22,48 @@ export default function LoginPage() {
 
       if (signInError) {
         // Handle specific error messages
+        let errorMessage = '';
         if (signInError.message.includes('Invalid login credentials')) {
-          setError('Invalid email or password. Please try again.');
+          errorMessage = 'Invalid email or password. Please try again.';
         } else if (signInError.message.includes('Email not confirmed')) {
-          setError('Please verify your email address before logging in.');
+          errorMessage = 'Please verify your email address before logging in.';
         } else {
-          setError(signInError.message);
+          errorMessage = signInError.message || 'Login failed. Please check your credentials.';
         }
+        
+        // Show error in both inline message and toast
+        setError(errorMessage);
+        toast({ 
+          title: 'Login Failed', 
+          description: errorMessage, 
+          variant: 'error' 
+        });
+        
+        // Shake animation for form feedback
+        setShake(true);
+        setTimeout(() => setShake(false), 500);
+        
+        // Clear password field for security
+        setPassword('');
         setLoading(false);
+        return; // Stop execution - do NOT reload page
       }
-      // If successful, the AuthContext will handle the state change
-      // and App.jsx will redirect based on role
+      
+      // Success - show welcome toast
+      toast({ 
+        title: 'Welcome back!', 
+        description: 'Redirecting to dashboard...', 
+        variant: 'success' 
+      });
+      // The AuthContext will handle the state change and App.jsx will redirect based on role
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
+      const errorMessage = 'An unexpected error occurred. Please try again.';
+      setError(errorMessage);
+      toast({ 
+        title: 'Error', 
+        description: errorMessage, 
+        variant: 'error' 
+      });
       setLoading(false);
     }
   };
@@ -54,7 +86,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className={`space-y-5 ${shake ? 'animate-shake' : ''}`}>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               Email Address
@@ -65,7 +97,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
                 placeholder="you@werkudara.com"
                 required
                 disabled={loading}
@@ -83,7 +115,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
                 placeholder="••••••••"
                 required
                 disabled={loading}

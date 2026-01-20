@@ -12,7 +12,16 @@ const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const COMPLETION_TARGET = 80;
 const QUALITY_SCORE_TARGET = 80;
 
-export default function DashboardCards({ data, onFilterChange, activeFilter = 'all', selectedMonth = 'All' }) {
+export default function DashboardCards({ 
+  data, 
+  onFilterChange, 
+  activeFilter = 'all', 
+  selectedMonth = 'All',
+  // New props for explicit range control
+  startMonth = null,
+  endMonth = null,
+  selectedYear = null
+}) {
   const total = data.length;
   const achieved = data.filter((item) => item.status === 'Achieved').length;
   const inProgress = data.filter((item) => item.status === 'On Progress').length;
@@ -21,15 +30,29 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
   
   // Adaptive Completion Rate Logic
   const currentMonthIndex = new Date().getMonth(); // 0-11
-  const isAllMonthsView = selectedMonth === 'All' || selectedMonth === 'All Months' || selectedMonth === 'all';
+  const currentYear = new Date().getFullYear();
+  const viewYear = selectedYear || currentYear;
   
-  // Only apply YTD filtering when viewing "All Months"
-  const completionPlans = isAllMonthsView
+  // Determine if we're in YTD mode or Period mode
+  // YTD Mode: Full year view (Jan-Dec) for current year - apply YTD cutoff
+  // Period Mode: Specific range selected - use data as-is (already filtered)
+  const isFullYearView = startMonth === 'Jan' && endMonth === 'Dec';
+  const isCurrentYear = viewYear === currentYear;
+  const isYTDMode = isFullYearView && isCurrentYear;
+  
+  // Legacy fallback for selectedMonth prop
+  const isAllMonthsView = selectedMonth === 'All' || selectedMonth === 'All Months' || selectedMonth === 'all';
+  const shouldApplyYTD = startMonth && endMonth 
+    ? isYTDMode  // Use new logic if range props provided
+    : isAllMonthsView && isCurrentYear; // Legacy fallback
+  
+  // Only apply YTD filtering when in YTD mode
+  const completionPlans = shouldApplyYTD
     ? data.filter(item => {
         const monthIndex = MONTH_ORDER[item.month];
         return monthIndex !== undefined && monthIndex <= currentMonthIndex;
       })
-    : data;
+    : data; // Period mode: use data as-is (already filtered by parent)
   
   const ytdAchieved = completionPlans.filter(item => item.status === 'Achieved').length;
   const ytdTotal = completionPlans.length;
@@ -38,17 +61,17 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
   const completionRate = ytdTotal > 0 ? Number(((ytdAchieved  / ytdTotal) * 100).toFixed(1)) : 0;
   const completionGap = Number((completionRate - COMPLETION_TARGET).toFixed(1));
   
-  // Calculate Average Score with YTD logic
+  // Calculate Average Score with same logic
   const gradedItemsBase = data.filter(item => 
     item.submission_status === 'submitted' && item.quality_score != null
   );
   
-  const gradedItems = isAllMonthsView
+  const gradedItems = shouldApplyYTD
     ? gradedItemsBase.filter(item => {
         const monthIndex = MONTH_ORDER[item.month];
         return monthIndex !== undefined && monthIndex <= currentMonthIndex;
       })
-    : gradedItemsBase;
+    : gradedItemsBase; // Period mode: use all graded items in the filtered data
   
   const avgScoreNum = gradedItems.length > 0 
     ? Number((gradedItems.reduce((sum, item) => sum + item.quality_score, 0) / gradedItems.length).toFixed(1))
@@ -62,7 +85,21 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
   
   // Helper: Generate date range label for tooltips
   const getDateRangeLabel = () => {
-    const year = new Date().getFullYear();
+    const year = viewYear;
+    
+    // If explicit range provided
+    if (startMonth && endMonth) {
+      if (startMonth === endMonth) {
+        return `${startMonth} ${year}`;
+      }
+      if (isYTDMode) {
+        const currentMonthName = MONTHS_ORDER[currentMonthIndex];
+        return `Jan - ${currentMonthName} ${year} (YTD)`;
+      }
+      return `${startMonth} - ${endMonth} ${year}`;
+    }
+    
+    // Legacy fallback
     if (!isAllMonthsView) {
       return `${selectedMonth} ${year}`;
     }
@@ -70,6 +107,26 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
     return `Jan - ${currentMonthName} ${year} (YTD)`;
   };
   const dateRangeLabel = getDateRangeLabel();
+  
+  // Dynamic period label for card titles
+  // Shows "(YTD)" for full year current year, or "(Jan - Mar)" for specific ranges
+  const getPeriodLabel = () => {
+    if (startMonth && endMonth) {
+      if (isYTDMode) {
+        return ' (YTD)';
+      }
+      if (startMonth === endMonth) {
+        return ` (${startMonth})`;
+      }
+      return ` (${startMonth} - ${endMonth})`;
+    }
+    // Legacy fallback
+    if (isAllMonthsView) {
+      return ' (YTD)';
+    }
+    return ` (${selectedMonth})`;
+  };
+  const periodLabel = getPeriodLabel();
   
   // Dynamic gradient for Quality Score based on performance
   const getScoreGradient = (score) => {
@@ -106,7 +163,7 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
           </div>
           <div>
             <p className="text-2xl font-bold">{completionRate}%</p>
-            <p className="text-xs text-green-100">Completion{isAllMonthsView ? ' (YTD)' : ''}</p>
+            <p className="text-xs text-green-100">Completion{periodLabel}</p>
           </div>
         </div>
         {/* Footer: Progress Bar + Gap */}
@@ -134,7 +191,7 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
         <div className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[50] min-w-[200px] whitespace-nowrap">
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-8 border-transparent border-b-gray-800" />
           <p className="font-medium border-b border-gray-600 pb-1 mb-1">
-            Action Plan Completion {isAllMonthsView ? '(YTD)' : ''}
+            Action Plan Completion{periodLabel}
           </p>
           <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-700/50 px-2 py-1 rounded text-xs">
             <Calendar className="w-3 h-3 text-gray-400" />
@@ -154,7 +211,7 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
           </div>
           <div>
             <p className="text-2xl font-bold">{avgScoreDisplay}</p>
-            <p className="text-xs text-white/80">Quality Score{isAllMonthsView ? ' (YTD)' : ''}</p>
+            <p className="text-xs text-white/80">Quality Score{periodLabel}</p>
           </div>
         </div>
         {/* Footer: YoY & Target Gap */}
@@ -182,7 +239,7 @@ export default function DashboardCards({ data, onFilterChange, activeFilter = 'a
         {/* Tooltip */}
         <div className="pointer-events-none absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[50] min-w-[200px] whitespace-nowrap">
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-8 border-transparent border-b-gray-800" />
-          <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality{isAllMonthsView ? ' (YTD)' : ''}</p>
+          <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality{periodLabel}</p>
           <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-700/50 px-2 py-1 rounded text-xs">
             <Calendar className="w-3 h-3 text-gray-400" />
             <span>{dateRangeLabel}</span>

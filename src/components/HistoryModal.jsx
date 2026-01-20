@@ -7,7 +7,7 @@ const CHANGE_TYPE_LABELS = {
   'MARKED_READY': { label: 'Marked Ready for Leader', color: 'bg-purple-100 text-purple-700', icon: '✅' },
   'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-amber-100 text-amber-700', icon: '🔄' },
   'REMARK_UPDATE': { label: 'Remark Updated', color: 'bg-purple-100 text-purple-700', icon: '📝' },
-  'OUTCOME_UPDATE': { label: 'Outcome Updated', color: 'bg-teal-100 text-teal-700', icon: '🔗' },
+  'OUTCOME_UPDATE': { label: 'Proof of Evidence Updated', color: 'bg-teal-100 text-teal-700', icon: '🔗' },
   'FULL_UPDATE': { label: 'Record Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️' },
   'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700', icon: '➕' },
   'DELETED': { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: '🗑️' },
@@ -68,7 +68,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">

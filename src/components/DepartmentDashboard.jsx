@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Target, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle, Star, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
+import { Target, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle, Star, TrendingUp, TrendingDown, PieChart, RotateCcw, X } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +7,9 @@ import { DEPARTMENTS, supabase } from '../lib/supabase';
 import PerformanceChart from './PerformanceChart';
 import PriorityFocusWidget from './PriorityFocusWidget';
 import KPICard from './KPICard';
+import { Switch } from './ui/switch';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 // Sort months chronologically
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
@@ -110,11 +113,15 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const [breakdownMetric, setBreakdownMetric] = useState('goal_strategy');
   const [timeMetric, setTimeMetric] = useState('monthly');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
-  const [chartMetric, setChartMetric] = useState('completion'); // 'score' or 'completion'
   
   // Month range filter states
-  const [startMonth, setStartMonth] = useState('');
-  const [endMonth, setEndMonth] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
+  const [startMonth, setStartMonth] = useState('Jan');
+  const [endMonth, setEndMonth] = useState('Dec');
+  const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
+
+  // Computed chartMetric based on isCompletionView toggle (for chart compatibility)
+  const chartMetric = isCompletionView ? 'completion' : 'score';
 
   // Historical stats for selected year (hybrid data source)
   const [historicalStats, setHistoricalStats] = useState([]);
@@ -138,21 +145,58 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const deptInfo = DEPARTMENTS.find((d) => d.code === departmentCode);
   const deptName = deptInfo?.name || departmentCode;
 
+  // Helper functions for filter management
+  const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
+  
+  const resetFilters = () => {
+    setSelectedYear(CURRENT_YEAR);
+    setSelectedPeriod('FY');
+    setStartMonth('Jan');
+    setEndMonth('Dec');
+  };
+  
+  const handlePeriodChange = (period) => {
+    setSelectedPeriod(period);
+    if (period === 'FY') {
+      setStartMonth('Jan');
+      setEndMonth('Dec');
+    } else if (period === 'Q1') {
+      setStartMonth('Jan');
+      setEndMonth('Mar');
+    } else if (period === 'Q2') {
+      setStartMonth('Apr');
+      setEndMonth('Jun');
+    } else if (period === 'Q3') {
+      setStartMonth('Jul');
+      setEndMonth('Sep');
+    } else if (period === 'Q4') {
+      setStartMonth('Oct');
+      setEndMonth('Dec');
+    }
+    // 'Custom' - don't change months, let user pick manually
+  };
+  
+  const getFilterRangeLabel = () => {
+    if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
+    if (startMonth === endMonth) return startMonth;
+    return `${startMonth} – ${endMonth}`;
+  };
+  
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY';
+
   // Filter plans by selected year and month range
   const yearFilteredPlans = useMemo(() => {
     let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
     
-    // Apply month range filter if set
-    if (startMonth || endMonth) {
-      const startIdx = startMonth ? MONTH_ORDER[startMonth] : 0;
-      const endIdx = endMonth ? MONTH_ORDER[endMonth] : 11;
-      
-      filtered = filtered.filter((plan) => {
-        const planMonthIdx = MONTH_ORDER[plan.month];
-        if (planMonthIdx === undefined) return true; // Include plans without month
-        return planMonthIdx >= startIdx && planMonthIdx <= endIdx;
-      });
-    }
+    // Apply month range filter
+    const startIdx = MONTH_ORDER[startMonth] ?? 0;
+    const endIdx = MONTH_ORDER[endMonth] ?? 11;
+    
+    filtered = filtered.filter((plan) => {
+      const planMonthIdx = MONTH_ORDER[plan.month];
+      if (planMonthIdx === undefined) return true; // Include plans without month
+      return planMonthIdx >= startIdx && planMonthIdx <= endIdx;
+    });
     
     return filtered;
   }, [plans, selectedYear, startMonth, endMonth]);
@@ -202,6 +246,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Current month index for YTD calculations
   const currentMonthIndex = new Date().getMonth(); // 0 = Jan, 11 = Dec
 
+  // Determine if we're in YTD mode (Full Year + Current Year)
+  // YTD mode: Only count plans up to current month
+  // Period mode: Respect the selected range without YTD cutoff
+  const isYTDMode = selectedPeriod === 'FY' && selectedYear === CURRENT_YEAR;
+
   // Calculate stats from year-filtered plans (with historical fallback)
   const stats = useMemo(() => {
     // If we have real plans, calculate from them
@@ -213,25 +262,26 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
       const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
       
-      // YTD Logic for Action Plan Completion:
-      // If viewing current year without specific month filter, only count plans due up to current month
-      const isYTDActive = selectedYear === CURRENT_YEAR && !startMonth && !endMonth;
-      
-      let ytdPlans = yearFilteredPlans;
-      if (isYTDActive) {
-        ytdPlans = yearFilteredPlans.filter(p => {
+      // FILTER MODE LOGIC:
+      // - YTD Mode (FY + Current Year): Only count plans where month <= current month
+      // - Period Mode (Q1, Q2, Custom, etc.): Use all plans in the selected range (no YTD cutoff)
+      let statsPlans = yearFilteredPlans;
+      if (isYTDMode) {
+        // YTD: Filter to plans due on or before current month
+        statsPlans = yearFilteredPlans.filter(p => {
           const planMonthIdx = MONTH_ORDER[p.month];
           return planMonthIdx !== undefined && planMonthIdx <= currentMonthIndex;
         });
       }
+      // If not YTD mode, use yearFilteredPlans as-is (already filtered by selected period)
       
-      const ytdTotal = ytdPlans.length;
-      const ytdAchieved = ytdPlans.filter((p) => p.status === 'Achieved').length;
-      const completionRate = ytdTotal > 0 ? Number(((ytdAchieved / ytdTotal) * 100).toFixed(1)) : 0;
+      const statsTotal = statsPlans.length;
+      const statsAchieved = statsPlans.filter((p) => p.status === 'Achieved').length;
+      const completionRate = statsTotal > 0 ? Number(((statsAchieved / statsTotal) * 100).toFixed(1)) : 0;
       
-      // Quality Score: Average of graded items (THE HERO METRIC)
-      // Apply same YTD logic - only include scores from months <= current month when viewing current year
-      const gradedItems = (isYTDActive ? ytdPlans : yearFilteredPlans).filter(p => 
+      // Quality Score: Average of graded items
+      // Apply same filter logic
+      const gradedItems = statsPlans.filter(p => 
         p.submission_status === 'submitted' && p.quality_score != null
       );
       const qualityScore = gradedItems.length > 0 
@@ -244,9 +294,9 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         completionRate, qualityScore, gradedCount, 
         isHistorical: false,
         // YTD specific stats
-        isYTD: isYTDActive,
-        ytdTotal,
-        ytdAchieved,
+        isYTD: isYTDMode,
+        ytdTotal: statsTotal,
+        ytdAchieved: statsAchieved,
         ytdMonthName: MONTHS_ORDER[currentMonthIndex]
       };
     }
@@ -819,79 +869,141 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Header - Sticky with high z-index */}
+      {/* Unified Sticky Header - Title + All Filters */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          {/* Left: Title */}
           <div>
             <h1 className="text-2xl font-bold text-gray-800">{deptName}</h1>
-            <p className="text-gray-500 text-sm">
-              Department Performance Dashboard — FY {selectedYear}
-              {(startMonth || endMonth) && (
-                <span className="ml-1 text-teal-600">
-                  ({startMonth || 'Jan'} - {endMonth || 'Dec'})
-                </span>
-              )}
-            </p>
+            <p className="text-gray-500 text-sm">Department Performance Dashboard — FY {selectedYear}</p>
           </div>
-          <div className="flex items-center gap-4">
+          
+          {/* Right: All Filters - Compact Layout */}
+          <div className="flex flex-wrap items-center gap-2">
             {/* Year Selector */}
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-500" />
-              <div className="flex gap-1">
+            <Select 
+              value={selectedYear.toString()} 
+              onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
+            >
+              <SelectTrigger className="w-[120px] h-8 text-sm pl-3">
+                <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
                 {AVAILABLE_YEARS.map((year) => (
-                  <button
-                    key={year}
-                    onClick={() => setSelectedYear(year)}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                      selectedYear === year ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
+                  <SelectItem key={year} value={year.toString()}>
                     {year}
-                  </button>
+                  </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Period Selector (Unified) */}
+            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+              <SelectTrigger className="w-[120px] h-8 text-sm bg-slate-50">
+                <SelectValue placeholder="Period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FY">Full Year</SelectItem>
+                <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
+                <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
+                <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
+                <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
+                <SelectItem value="Custom">Custom...</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            {/* Custom Month Pickers (Only show if Custom) */}
+            {selectedPeriod === 'Custom' && (
+              <div className="flex items-center gap-1">
+                <Select value={startMonth} onValueChange={setStartMonth}>
+                  <SelectTrigger className="w-[70px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS_ORDER.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-gray-400 text-sm">–</span>
+                <Select value={endMonth} onValueChange={setEndMonth}>
+                  <SelectTrigger className="w-[70px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS_ORDER.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+            )}
+            
+            <div className="h-6 w-px bg-gray-200"></div>
+            
+            {/* Global View Mode Toggle (Switch) */}
+            <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-gray-200">
+              <Label 
+                htmlFor="dept-view-mode-switch" 
+                className={`text-xs font-medium cursor-pointer transition-colors ${!isCompletionView ? 'text-purple-600' : 'text-gray-400'}`}
+                onClick={() => setIsCompletionView(false)}
+              >
+                Score
+              </Label>
+              <Switch 
+                id="dept-view-mode-switch" 
+                checked={isCompletionView}
+                onCheckedChange={setIsCompletionView}
+                className={isCompletionView ? 'bg-emerald-500' : 'bg-purple-500'}
+              />
+              <Label 
+                htmlFor="dept-view-mode-switch" 
+                className={`text-xs font-medium cursor-pointer transition-colors ${isCompletionView ? 'text-emerald-600' : 'text-gray-400'}`}
+                onClick={() => setIsCompletionView(true)}
+              >
+                Completion
+              </Label>
             </div>
             
-            {/* Month Range Filter */}
-            <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
-              <span className="text-xs text-gray-500">Period:</span>
-              <select
-                value={startMonth}
-                onChange={(e) => setStartMonth(e.target.value)}
-                className="appearance-none bg-white border border-gray-200 rounded-lg px-2 py-1.5 pr-6 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            {/* Reset Filters Button (Only show when filters are active) */}
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+                title="Reset all filters"
               >
-                <option value="">From</option>
-                {MONTHS_ORDER.map((month) => (
-                  <option key={month} value={month}>{month}</option>
-                ))}
-              </select>
-              <span className="text-gray-400">—</span>
-              <select
-                value={endMonth}
-                onChange={(e) => setEndMonth(e.target.value)}
-                className="appearance-none bg-white border border-gray-200 rounded-lg px-2 py-1.5 pr-6 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="">To</option>
-                {MONTHS_ORDER.map((month) => (
-                  <option key={month} value={month}>{month}</option>
-                ))}
-              </select>
-              {(startMonth || endMonth) && (
-                <button
-                  onClick={() => { setStartMonth(''); setEndMonth(''); }}
-                  className="text-xs text-teal-600 hover:text-teal-700 font-medium"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+            )}
             
-            <div className="text-right">
+            {/* User Info */}
+            <div className="text-right border-l border-gray-200 pl-3">
               <p className="text-sm text-gray-500">Welcome back,</p>
               <p className="font-medium text-gray-800">{profile?.full_name}</p>
             </div>
           </div>
         </div>
+        
+        {/* Active Filters Summary */}
+        {hasActiveFilters && (
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-500">Filters:</span>
+            {selectedYear !== CURRENT_YEAR && (
+              <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                {selectedYear}
+              </span>
+            )}
+            {selectedPeriod !== 'FY' && (
+              <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1">
+                {selectedPeriod === 'Custom' ? getFilterRangeLabel() : selectedPeriod}
+                <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            <span className="text-xs text-gray-400 ml-auto">{yearFilteredPlans.length} plans</span>
+          </div>
+        )}
       </header>
 
       <main className="p-6">
@@ -1155,34 +1267,6 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
         {/* 2x2 Matrix Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Metric Toggle - spans full width */}
-          <div className="lg:col-span-2 flex items-center justify-end">
-            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1">
-              <button
-                onClick={() => setChartMetric('completion')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  chartMetric === 'completion'
-                    ? 'bg-green-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Completion Rate
-              </button>
-              <button
-                onClick={() => setChartMetric('score')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  chartMetric === 'score'
-                    ? 'bg-purple-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <Star className="w-3.5 h-3.5" />
-                Quality Score
-              </button>
-            </div>
-          </div>
-
           {/* QUADRANT 1 (Top Left): Strategy/PIC Breakdown Chart */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
             <div className="flex items-start justify-between mb-4">

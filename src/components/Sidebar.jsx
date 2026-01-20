@@ -1,18 +1,37 @@
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { DEPARTMENTS } from '../lib/supabase';
 
-export default function Sidebar({ currentView, onNavigate }) {
+export default function Sidebar() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { profile, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
 
   const handleSignOut = async () => {
     await signOut();
+    navigate('/');
   };
 
   // Get department name for dept_head users
   const getUserDeptName = () => {
     const dept = DEPARTMENTS.find((d) => d.code === departmentCode);
     return dept ? dept.name : departmentCode;
+  };
+
+  // Check if current path matches
+  const isActive = (path) => {
+    if (path === '/dashboard') return location.pathname === '/dashboard';
+    if (path === '/plans') return location.pathname === '/plans';
+    if (path === '/users') return location.pathname === '/users';
+    if (path === '/settings') return location.pathname === '/settings';
+    if (path === '/profile') return location.pathname === '/profile';
+    if (path === '/workspace') return location.pathname === '/workspace';
+    // Department routes
+    if (path.startsWith('/dept/')) {
+      return location.pathname === path || location.pathname.startsWith(path + '/');
+    }
+    return location.pathname === path;
   };
 
   return (
@@ -48,11 +67,9 @@ export default function Sidebar({ currentView, onNavigate }) {
             {/* ADMIN VIEW: Full menu */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Overview</p>
             <button
-              onClick={() => onNavigate('dashboard')}
+              onClick={() => navigate('/dashboard')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                currentView === 'dashboard'
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive('/dashboard') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -60,11 +77,9 @@ export default function Sidebar({ currentView, onNavigate }) {
             </button>
             
             <button
-              onClick={() => onNavigate('all-plans')}
+              onClick={() => navigate('/plans')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${
-                currentView === 'all-plans'
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive('/plans') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <ListChecks className="w-4 h-4" />
@@ -76,11 +91,9 @@ export default function Sidebar({ currentView, onNavigate }) {
               {DEPARTMENTS.map((dept) => (
                 <button
                   key={dept.code}
-                  onClick={() => onNavigate(`dept-${dept.code}`)}
+                  onClick={() => navigate(`/dept/${dept.code}/plans`)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                    currentView === `dept-${dept.code}`
-                      ? 'bg-teal-600 text-white'
-                      : 'text-teal-200 hover:bg-teal-700/50'
+                    isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
                   }`}
                 >
                   <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
@@ -93,22 +106,18 @@ export default function Sidebar({ currentView, onNavigate }) {
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
             <button
-              onClick={() => onNavigate('users')}
+              onClick={() => navigate('/users')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                currentView === 'users'
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <Users className="w-4 h-4" />
               <span className="text-sm">Team Management</span>
             </button>
             <button
-              onClick={() => onNavigate('settings')}
+              onClick={() => navigate('/settings')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                currentView === 'settings'
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <Settings className="w-4 h-4" />
@@ -121,11 +130,9 @@ export default function Sidebar({ currentView, onNavigate }) {
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
             
             <button
-              onClick={() => onNavigate('my-workspace')}
+              onClick={() => navigate('/workspace')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                currentView === 'my-workspace'
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive('/workspace') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <ClipboardList className="w-4 h-4" />
@@ -134,11 +141,9 @@ export default function Sidebar({ currentView, onNavigate }) {
 
             {/* Allow staff to view department dashboard */}
             <button
-              onClick={() => onNavigate(`dept-dashboard-${departmentCode}`)}
+              onClick={() => navigate(`/dept/${departmentCode}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                currentView === `dept-dashboard-${departmentCode}`
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${departmentCode}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -156,11 +161,9 @@ export default function Sidebar({ currentView, onNavigate }) {
             
             {/* Dashboard Link */}
             <button
-              onClick={() => onNavigate(`dept-dashboard-${departmentCode}`)}
+              onClick={() => navigate(`/dept/${departmentCode}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                currentView === `dept-dashboard-${departmentCode}`
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${departmentCode}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -169,11 +172,9 @@ export default function Sidebar({ currentView, onNavigate }) {
             
             {/* Manage Action Plans Link */}
             <button
-              onClick={() => onNavigate(`dept-${departmentCode}`)}
+              onClick={() => navigate(`/dept/${departmentCode}/plans`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                currentView === `dept-${departmentCode}`
-                  ? 'bg-teal-600 text-white'
-                  : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${departmentCode}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <Table className="w-4 h-4" />
@@ -187,8 +188,17 @@ export default function Sidebar({ currentView, onNavigate }) {
         )}
       </nav>
 
-      {/* Sign Out */}
-      <div className="p-3 border-t border-teal-700 flex-shrink-0">
+      {/* My Profile & Sign Out */}
+      <div className="p-3 border-t border-teal-700 flex-shrink-0 space-y-1">
+        <button
+          onClick={() => navigate('/profile')}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+            isActive('/profile') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+          }`}
+        >
+          <UserCircle className="w-4 h-4" />
+          <span className="text-sm">My Profile</span>
+        </button>
         <button
           onClick={handleSignOut}
           className="w-full flex items-center gap-2 px-3 py-2.5 text-teal-200 hover:bg-teal-700/50 rounded-lg transition-all"

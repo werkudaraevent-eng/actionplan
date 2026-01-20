@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -62,13 +62,21 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB
   const [loadingReasons, setLoadingReasons] = useState(false);
+  const [areaFocusOptions, setAreaFocusOptions] = useState([]); // Dynamic area focus options
+  const [categoryOptions, setCategoryOptions] = useState([]); // Dynamic category options
+  const [goalOptions, setGoalOptions] = useState([]); // Dynamic goal/strategy options
+  const [actionPlanOptions, setActionPlanOptions] = useState([]); // Dynamic action plan templates
+  const [loadingDropdowns, setLoadingDropdowns] = useState(false);
   const [formData, setFormData] = useState({
     department_code: departmentCode || '',
     month: 'Jan',
+    category: '',
+    area_focus: '',
     goal_strategy: '',
     action_plan: '',
     indicator: '',
     pic: '',
+    evidence: '',
     report_format: 'Monthly Report',
     status: 'Pending',
     outcome_link: '',
@@ -78,6 +86,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // Failure reason state (for "Not Achieved" status)
   const [failureReason, setFailureReason] = useState('');
   const [otherReason, setOtherReason] = useState('');
+  
+  // Custom input mode state (for Goal/Strategy and Action Plan)
+  const [isCustomGoal, setIsCustomGoal] = useState(false);
+  const [isCustomAction, setIsCustomAction] = useState(false);
 
   // Fetch all staff/profiles when modal opens
   useEffect(() => {
@@ -90,6 +102,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   useEffect(() => {
     if (isOpen) {
       fetchFailureReasons();
+      fetchDropdownOptions();
     }
   }, [isOpen]);
 
@@ -131,6 +144,34 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     }
   };
 
+  const fetchDropdownOptions = async () => {
+    setLoadingDropdowns(true);
+    try {
+      const { data, error } = await supabase
+        .from('dropdown_options')
+        .select('id, label, category, sort_order')
+        .in('category', ['area_focus', 'category', 'goal', 'action_plan'])
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      
+      if (error) throw error;
+      
+      // Separate by category
+      setAreaFocusOptions((data || []).filter(d => d.category === 'area_focus'));
+      setCategoryOptions((data || []).filter(d => d.category === 'category'));
+      setGoalOptions((data || []).filter(d => d.category === 'goal'));
+      setActionPlanOptions((data || []).filter(d => d.category === 'action_plan'));
+    } catch (err) {
+      console.error('Failed to fetch dropdown options:', err);
+      setAreaFocusOptions([]);
+      setCategoryOptions([]);
+      setGoalOptions([]);
+      setActionPlanOptions([]);
+    } finally {
+      setLoadingDropdowns(false);
+    }
+  };
+
   // Filter staff by selected department
   const filteredStaff = useMemo(() => {
     if (!formData.department_code) return [];
@@ -148,6 +189,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       setFormData(editData);
       setRepeatEnabled(false);
       setSelectedMonths([]);
+      // Determine if existing values are custom (not in dropdown options)
+      setIsCustomGoal(editData.goal_strategy && !goalOptions.some(o => o.label === editData.goal_strategy));
+      setIsCustomAction(editData.action_plan && !actionPlanOptions.some(o => o.label === editData.action_plan));
       // Parse existing failure reason from remark if present
       const remarkMatch = editData.remark?.match(/^\[Cause: (.+?)\]\s*/);
       if (remarkMatch) {
@@ -178,14 +222,19 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         status: 'Pending',
         outcome_link: '',
         remark: '',
+        area_focus: '',
+        category: '',
+        evidence: '',
       });
       setRepeatEnabled(false);
       setSelectedMonths([]);
       setFailureReason('');
       setOtherReason('');
+      setIsCustomGoal(false);
+      setIsCustomAction(false);
     }
     setShowConfirm(false);
-  }, [editData, isOpen, departmentCode, failureReasons]);
+  }, [editData, isOpen, departmentCode, failureReasons, goalOptions, actionPlanOptions]);
 
   // Clear PIC when department changes (only for new plans)
   const handleDepartmentChange = (newDeptCode) => {
@@ -290,20 +339,22 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-100">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* STICKY HEADER */}
+        <div className="p-6 border-b border-gray-100 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-800">
               {editData ? 'Edit Action Plan' : 'Add New Action Plan'}
             </h2>
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
               <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {/* SCROLLABLE BODY */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* REVISION REQUESTED ALERT - Shows when Management sent item back for revision */}
           {editData?.admin_feedback && 
            editData?.submission_status !== 'submitted' && 
@@ -422,7 +473,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
 
           {(hasFullAccess && !isLocked) && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              {/* Row 1: Department & Month */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
                   <select
@@ -455,29 +507,154 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 </div>
               </div>
 
+              {/* Row 2: Category & Area Focus */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <select
+                    value={formData.category || ''}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    disabled={loadingDropdowns}
+                  >
+                    <option value="">Select category...</option>
+                    {categoryOptions.map((opt) => (
+                      <option key={opt.id} value={opt.label}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Area to be Focus</label>
+                  <select
+                    value={formData.area_focus || ''}
+                    onChange={(e) => setFormData({ ...formData, area_focus: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    disabled={loadingDropdowns}
+                  >
+                    <option value="">Select focus area...</option>
+                    {areaFocusOptions.map((opt) => (
+                      <option key={opt.id} value={opt.label}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Row 3: Goal/Strategy (Full Width) - Select with Custom Option */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Goal/Strategy</label>
-                <input
-                  type="text"
-                  value={formData.goal_strategy}
-                  onChange={(e) => setFormData({ ...formData, goal_strategy: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  required
-                />
+                {isCustomGoal ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.goal_strategy}
+                      onChange={(e) => setFormData({ ...formData, goal_strategy: e.target.value })}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      placeholder="Type your custom strategy..."
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomGoal(false);
+                        setFormData({ ...formData, goal_strategy: '' });
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      title="Back to list"
+                    >
+                      <List className="w-4 h-4 text-gray-500" />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={goalOptions.some(o => o.label === formData.goal_strategy) ? formData.goal_strategy : (formData.goal_strategy ? '__CUSTOM__' : '')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__CUSTOM_ENTRY__') {
+                        setIsCustomGoal(true);
+                        setFormData({ ...formData, goal_strategy: '' });
+                      } else if (val === '__CUSTOM__') {
+                        // Keep current custom value, switch to custom mode
+                        setIsCustomGoal(true);
+                      } else {
+                        setFormData({ ...formData, goal_strategy: val });
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    disabled={loadingDropdowns}
+                    required={!isCustomGoal}
+                  >
+                    <option value="">Select strategy...</option>
+                    {goalOptions.map((opt) => (
+                      <option key={opt.id} value={opt.label}>{opt.label}</option>
+                    ))}
+                    {formData.goal_strategy && !goalOptions.some(o => o.label === formData.goal_strategy) && (
+                      <option value="__CUSTOM__">📝 {formData.goal_strategy}</option>
+                    )}
+                    <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Strategy...</option>
+                  </select>
+                )}
               </div>
 
+              {/* Row 4: Action Plan (Full Width) - Select with Custom Option */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Action Plan</label>
-                <textarea
-                  value={formData.action_plan}
-                  onChange={(e) => setFormData({ ...formData, action_plan: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  rows={2}
-                  required
-                />
+                {isCustomAction ? (
+                  <div className="flex gap-2">
+                    <textarea
+                      value={formData.action_plan}
+                      onChange={(e) => setFormData({ ...formData, action_plan: e.target.value })}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      placeholder="Type your custom action plan..."
+                      rows={2}
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomAction(false);
+                        setFormData({ ...formData, action_plan: '' });
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors self-start"
+                      title="Back to list"
+                    >
+                      <List className="w-4 h-4 text-gray-500" />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={actionPlanOptions.some(o => o.label === formData.action_plan) ? formData.action_plan : (formData.action_plan ? '__CUSTOM__' : '')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__CUSTOM_ENTRY__') {
+                        setIsCustomAction(true);
+                        setFormData({ ...formData, action_plan: '' });
+                      } else if (val === '__CUSTOM__') {
+                        // Keep current custom value, switch to custom mode
+                        setIsCustomAction(true);
+                      } else {
+                        setFormData({ ...formData, action_plan: val });
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    disabled={loadingDropdowns}
+                    required={!isCustomAction}
+                  >
+                    <option value="">Select action plan...</option>
+                    {actionPlanOptions.map((opt) => (
+                      <option key={opt.id} value={opt.label}>{opt.label}</option>
+                    ))}
+                    {formData.action_plan && !actionPlanOptions.some(o => o.label === formData.action_plan) && (
+                      <option value="__CUSTOM__">📝 {formData.action_plan}</option>
+                    )}
+                    <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Action Plan...</option>
+                  </select>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Row 5: Indicator & PIC */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Indicator (KPI)</label>
                   <input
@@ -530,22 +707,23 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 </div>
               </div>
 
+              {/* Row 6: Evidence (Full Width) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Report Format</label>
-                <select
-                  value={formData.report_format}
-                  onChange={(e) => setFormData({ ...formData, report_format: e.target.value })}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Evidence (Target Output)</label>
+                <textarea
+                  value={formData.evidence || ''}
+                  onChange={(e) => setFormData({ ...formData, evidence: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                >
-                  {REPORT_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
+                  rows={2}
+                  placeholder="Describe the expected evidence or target output..."
+                />
               </div>
             </>
           )}
 
           {/* Limited access mode: Show read-only context for staff OR when locked (but NOT for admin override) */}
           {(!hasFullAccess || isLocked) && !isAdminOverride && editData && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3 border border-gray-200">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Task Details (Read Only)</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
@@ -556,14 +734,18 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   <span className="text-gray-500">Month:</span>
                   <span className="ml-2 font-medium text-gray-800">{editData.month}</span>
                 </div>
-                <div>
-                  <span className="text-gray-500">PIC:</span>
-                  <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Report Format:</span>
-                  <span className="ml-2 font-medium text-gray-800">{editData.report_format}</span>
-                </div>
+                {editData.category && (
+                  <div>
+                    <span className="text-gray-500">Category:</span>
+                    <span className="ml-2 font-medium text-gray-800">{editData.category}</span>
+                  </div>
+                )}
+                {editData.area_focus && (
+                  <div>
+                    <span className="text-gray-500">Area to be Focus:</span>
+                    <span className="ml-2 font-medium text-gray-800">{editData.area_focus}</span>
+                  </div>
+                )}
               </div>
               <div>
                 <span className="text-gray-500 text-sm">Goal/Strategy:</span>
@@ -573,13 +755,26 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <span className="text-gray-500 text-sm">Action Plan:</span>
                 <p className="text-gray-800 text-sm mt-1">{editData.action_plan}</p>
               </div>
-              <div>
-                <span className="text-gray-500 text-sm">KPI:</span>
-                <p className="text-gray-800 text-sm mt-1">{editData.indicator}</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Indicator (KPI):</span>
+                  <p className="text-gray-800 mt-1">{editData.indicator}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">PIC:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
+                </div>
               </div>
+              {editData.evidence && (
+                <div>
+                  <span className="text-gray-500 text-sm">Evidence (Target Output):</span>
+                  <p className="text-gray-800 text-sm mt-1">{editData.evidence}</p>
+                </div>
+              )}
             </div>
           )}
 
+          {/* Row 7: Status (Full Width - Score is read-only, set by admin grading) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select
@@ -596,9 +791,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           </select>
           </div>
 
+          {/* Row 8: Proof of Evidence (Full Width) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Outcome / Evidence
+              Proof of Evidence (Link/URL)
               {(formData.status === 'Achieved' || formData.status === 'Not Achieved') && (
                 <span className="text-red-500 ml-1">*</span>
               )}
@@ -627,7 +823,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               <p className="text-red-500 text-xs mt-1">Please enter a valid URL</p>
             )}
             {(formData.status === 'Achieved' || formData.status === 'Not Achieved') && (!formData.outcome_link || formData.outcome_link.length < 5) && (
-              <p className="text-amber-600 text-xs mt-1">⚠️ Outcome is required for {formData.status} status (min 5 characters)</p>
+              <p className="text-amber-600 text-xs mt-1">⚠️ Proof of Evidence is required for {formData.status} status (min 5 characters)</p>
             )}
           </div>
 
@@ -693,8 +889,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             </div>
           )}
 
+          {/* Row 9: Remark (Full Width) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Remark/Analysis</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Remark / Notes</label>
             <textarea
               value={formData.remark || ''}
               onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
@@ -702,7 +899,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 (isLocked && !isAdminOverride) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
               }`}
               rows={3}
-              placeholder="Enter your analysis or evaluation..."
+              placeholder="Enter your notes, analysis, or additional comments..."
               disabled={isLocked && !isAdminOverride}
             />
           </div>
@@ -793,64 +990,69 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               </div>
             </div>
           )}
+        </div>
 
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={() => { setShowConfirm(false); onClose(); }}
-              className={`px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors ${
-                (isLocked && !isAdminOverride) ? 'flex-1' : 'flex-1'
-              }`}
-            >
-              {(isLocked && !isAdminOverride) ? 'Close' : 'Cancel'}
-            </button>
-            {/* Hide Save button when locked (but show for admin override) */}
-            {(!isLocked || isAdminOverride) && (
+        {/* STICKY FOOTER */}
+        <div className="p-6 border-t border-gray-100 bg-gray-50/50 shrink-0 rounded-b-2xl">
+          <form onSubmit={handleSubmit}>
+            <div className="flex gap-3">
               <button
-                type="submit"
-                disabled={(() => {
-                  // Basic loading check
-                  if (loading) return true;
-                  
-                  // URL validation (if starts with http, must be valid)
-                  if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
-                  
-                  // Completion status validation
-                  const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
-                  
-                  if (isCompletionStatus) {
-                    // Outcome is required (min 5 chars) for completion statuses
-                    if (!formData.outcome_link || formData.outcome_link.trim().length < 5) return true;
-                  }
-                  
-                  // Additional validation for "Not Achieved"
-                  if (formData.status === 'Not Achieved') {
-                    // Failure reason is required
-                    if (!failureReason) return true;
-                    // If "Other" is selected, custom reason is required (min 3 chars)
-                    if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
-                  }
-                  
-                  return false;
-                })()}
-              className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-                isAdminOverride ? 'bg-red-600 hover:bg-red-700' :
-                showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
-              }`}
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
+                type="button"
+                onClick={() => { setShowConfirm(false); onClose(); }}
+                className={`px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors ${
+                  (isLocked && !isAdminOverride) ? 'flex-1' : 'flex-1'
+                }`}
+              >
+                {(isLocked && !isAdminOverride) ? 'Close' : 'Cancel'}
+              </button>
+              {/* Hide Save button when locked (but show for admin override) */}
+              {(!isLocked || isAdminOverride) && (
+                <button
+                  type="submit"
+                  disabled={(() => {
+                    // Basic loading check
+                    if (loading) return true;
+                    
+                    // URL validation (if starts with http, must be valid)
+                    if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
+                    
+                    // Completion status validation
+                    const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
+                    
+                    if (isCompletionStatus) {
+                      // Outcome is required (min 5 chars) for completion statuses
+                      if (!formData.outcome_link || formData.outcome_link.trim().length < 5) return true;
+                    }
+                    
+                    // Additional validation for "Not Achieved"
+                    if (formData.status === 'Not Achieved') {
+                      // Failure reason is required
+                      if (!failureReason) return true;
+                      // If "Other" is selected, custom reason is required (min 3 chars)
+                      if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
+                    }
+                    
+                    return false;
+                  })()}
+                className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+                  isAdminOverride ? 'bg-red-600 hover:bg-red-700' :
+                  showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
+                }`}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {loading ? 'Saving...' : 
+                  isAdminOverride ? 'Save (Admin Override)' :
+                  showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 
+                  'Save Changes'}
+              </button>
               )}
-              {loading ? 'Saving...' : 
-                isAdminOverride ? 'Save (Admin Override)' :
-                showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 
-                'Save Changes'}
-            </button>
-            )}
-          </div>
-        </form>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

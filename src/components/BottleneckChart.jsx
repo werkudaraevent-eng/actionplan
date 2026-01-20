@@ -9,7 +9,7 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
   const currentMonth = new Date().getMonth(); // 0-indexed
   
   // Fixed height to match YoY chart
-  const WIDGET_HEIGHT = 'h-[320px]';
+  const WIDGET_HEIGHT = 'h-[340px]';
 
   // Calculate bottleneck data (overdue items)
   const chartData = useMemo(() => {

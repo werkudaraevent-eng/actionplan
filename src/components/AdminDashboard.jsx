@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
   Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar, 
-  X, Users, ChevronDown, AlertTriangle, Star, RotateCcw 
+  X, Users, ChevronDown, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { DEPARTMENTS, supabase } from '../lib/supabase';
 import PerformanceChart from './PerformanceChart';
@@ -52,6 +52,7 @@ export default function AdminDashboard({ onNavigate }) {
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
   const [selectedDept, setSelectedDept] = useState('All');
+  const [selectedCategory, setSelectedCategory] = useState('All'); // Category/Priority filter
   const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
   const [orgMetric, setOrgMetric] = useState('department_code');
   const [stratMetric, setStratMetric] = useState('goal_strategy');
@@ -129,11 +130,16 @@ export default function AdminDashboard({ onNavigate }) {
     });
   }, [yearFilteredPlans, startMonth, endMonth]);
 
-  // Filter by department - exact match when a specific department is selected
+  // Filter by department and category - exact match when specific values are selected
   const filteredPlans = useMemo(() => {
-    if (selectedDept === 'All') return dateFilteredPlans;
-    return dateFilteredPlans.filter((plan) => plan.department_code === selectedDept);
-  }, [dateFilteredPlans, selectedDept]);
+    return dateFilteredPlans.filter((plan) => {
+      // Department filter
+      if (selectedDept !== 'All' && plan.department_code !== selectedDept) return false;
+      // Category/Priority filter
+      if (selectedCategory !== 'All' && plan.category !== selectedCategory) return false;
+      return true;
+    });
+  }, [dateFilteredPlans, selectedDept, selectedCategory]);
 
   // Also filter historical stats by department AND month range
   const filteredHistoricalStats = useMemo(() => {
@@ -228,12 +234,16 @@ export default function AdminDashboard({ onNavigate }) {
     const pending = filteredPlans.filter((p) => p.status === 'Pending').length;
     const notAchieved = filteredPlans.filter((p) => p.status === 'Not Achieved').length;
 
-    // Build department stats from real data
+    // Build department stats from real data - include both completion and score
     const deptMap = {};
     filteredPlans.forEach((plan) => {
-      if (!deptMap[plan.department_code]) deptMap[plan.department_code] = { total: 0, achieved: 0 };
+      if (!deptMap[plan.department_code]) deptMap[plan.department_code] = { total: 0, achieved: 0, scores: [] };
       deptMap[plan.department_code].total++;
       if (plan.status === 'Achieved') deptMap[plan.department_code].achieved++;
+      // Track quality scores for graded items
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        deptMap[plan.department_code].scores.push(plan.quality_score);
+      }
     });
 
     // Hybrid: For departments with no real data, use filtered historical stats
@@ -242,12 +252,17 @@ export default function AdminDashboard({ onNavigate }) {
 
     // First, add departments with real data
     Object.entries(deptMap).forEach(([code, s]) => {
+      const completion = s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0;
+      const score = s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0;
       byDepartment.push({
         code,
         name: code,
         total: s.total,
         achieved: s.achieved,
-        rate: s.total > 0 ? Number(((s.achieved  / s.total) * 100).toFixed(1)) : 0,
+        completion, // Completion rate
+        score,      // Quality score
+        rate: isCompletionView ? completion : score, // Dynamic based on toggle
+        graded: s.scores.length,
         isHistorical: false,
       });
       processedDepts.add(code);
@@ -268,17 +283,21 @@ export default function AdminDashboard({ onNavigate }) {
 
     // Add aggregated historical departments
     Object.entries(historicalByDept).forEach(([code, data]) => {
+      const completion = Number((data.sum / data.count).toFixed(1));
       byDepartment.push({
         code,
         name: code,
         total: 0,
         achieved: 0,
-        rate: Number((data.sum  / data.count).toFixed(1)),
+        completion, // Historical completion rate
+        score: 0,   // No score data for historical
+        rate: isCompletionView ? completion : 0, // Dynamic based on toggle
+        graded: 0,
         isHistorical: true,
       });
     });
 
-    // Sort by rate descending
+    // Sort by rate descending (rate is already dynamic based on isCompletionView)
     byDepartment.sort((a, b) => b.rate - a.rate);
 
     // Calculate overdue count (status != 'Achieved' AND month < current month)
@@ -291,33 +310,42 @@ export default function AdminDashboard({ onNavigate }) {
     }).length;
 
     return { total, achieved, inProgress, pending, notAchieved, byDepartment, overdue };
-  }, [filteredPlans, filteredHistoricalStats]);
+  }, [filteredPlans, filteredHistoricalStats, isCompletionView]);
+
+  // Determine if we're in YTD mode (Full Year + Current Year)
+  // YTD mode: Only count plans up to current month
+  // Period mode: Respect the selected range without YTD cutoff
+  const isYTDMode = selectedPeriod === 'FY' && selectedYear === CURRENT_YEAR;
 
   // Quality Score and Action Plan Completion stats (separate for clarity)
-  // With YTD Logic: Only count months from Jan up to Current Month for current year
-  // With Historical Fallback: Quality Score ONLY (not Completion)
+  // FILTER MODE LOGIC:
+  // - YTD Mode (FY + Current Year): Only count plans where month <= current month
+  // - Period Mode (Q1, Q2, Custom, etc.): Use all plans in the selected range (no YTD cutoff)
   const qualityStats = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const currentMonthIndex = new Date().getMonth(); // 0 = Jan
-    const isCurrentYear = selectedYear === currentYear;
-    const maxMonthIndex = isCurrentYear ? currentMonthIndex : 11; // If past year, take all 12 months
     
-    // Filter plans to YTD range (only for current year)
-    const ytdPlans = filteredPlans.filter(p => {
-      const planMonthIndex = MONTH_MAP[p.month];
-      if (planMonthIndex === undefined) return true; // Include if month is unknown
-      return planMonthIndex <= maxMonthIndex;
-    });
+    // Apply filter based on mode
+    let statsPlans = filteredPlans;
+    if (isYTDMode) {
+      // YTD Mode: Filter to plans due on or before current month
+      statsPlans = filteredPlans.filter(p => {
+        const planMonthIndex = MONTH_MAP[p.month];
+        if (planMonthIndex === undefined) return true; // Include if month is unknown
+        return planMonthIndex <= currentMonthIndex;
+      });
+    }
+    // If not YTD mode, use filteredPlans as-is (already filtered by selected period)
     
     // --- 1. COMPLETION RATE ---
-    const achieved = ytdPlans.filter(p => p.status === 'Achieved').length;
-    const ytdTotal = ytdPlans.length;
-    let completionRate = ytdTotal > 0 
-      ? Number(((achieved / ytdTotal) * 100).toFixed(1)) 
+    const achieved = statsPlans.filter(p => p.status === 'Achieved').length;
+    const statsTotal = statsPlans.length;
+    let completionRate = statsTotal > 0 
+      ? Number(((achieved / statsTotal) * 100).toFixed(1)) 
       : 0;
     
     // --- 2. QUALITY SCORE ---
-    const gradedItems = ytdPlans.filter(p => 
+    const gradedItems = statsPlans.filter(p => 
       p.submission_status === 'submitted' && p.quality_score != null
     );
     let qualityScore = gradedItems.length > 0 
@@ -328,7 +356,7 @@ export default function AdminDashboard({ onNavigate }) {
     // --- 3. HISTORICAL FALLBACK (From database historical_stats table) ---
     // When no real data exists AND viewing a past year, calculate from fetched historical_stats
     // NOTE: Quality Score system did not exist prior to 2026, so NO score data for past years
-    if (ytdTotal === 0 && selectedYear < currentYear && filteredHistoricalStats.length > 0) {
+    if (statsTotal === 0 && selectedYear < currentYear && filteredHistoricalStats.length > 0) {
       // Calculate company-wide average completion rate from historical_stats
       const avgCompletion = filteredHistoricalStats.reduce((sum, h) => sum + h.completion_rate, 0) / filteredHistoricalStats.length;
       completionRate = Number(avgCompletion.toFixed(1));
@@ -340,10 +368,10 @@ export default function AdminDashboard({ onNavigate }) {
       qualityScore,   // Will be null for historical years (no score system existed)
       gradedCount, 
       achievedCount: achieved,
-      ytdTotal,
-      isYTD: isCurrentYear && ytdTotal > 0 // Flag to show (YTD) label in UI
+      ytdTotal: statsTotal,
+      isYTD: isYTDMode && statsTotal > 0 // Flag to show (YTD) label in UI
     };
-  }, [filteredPlans, selectedYear, filteredHistoricalStats]);
+  }, [filteredPlans, selectedYear, filteredHistoricalStats, isYTDMode]);
 
   // Helper: Find department with most items of a given status (for KPI drill-down)
   const getDeptWithMostStatus = useMemo(() => {
@@ -474,16 +502,17 @@ export default function AdminDashboard({ onNavigate }) {
     return { x1: startMonth, x2: endMonth };
   }, [startMonth, endMonth]);
 
-  // Org Chart Data - with historical fallback
+  // Org Chart Data - with historical fallback - Now includes both completion and score
   const orgChartData = useMemo(() => {
-    // If we have real plans, use them - Score-centric
+    // If we have real plans, use them
     if (filteredPlans.length > 0) {
       const dataMap = {};
       filteredPlans.forEach((plan) => {
         let key = orgMetric === 'department_code' ? (plan.department_code || 'Unknown') : (plan.pic?.trim() || 'Unassigned');
         const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
-        if (!dataMap[shortName]) dataMap[shortName] = { total: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
+        if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
         dataMap[shortName].total++;
+        if (plan.status === 'Achieved') dataMap[shortName].achieved++;
         // Track quality scores for graded items
         if (plan.submission_status === 'submitted' && plan.quality_score != null) {
           dataMap[shortName].scores.push(plan.quality_score);
@@ -492,8 +521,16 @@ export default function AdminDashboard({ onNavigate }) {
       return Object.entries(dataMap).map(([name, s]) => ({ 
         name, 
         fullName: s.fullName, 
-        rate: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0, 
+        // Score metric
+        score: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0,
+        // Completion metric
+        completion: s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0,
+        // Rate is dynamic based on isCompletionView
+        rate: isCompletionView 
+          ? (s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0)
+          : (s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0),
         total: s.total, 
+        achieved: s.achieved,
         graded: s.scores.length 
       })).sort((a, b) => b.rate - a.rate);
     }
@@ -513,24 +550,28 @@ export default function AdminDashboard({ onNavigate }) {
       return Object.entries(deptAvgMap).map(([code, data]) => ({
         name: code,
         fullName: getDeptName(code),
-        rate: Number((data.sum  / data.count).toFixed(1)),
+        completion: Number((data.sum / data.count).toFixed(1)),
+        score: 0, // No score data for historical
+        rate: isCompletionView ? Number((data.sum / data.count).toFixed(1)) : 0,
         total: 0,
+        achieved: 0,
         graded: 0,
         isHistorical: true,
       })).sort((a, b) => b.rate - a.rate);
     }
     
     return [];
-  }, [filteredPlans, orgMetric, filteredHistoricalStats]);
+  }, [filteredPlans, orgMetric, filteredHistoricalStats, isCompletionView]);
 
-  // Strategy Chart Data - Score-centric (no historical fallback)
+  // Strategy Chart Data - Now includes both completion and score
   const stratChartData = useMemo(() => {
     const dataMap = {};
     filteredPlans.forEach((plan) => {
       let key = stratMetric === 'goal_strategy' ? (plan.goal_strategy?.trim() || 'Uncategorized') : (plan.report_format?.trim() || 'No Format');
       const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
-      if (!dataMap[shortName]) dataMap[shortName] = { total: 0, scores: [], fullName: key };
+      if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: key };
       dataMap[shortName].total++;
+      if (plan.status === 'Achieved') dataMap[shortName].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         dataMap[shortName].scores.push(plan.quality_score);
@@ -539,11 +580,98 @@ export default function AdminDashboard({ onNavigate }) {
     return Object.entries(dataMap).map(([name, s]) => ({ 
       name, 
       fullName: s.fullName, 
-      rate: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0, 
+      // Score metric
+      score: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0,
+      // Completion metric
+      completion: s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0,
+      // Rate is dynamic based on isCompletionView
+      rate: isCompletionView 
+        ? (s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0)
+        : (s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0),
       total: s.total, 
+      achieved: s.achieved,
       graded: s.scores.length 
     })).sort((a, b) => b.rate - a.rate);
-  }, [filteredPlans, stratMetric]);
+  }, [filteredPlans, stratMetric, isCompletionView]);
+
+  // Strategic Performance Stats - Focus Area and Category (Performance-based, not just volume)
+  const focusAreaStats = useMemo(() => {
+    const areaMap = {};
+    filteredPlans.forEach((plan) => {
+      const area = plan.area_focus?.trim() || 'Unspecified';
+      if (!areaMap[area]) areaMap[area] = { total: 0, achieved: 0, scores: [] };
+      areaMap[area].total++;
+      if (plan.status === 'Achieved') areaMap[area].achieved++;
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        areaMap[area].scores.push(plan.quality_score);
+      }
+    });
+    
+    // Convert to array with performance metrics
+    const sorted = Object.entries(areaMap)
+      .map(([name, data]) => ({ 
+        name: name.length > 28 ? name.substring(0, 25) + '...' : name, 
+        fullName: name,
+        volume: data.total,
+        achieved: data.achieved,
+        completionRate: data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0,
+        avgScore: data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : null,
+        graded: data.scores.length,
+        // Dynamic rate based on view mode
+        rate: isCompletionView 
+          ? (data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0)
+          : (data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : 0)
+      }))
+      .sort((a, b) => b.rate - a.rate); // Sort by performance, not volume
+    
+    // Take top 7 items
+    return sorted.slice(0, 7);
+  }, [filteredPlans, isCompletionView]);
+
+  // Category/Priority Performance Stats
+  const CATEGORY_COLORS = {
+    'UH': '#e11d48', // Rose-600 (Ultra High)
+    'H': '#f97316',  // Orange-500 (High)
+    'M': '#3b82f6',  // Blue-500 (Medium)
+    'L': '#64748b',  // Slate-500 (Low)
+    'Unspecified': '#d1d5db' // Gray-300
+  };
+  
+  const categoryStats = useMemo(() => {
+    const catMap = {};
+    filteredPlans.forEach((plan) => {
+      const cat = plan.category?.trim() || 'Unspecified';
+      if (!catMap[cat]) catMap[cat] = { total: 0, achieved: 0, scores: [] };
+      catMap[cat].total++;
+      if (plan.status === 'Achieved') catMap[cat].achieved++;
+      if (plan.submission_status === 'submitted' && plan.quality_score != null) {
+        catMap[cat].scores.push(plan.quality_score);
+      }
+    });
+    
+    // Define priority order (UH at top, L at bottom)
+    const priorityOrder = ['UH', 'H', 'M', 'L', 'Unspecified'];
+    
+    return priorityOrder
+      .filter(cat => catMap[cat] && catMap[cat].total > 0)
+      .map(cat => {
+        const data = catMap[cat];
+        return {
+          name: cat === 'UH' ? 'Ultra High' : cat === 'H' ? 'High' : cat === 'M' ? 'Medium' : cat === 'L' ? 'Low' : 'Unspecified',
+          shortName: cat,
+          volume: data.total,
+          achieved: data.achieved,
+          completionRate: data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0,
+          avgScore: data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : null,
+          graded: data.scores.length,
+          color: CATEGORY_COLORS[cat] || '#d1d5db',
+          // Dynamic rate based on view mode
+          rate: isCompletionView 
+            ? (data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0)
+            : (data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : 0)
+        };
+      });
+  }, [filteredPlans, isCompletionView]);
 
   // Check if viewing historical year with no real data
   const isHistoricalView = filteredPlans.length === 0 && filteredHistoricalStats.length > 0;
@@ -559,14 +687,16 @@ export default function AdminDashboard({ onNavigate }) {
     return <span className="w-5 h-5 flex items-center justify-center text-gray-400 font-medium">{index + 1}</span>;
   };
 
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedDept !== 'All' || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY';
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedDept !== 'All' || selectedCategory !== 'All' || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY';
   const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
   const clearDeptFilter = () => { setSelectedDept('All'); };
+  const clearCategoryFilter = () => { setSelectedCategory('All'); };
   
   // Reset all filters to default state
   const resetFilters = () => {
     setSelectedYear(CURRENT_YEAR);
     setSelectedDept('All');
+    setSelectedCategory('All');
     setSelectedPeriod('FY');
     setStartMonth('Jan');
     setEndMonth('Dec');
@@ -600,8 +730,10 @@ export default function AdminDashboard({ onNavigate }) {
     return `${startMonth} – ${endMonth}`;
   };
 
-  const orgTitle = orgMetric === 'department_code' ? 'Quality Score by Department' : 'Quality Score by PIC';
-  const stratTitle = stratMetric === 'goal_strategy' ? 'Quality Score by Strategy' : 'Quality Score by Report Format';
+  // Dynamic titles based on isCompletionView toggle
+  const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Quality Score';
+  const orgTitle = orgMetric === 'department_code' ? `${activeMetricLabel} by Department` : `${activeMetricLabel} by PIC`;
+  const stratTitle = stratMetric === 'goal_strategy' ? `${activeMetricLabel} by Strategy` : `${activeMetricLabel} by Report Format`;
 
   if (loading) {
     return (
@@ -633,7 +765,7 @@ export default function AdminDashboard({ onNavigate }) {
               value={selectedYear.toString()} 
               onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
             >
-              <SelectTrigger className="w-[90px] h-8 text-sm">
+              <SelectTrigger className="w-[120px] h-8 text-sm pl-3">
                 <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
@@ -658,6 +790,40 @@ export default function AdminDashboard({ onNavigate }) {
                     {dept.code}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Category/Priority Selector */}
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-[130px] h-8 text-sm">
+                <SelectValue placeholder="All Priorities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Priorities</SelectItem>
+                <SelectItem value="UH">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                    UH (Ultra High)
+                  </span>
+                </SelectItem>
+                <SelectItem value="H">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                    H (High)
+                  </span>
+                </SelectItem>
+                <SelectItem value="M">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    M (Medium)
+                  </span>
+                </SelectItem>
+                <SelectItem value="L">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                    L (Low)
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
             
@@ -756,6 +922,12 @@ export default function AdminDashboard({ onNavigate }) {
               <span className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
                 {getDeptName(selectedDept)} ({selectedDept})
                 <button onClick={clearDeptFilter} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {selectedCategory !== 'All' && (
+              <span className="px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full flex items-center gap-1">
+                Priority: {selectedCategory === 'UH' ? 'Ultra High' : selectedCategory === 'H' ? 'High' : selectedCategory === 'M' ? 'Medium' : 'Low'}
+                <button onClick={clearCategoryFilter} className="hover:text-rose-900"><X className="w-3 h-3" /></button>
               </span>
             )}
             {selectedPeriod !== 'FY' && (
@@ -1163,10 +1335,192 @@ export default function AdminDashboard({ onNavigate }) {
         />
         </div>
 
+        {/* Strategic Performance - Focus Area & Priority Execution */}
+        {!isHistoricalView && filteredPlans.length > 0 && (focusAreaStats.length > 0 || categoryStats.length > 0) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Focus Area Performance - Horizontal Bar Chart */}
+            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-slate-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Success Rate by Focus Area</h3>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">Which strategic areas are we actually delivering on?</p>
+              {focusAreaStats.length > 0 ? (
+                <div className="h-[280px] w-full">
+                  <ResponsiveContainer>
+                    <BarChart 
+                      layout="vertical" 
+                      data={focusAreaStats} 
+                      margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
+                      <XAxis type="number" domain={[0, 100]} hide />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        width={150} 
+                        tick={{ fontSize: 11, fill: '#4b5563' }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={0}
+                      />
+                      <Tooltip 
+                        cursor={{ fill: 'transparent' }}
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-lg min-w-[180px]">
+                                <p className="font-medium text-gray-800 text-sm mb-2">{data.fullName}</p>
+                                <div className="space-y-1">
+                                  <p className="flex justify-between">
+                                    <span className="text-gray-500">{isCompletionView ? 'Completion:' : 'Avg Score:'}</span>
+                                    <span className={`font-bold ${data.rate >= 80 ? 'text-emerald-600' : data.rate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                                      {data.rate}%
+                                    </span>
+                                  </p>
+                                  <p className="flex justify-between">
+                                    <span className="text-gray-500">Volume:</span>
+                                    <span className="font-medium">{data.volume} plans</span>
+                                  </p>
+                                  {isCompletionView && (
+                                    <p className="flex justify-between text-xs">
+                                      <span className="text-gray-400">Achieved:</span>
+                                      <span className="text-gray-600">{data.achieved} of {data.volume}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar 
+                        dataKey="rate" 
+                        radius={[0, 4, 4, 0]} 
+                        barSize={24}
+                      >
+                        {focusAreaStats.map((entry, index) => (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={entry.rate >= 80 ? '#059669' : entry.rate >= 50 ? '#f59e0b' : '#ef4444'} 
+                          />
+                        ))}
+                        <LabelList 
+                          dataKey="rate" 
+                          position="right" 
+                          formatter={(val) => `${val}%`}
+                          fill="#374151"
+                          fontSize={11}
+                          fontWeight={600}
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg">
+                  <p className="text-gray-400 text-sm">No focus area data available</p>
+                </div>
+              )}
+            </div>
+
+            {/* Priority Execution - Horizontal Bar Chart */}
+            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <PieChartIcon className="w-5 h-5 text-slate-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Execution by Priority</h3>
+                </div>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">Are we hitting our "Ultra High" targets?</p>
+              {categoryStats.length > 0 ? (
+                <div className="h-[280px] w-full">
+                  <ResponsiveContainer>
+                    <BarChart 
+                      layout="vertical" 
+                      data={categoryStats} 
+                      margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
+                      <XAxis type="number" domain={[0, 100]} hide />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        width={100} 
+                        tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip 
+                        cursor={{ fill: 'transparent' }}
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-lg min-w-[180px]">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: data.color }}></span>
+                                  <p className="font-medium text-gray-800">{data.name} ({data.shortName})</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="flex justify-between">
+                                    <span className="text-gray-500">{isCompletionView ? 'Completion:' : 'Avg Score:'}</span>
+                                    <span className="font-bold" style={{ color: data.color }}>{data.rate}%</span>
+                                  </p>
+                                  <p className="flex justify-between">
+                                    <span className="text-gray-500">Volume:</span>
+                                    <span className="font-medium">{data.volume} plans</span>
+                                  </p>
+                                  {isCompletionView && (
+                                    <p className="flex justify-between text-xs">
+                                      <span className="text-gray-400">Achieved:</span>
+                                      <span className="text-gray-600">{data.achieved} of {data.volume}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar 
+                        dataKey="rate" 
+                        radius={[0, 4, 4, 0]} 
+                        barSize={32}
+                      >
+                        {categoryStats.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                        <LabelList 
+                          dataKey="rate" 
+                          position="right" 
+                          formatter={(val) => `${val}%`}
+                          fill="#374151"
+                          fontSize={12}
+                          fontWeight={600}
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg">
+                  <p className="text-gray-400 text-sm">No category data available</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Strategy Analysis - Combo Chart (Volume + Completion) */}
         {!isHistoricalView && filteredPlans.length > 0 && (
           <div className="mb-6">
-            <StrategyComboChart plans={filteredPlans} />
+            <StrategyComboChart plans={filteredPlans} isCompletionView={isCompletionView} />
           </div>
         )}
 
@@ -1204,12 +1558,22 @@ export default function AdminDashboard({ onNavigate }) {
               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-yellow-500" />Department Leaderboard — {selectedYear}
               </h2>
-              <p className="text-gray-500 text-sm">Ranked by quality score</p>
+              <p className="text-gray-500 text-sm">Ranked by {isCompletionView ? 'completion rate' : 'quality score'}</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-700"></span> ≥90%</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-700"></span> 70-89%</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-700"></span> &lt;70%</span>
+              {isCompletionView ? (
+                <>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> ≥90%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-400"></span> 70-89%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-300"></span> &lt;70%</span>
+                </>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-600"></span> ≥90%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 70-89%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400"></span> &lt;70%</span>
+                </>
+              )}
             </div>
           </div>
           <div className="divide-y divide-gray-100">
@@ -1220,36 +1584,48 @@ export default function AdminDashboard({ onNavigate }) {
                   : `No data for ${selectedYear}`}
               </div>
             ) : (
-              filteredLeaderboard.map((dept, index) => (
-                <div key={dept.code} className={`p-4 flex items-center gap-4 ${index < 3 && selectedDept === 'All' ? 'bg-gradient-to-r from-yellow-50/50 to-transparent' : ''}`}>
-                  <div className="w-8 flex justify-center">{getRankIcon(index)}</div>
-                  <div className="w-14 text-center"><span className="font-mono text-sm font-semibold bg-teal-100 text-teal-700 px-2 py-1 rounded">{dept.code}</span></div>
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-800">{getDeptName(dept.code)}</p>
-                    <p className="text-sm text-gray-500">
-                      {dept.isHistorical 
-                        ? <span className="text-amber-600 italic">Historical data</span>
-                        : `${dept.achieved} of ${dept.total} achieved`
-                      }
-                    </p>
-                  </div>
-                  <div className="w-40">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
-                        {/* Target marker */}
-                        {annualTarget && (
-                          <div 
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 
-                            style={{ left: `${annualTarget}%` }}
-                          />
-                        )}
-                        <div className="h-full rounded-full" style={{ width: `${dept.rate}%`, backgroundColor: dept.rate >= 90 ? '#15803d' : dept.rate >= 70 ? '#b45309' : '#b91c1c' }} />
+              filteredLeaderboard.map((dept, index) => {
+                // Dynamic color based on isCompletionView
+                const progressColor = isCompletionView 
+                  ? (dept.rate >= 90 ? '#059669' : dept.rate >= 70 ? '#34d399' : '#6ee7b7') // Emerald shades
+                  : (dept.rate >= 90 ? '#d97706' : dept.rate >= 70 ? '#f59e0b' : '#fbbf24'); // Amber shades
+                const textColor = isCompletionView
+                  ? (dept.rate >= 90 ? '#059669' : dept.rate >= 70 ? '#10b981' : '#34d399')
+                  : (dept.rate >= 90 ? '#d97706' : dept.rate >= 70 ? '#f59e0b' : '#fbbf24');
+                
+                return (
+                  <div key={dept.code} className={`p-4 flex items-center gap-4 ${index < 3 && selectedDept === 'All' ? 'bg-gradient-to-r from-yellow-50/50 to-transparent' : ''}`}>
+                    <div className="w-8 flex justify-center">{getRankIcon(index)}</div>
+                    <div className="w-14 text-center"><span className="font-mono text-sm font-semibold bg-teal-100 text-teal-700 px-2 py-1 rounded">{dept.code}</span></div>
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">{getDeptName(dept.code)}</p>
+                      <p className="text-sm text-gray-500">
+                        {dept.isHistorical 
+                          ? <span className="text-amber-600 italic">Historical data</span>
+                          : isCompletionView 
+                            ? `${dept.achieved} of ${dept.total} achieved`
+                            : `${dept.graded} graded of ${dept.total} total`
+                        }
+                      </p>
+                    </div>
+                    <div className="w-40">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
+                          {/* Target marker */}
+                          {annualTarget && isCompletionView && (
+                            <div 
+                              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 
+                              style={{ left: `${annualTarget}%` }}
+                            />
+                          )}
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(dept.rate, 100)}%`, backgroundColor: progressColor }} />
+                        </div>
+                        <span className="text-sm font-bold w-12 text-right" style={{ color: textColor }}>{dept.rate}%</span>
                       </div>
-                      <span className="text-sm font-bold w-12 text-right" style={{ color: dept.rate >= 90 ? '#15803d' : dept.rate >= 70 ? '#b45309' : '#b91c1c' }}>{dept.rate}%</span>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

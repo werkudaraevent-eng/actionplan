@@ -35,7 +35,7 @@ export default function StaffWorkspace() {
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   
   // Column visibility
-  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
+  const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
 
   const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
   const userName = profile?.full_name || '';
@@ -466,7 +466,10 @@ export default function StaffWorkspace() {
               {/* Column Toggle */}
               <ColumnToggle 
                 visibleColumns={visibleColumns} 
+                columnOrder={columnOrder}
                 toggleColumn={toggleColumn} 
+                moveColumn={moveColumn}
+                reorderColumns={reorderColumns}
                 resetColumns={resetColumns} 
               />
               
@@ -675,6 +678,7 @@ export default function StaffWorkspace() {
               onStatusChange={handleStatusChange}
               onCompletionStatusChange={handleCompletionStatusChange}
               visibleColumns={visibleColumns}
+              columnOrder={columnOrder}
             />
           </div>
         )}

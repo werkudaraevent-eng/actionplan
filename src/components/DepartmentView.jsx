@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, ShieldCheck, Send, ChevronDown, Check, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, ShieldCheck, Send, ChevronDown, Check, FileSpreadsheet, Flag } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -35,6 +35,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
   const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
   const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
@@ -197,8 +198,20 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // TABLE DATA: Base data filtered FURTHER by Status, then SORTED by Month (for Table - dynamic)
   const tablePlans = useMemo(() => {
     let filtered = basePlans;
+    
+    // Status filter
     if (selectedStatus !== 'all') {
-      filtered = basePlans.filter((plan) => plan.status === selectedStatus);
+      filtered = filtered.filter((plan) => plan.status === selectedStatus);
+    }
+    
+    // Category filter (UH, H, M, L)
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter((plan) => {
+        const planCategory = (plan.category || '').toUpperCase();
+        // Extract the category code (first word before space or parenthesis)
+        const planCategoryCode = planCategory.split(/[\s(]/)[0];
+        return planCategoryCode === selectedCategory.toUpperCase();
+      });
     }
     
     // Sort by month chronologically (Jan -> Dec), then by ID descending (newest first within same month)
@@ -207,16 +220,17 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       if (monthDiff !== 0) return monthDiff;
       return (b.id || 0) - (a.id || 0); // Newest first within same month
     });
-  }, [basePlans, selectedStatus]);
+  }, [basePlans, selectedStatus, selectedCategory]);
 
   // Check if any filters are active
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || searchQuery.trim();
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setStartMonth('Jan');
     setEndMonth('Dec');
     setSelectedStatus('all');
+    setSelectedCategory('all');
   };
   
   const clearMonthFilter = () => {
@@ -760,9 +774,9 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       </header>
 
       <main className="p-6">
-        {/* KPI Cards - Uses BASE data (Month + Search only) for stable context */}
+        {/* KPI Cards - Uses FILTERED data (all filters applied) for accurate stats */}
         <DashboardCards 
-          data={basePlans} 
+          data={tablePlans} 
           onFilterChange={setSelectedStatus}
           activeFilter={selectedStatus}
           selectedMonth={selectedMonth}
@@ -954,6 +968,22 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                   </>
                 )}
               </div>
+              
+              {/* Category/Priority Filter */}
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <Flag className="w-4 h-4 text-gray-500" />
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="UH">UH - Ultra High</option>
+                  <option value="H">H - High</option>
+                  <option value="M">M - Medium</option>
+                  <option value="L">L - Low</option>
+                </select>
+              </div>
             </div>
           </div>
           
@@ -984,6 +1014,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
                   Status: {selectedStatus}
                   <button onClick={() => setSelectedStatus('all')} className="hover:text-purple-900">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              
+              {selectedCategory !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full">
+                  Priority: {selectedCategory}
+                  <button onClick={() => setSelectedCategory('all')} className="hover:text-rose-900">
                     <X className="w-3 h-3" />
                   </button>
                 </span>

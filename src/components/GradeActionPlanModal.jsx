@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
@@ -105,12 +105,36 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       {/* Main Container - Fixed height with flex column */}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         
+        {/* Determine mode */}
+        {(() => {
+          const isUpdateMode = plan.quality_score != null;
+          return (
+            <>
         {/* SECTION 1: STICKY HEADER - Context/Metadata (Does NOT scroll) */}
-        <div className="p-5 border-b border-gray-200 shrink-0 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-t-xl">
+        <div className={`p-5 border-b border-gray-200 shrink-0 rounded-t-xl ${
+          isUpdateMode 
+            ? 'bg-gradient-to-r from-blue-50 to-indigo-50' 
+            : 'bg-gradient-to-r from-purple-50 to-indigo-50'
+        }`}>
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-bold text-gray-800">Review & Grade</h2>
-              <p className="text-sm text-gray-500">Evaluate submission quality</p>
+            <div className="flex items-center gap-3">
+              {isUpdateMode ? (
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Pencil className="w-5 h-5 text-blue-600" />
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                  <Star className="w-5 h-5 text-purple-600" />
+                </div>
+              )}
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">
+                  {isUpdateMode ? 'Update Assessment' : 'New Assessment'}
+                </h2>
+                <p className="text-sm text-gray-500">
+                  {isUpdateMode ? 'Modify existing grade' : 'Evaluate submission quality'}
+                </p>
+              </div>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-lg transition-colors">
               <X className="w-5 h-5 text-gray-500" />
@@ -154,6 +178,27 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
         {/* SECTION 2: SCROLLABLE BODY - Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          
+          {/* UPDATE MODE SAFETY BANNER */}
+          {isUpdateMode && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+              <Info className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+              <div>
+                <h4 className="font-bold text-blue-800 text-sm">Update Mode Active</h4>
+                <p className="text-sm text-blue-700 mt-1">
+                  Current Score: <span className="font-bold text-lg">{plan.quality_score}</span>
+                  {plan.reviewed_at && (
+                    <span className="opacity-75 ml-2">
+                      (Graded on {new Date(plan.reviewed_at).toLocaleDateString()})
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Submitting will overwrite the existing score and feedback.
+                </p>
+              </div>
+            </div>
+          )}
           
           {/* The Reference - Action Plan, Indicator & Target Evidence */}
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-4">
@@ -327,16 +372,23 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
           <button
             onClick={handleApprove}
             disabled={loading}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+            className={`px-5 py-2.5 text-white rounded-lg transition-colors font-medium flex items-center gap-2 disabled:opacity-50 ${
+              isUpdateMode 
+                ? 'bg-blue-600 hover:bg-blue-700' 
+                : 'bg-green-600 hover:bg-green-700'
+            }`}
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
-            Approve ({score})
+            {isUpdateMode ? `Update Grade (${score})` : `Approve (${score})`}
           </button>
         </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* Confirmation Modal for Rejection */}

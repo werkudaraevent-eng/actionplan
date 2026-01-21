@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper, ChevronDown, Check, FileSpreadsheet } from 'lucide-react';
+import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper, ChevronDown, Check, FileSpreadsheet, Flag, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -21,7 +21,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const { isAdmin } = useAuth();
   const { toast } = useToast();
   // Fetch ALL plans (no department filter)
-  const { plans, loading, updatePlan, deletePlan, updateStatus, gradePlan } = useActionPlans(null);
+  const { plans, loading, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan, bulkResetGrades } = useActionPlans(null);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
@@ -38,6 +38,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [endMonth, setEndMonth] = useState('Dec');
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [selectedDept, setSelectedDept] = useState(initialDeptFilter || 'all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
   const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
   const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
@@ -51,6 +52,11 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   
   // Grade modal state
   const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
+
+  // Bulk reset state
+  const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
+  const [resettingAll, setResettingAll] = useState(false);
+  const [resetConfirmationText, setResetConfirmationText] = useState('');
 
   // Update filters when props change (from dashboard drill-down)
   useEffect(() => {
@@ -78,6 +84,26 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       p.submission_status === 'submitted' && p.quality_score == null
     ).length;
   }, [plans]);
+
+  // Count graded items (for bulk reset feature)
+  const gradedCount = useMemo(() => {
+    return plans.filter(p => p.quality_score != null).length;
+  }, [plans]);
+
+  // Bulk reset handler
+  const handleBulkReset = async () => {
+    setResettingAll(true);
+    try {
+      const count = await bulkResetGrades();
+      toast({ title: 'Bulk Reset Complete', description: `Successfully reset ${count} graded items.`, variant: 'success' });
+      setShowBulkResetConfirm(false);
+    } catch (error) {
+      console.error('Bulk reset failed:', error);
+      toast({ title: 'Reset Failed', description: error.message || 'Failed to reset grades.', variant: 'error' });
+    } finally {
+      setResettingAll(false);
+    }
+  };
 
   // Department filter for grading tab
   const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
@@ -131,6 +157,16 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         return false;
       }
       
+      // Category filter (UH, H, M, L)
+      if (selectedCategory !== 'all') {
+        const planCategory = (plan.category || '').toUpperCase();
+        // Extract the category code (first word before space or parenthesis)
+        const planCategoryCode = planCategory.split(/[\s(]/)[0];
+        if (planCategoryCode !== selectedCategory.toUpperCase()) {
+          return false;
+        }
+      }
+      
       // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -152,9 +188,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       
       return true;
     });
-  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, searchQuery, activeTab, needsGradingPlans]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, activeTab, needsGradingPlans]);
 
-  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || searchQuery.trim();
+  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -162,6 +198,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     setEndMonth('Dec');
     setSelectedStatus('all');
     setSelectedDept('all');
+    setSelectedCategory('all');
   };
   
   const clearMonthFilter = () => {
@@ -308,6 +345,30 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     }
   };
 
+  // Quick reset state (individual item reset from table)
+  const [quickResetItem, setQuickResetItem] = useState(null);
+  const [quickResetting, setQuickResetting] = useState(false);
+
+  // Quick reset handler - opens confirmation, then wipes the item
+  const handleQuickReset = (item) => {
+    setQuickResetItem(item);
+  };
+
+  const confirmQuickReset = async () => {
+    if (!quickResetItem) return;
+    setQuickResetting(true);
+    try {
+      await resetPlan(quickResetItem.id);
+      toast({ title: 'Reset Complete', description: 'Item has been wiped and reverted to Pending.', variant: 'success' });
+      setQuickResetItem(null);
+    } catch (error) {
+      console.error('Quick reset failed:', error);
+      toast({ title: 'Reset Failed', description: error.message || 'Failed to reset item.', variant: 'error' });
+    } finally {
+      setQuickResetting(false);
+    }
+  };
+
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Header */}
@@ -318,6 +379,20 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             <p className="text-gray-500 text-sm">Company-wide Master Tracker — {plans.length} total plans</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Bulk Reset All Grades Button - Danger Zone */}
+            {gradedCount > 0 && (
+              <button
+                onClick={() => setShowBulkResetConfirm(true)}
+                disabled={resettingAll}
+                className="flex items-center gap-2 px-4 py-2.5 border border-red-300 text-red-600 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset All Grades
+                <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded">
+                  {gradedCount}
+                </span>
+              </button>
+            )}
             <button
               onClick={handleExportExcel}
               disabled={exporting || filteredPlans.length === 0}
@@ -576,6 +651,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                   ))}
                 </select>
               </div>
+              
+              {/* Category/Priority Filter */}
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                <Flag className="w-4 h-4 text-gray-500" />
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="UH">UH - Ultra High</option>
+                  <option value="H">H - High</option>
+                  <option value="M">M - Medium</option>
+                  <option value="L">L - Low</option>
+                </select>
+              </div>
             </div>
           </div>
           
@@ -615,6 +706,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
                   Status: {selectedStatus}
                   <button onClick={() => setSelectedStatus('all')} className="hover:text-purple-900">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              
+              {selectedCategory !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full">
+                  Priority: {selectedCategory}
+                  <button onClick={() => setSelectedCategory('all')} className="hover:text-rose-900">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -666,6 +766,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={handleOpenGradeModal}
+          onQuickReset={handleQuickReset}
           showDepartmentColumn={true}
           visibleColumns={visibleColumns}
           columnOrder={columnOrder}
@@ -704,6 +805,149 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         onGrade={handleGrade}
         plan={gradeModal.plan}
       />
+
+      {/* Bulk Reset Confirmation Modal */}
+      {showBulkResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Complete Wipe All?</h3>
+                <p className="text-sm text-gray-500">This is a destructive action</p>
+              </div>
+            </div>
+            
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <p className="text-red-800 text-sm font-medium mb-2">
+                ⚠️ DANGER: COMPLETE WIPE
+              </p>
+              <p className="text-red-700 text-sm">
+                You are about to wipe <strong>{gradedCount}</strong> graded items. This will reset them as if they were never submitted:
+              </p>
+              <ul className="text-red-700 text-sm mt-2 space-y-1 list-disc list-inside">
+                <li>Remove all quality scores</li>
+                <li>Revert all statuses to "Pending"</li>
+                <li>Clear all admin feedback</li>
+                <li>Clear all proof of evidence links</li>
+                <li>Clear all staff remarks</li>
+              </ul>
+              <p className="text-red-800 text-sm font-medium mt-3">
+                This action cannot be undone!
+              </p>
+            </div>
+            
+            {/* Type-to-Confirm Safety */}
+            <div className="mb-4">
+              <label className="text-sm text-gray-700 block mb-2">
+                To confirm, type <span className="font-bold text-red-600 select-none">RESET</span> below:
+              </label>
+              <input
+                type="text"
+                value={resetConfirmationText}
+                onChange={(e) => setResetConfirmationText(e.target.value)}
+                placeholder="Type RESET to confirm"
+                autoComplete="off"
+                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors"
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowBulkResetConfirm(false);
+                  setResetConfirmationText('');
+                }}
+                disabled={resettingAll}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  handleBulkReset();
+                  setResetConfirmationText('');
+                }}
+                disabled={resettingAll || resetConfirmationText !== 'RESET'}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resettingAll ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+                {resettingAll ? 'Wiping...' : 'Complete Wipe All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Reset Confirmation Modal (Individual Item) */}
+      {quickResetItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
+                <RotateCcw className="w-6 h-6 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Reset This Item?</h3>
+                <p className="text-sm text-gray-500">Complete wipe for single item</p>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-3 mb-4 border border-gray-200">
+              <p className="text-xs text-gray-500 mb-1">Action Plan:</p>
+              <p className="text-sm text-gray-800 font-medium line-clamp-2">{quickResetItem.action_plan}</p>
+              <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>{quickResetItem.department_code}</span>
+                <span>•</span>
+                <span>{quickResetItem.month}</span>
+                <span>•</span>
+                <span>Score: {quickResetItem.quality_score}</span>
+              </div>
+            </div>
+            
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+              <p className="text-orange-800 text-sm">
+                This will reset the item as if it was never submitted:
+              </p>
+              <ul className="text-orange-700 text-sm mt-2 space-y-1 list-disc list-inside">
+                <li>Remove quality score</li>
+                <li>Revert status to "Pending"</li>
+                <li>Clear admin feedback</li>
+                <li>Clear proof of evidence link</li>
+                <li>Clear staff remarks</li>
+              </ul>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setQuickResetItem(null)}
+                disabled={quickResetting}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmQuickReset}
+                disabled={quickResetting}
+                className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {quickResetting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4" />
+                )}
+                {quickResetting ? 'Resetting...' : 'Reset Item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

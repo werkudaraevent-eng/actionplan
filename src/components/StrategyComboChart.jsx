@@ -1,8 +1,26 @@
 import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
-import { Target, Star, CheckCircle2 } from 'lucide-react';
+import { Target, Star, CheckCircle2, ChevronDown } from 'lucide-react';
 
-export default function StrategyComboChart({ plans, isCompletionView = true }) {
+// Sort dropdown for charts
+function SortDropdown({ value, onChange }) {
+  return (
+    <div className="relative">
+      <select 
+        value={value} 
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
+      >
+        <option value="high-low">↓ Highest</option>
+        <option value="low-high">↑ Lowest</option>
+        <option value="a-z">A → Z</option>
+      </select>
+      <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+    </div>
+  );
+}
+
+export default function StrategyComboChart({ plans, isCompletionView = true, sortMode = 'high-low', onSortChange }) {
   const chartData = useMemo(() => {
     if (!plans || plans.length === 0) return [];
 
@@ -42,17 +60,28 @@ export default function StrategyComboChart({ plans, isCompletionView = true }) {
           score: avgScore,
           completion: completionRate,
         };
-      })
-      // Sort by the active metric descending
-      .sort((a, b) => {
-        const valA = isCompletionView ? a.completion : a.score;
-        const valB = isCompletionView ? b.completion : b.score;
-        return valB - valA;
       });
-      // REMOVED: .slice(0, 10) - Now shows ALL strategies
 
-    return data;
-  }, [plans, isCompletionView]);
+    // Apply sorting based on sortMode
+    const sortedData = [...data];
+    const activeKey = isCompletionView ? 'completion' : 'score';
+    
+    switch (sortMode) {
+      case 'high-low':
+        sortedData.sort((a, b) => b[activeKey] - a[activeKey]);
+        break;
+      case 'low-high':
+        sortedData.sort((a, b) => a[activeKey] - b[activeKey]);
+        break;
+      case 'a-z':
+        sortedData.sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { numeric: true }));
+        break;
+      default:
+        sortedData.sort((a, b) => b[activeKey] - a[activeKey]);
+    }
+
+    return sortedData;
+  }, [plans, isCompletionView, sortMode]);
 
   // Dynamic colors based on toggle
   const activeColor = isCompletionView ? '#10b981' : '#f59e0b'; // Emerald vs Amber
@@ -126,14 +155,19 @@ export default function StrategyComboChart({ plans, isCompletionView = true }) {
             Strategy Performance: {activeLabel}
           </h3>
         </div>
-        <div className="flex items-center gap-4 text-xs">
-          <span className="flex items-center gap-1.5">
-            <span 
-              className="w-3 h-3 rounded" 
-              style={{ backgroundColor: activeColor }}
-            ></span>
-            {activeLabel}
-          </span>
+        <div className="flex items-center gap-3">
+          {onSortChange && (
+            <SortDropdown value={sortMode} onChange={onSortChange} />
+          )}
+          <div className="flex items-center gap-4 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span 
+                className="w-3 h-3 rounded" 
+                style={{ backgroundColor: activeColor }}
+              ></span>
+              {activeLabel}
+            </span>
+          </div>
         </div>
       </div>
       <p className="text-sm text-gray-500 mb-4">

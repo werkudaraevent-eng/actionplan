@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
   Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar, 
-  X, Users, ChevronDown, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon
+  X, Users, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon, Activity, Clock
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -32,6 +32,40 @@ const QUARTER_RANGES = {
   Q4: { start: 'Oct', end: 'Dec' },
 };
 
+// Helper: Calculate start and end of week (Monday-Sunday) for a given date
+function getWeekRange(date) {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday start
+  start.setDate(diff);
+  start.setHours(0, 0, 0, 0);
+  
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  
+  return { startOfWeek: start, endOfWeek: end };
+}
+
+// Helper: Get ISO week number for a date
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+// Helper: Format date as "MMM d" (e.g., "Jan 13")
+function formatShortDate(date) {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Helper: Format date as "MMM d, yyyy" (e.g., "Jan 19, 2026")
+function formatFullDate(date) {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function ChartDropdown({ value, onChange, options }) {
   return (
     <div className="relative">
@@ -40,6 +74,24 @@ function ChartDropdown({ value, onChange, options }) {
         {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
       </select>
       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+    </div>
+  );
+}
+
+// Sort dropdown for charts
+function SortDropdown({ value, onChange }) {
+  return (
+    <div className="relative">
+      <select 
+        value={value} 
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
+      >
+        <option value="high-low">↓ Highest</option>
+        <option value="low-high">↑ Lowest</option>
+        <option value="a-z">A → Z</option>
+      </select>
+      <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
     </div>
   );
 }
@@ -58,6 +110,16 @@ export default function AdminDashboard({ onNavigate }) {
   const [stratMetric, setStratMetric] = useState('goal_strategy');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
   const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
+  
+  // Weekly Activity Chart state
+  const [currentDate, setCurrentDate] = useState(new Date()); // Reference date for week selection
+  const [activityViewMode, setActivityViewMode] = useState('dept'); // 'dept' | 'daily'
+  
+  // Chart sorting state
+  const [orgChartSort, setOrgChartSort] = useState('high-low'); // 'high-low' | 'low-high' | 'a-z'
+  const [stratChartSort, setStratChartSort] = useState('high-low');
+  const [focusAreaSort, setFocusAreaSort] = useState('high-low');
+  const [categorySort, setCategorySort] = useState('high-low');
   
   // Hybrid data: annual targets and historical stats (monthly)
   const [annualTarget, setAnnualTarget] = useState(null);
@@ -135,8 +197,12 @@ export default function AdminDashboard({ onNavigate }) {
     return dateFilteredPlans.filter((plan) => {
       // Department filter
       if (selectedDept !== 'All' && plan.department_code !== selectedDept) return false;
-      // Category/Priority filter
-      if (selectedCategory !== 'All' && plan.category !== selectedCategory) return false;
+      // Category/Priority filter - extract code from full category string
+      if (selectedCategory !== 'All') {
+        const planCategory = (plan.category || '').toUpperCase();
+        const planCategoryCode = planCategory.split(/[\s(]/)[0];
+        if (planCategoryCode !== selectedCategory.toUpperCase()) return false;
+      }
       return true;
     });
   }, [dateFilteredPlans, selectedDept, selectedCategory]);
@@ -226,17 +292,41 @@ export default function AdminDashboard({ onNavigate }) {
     };
   }, [filteredPlans]);
 
-  // Calculate stats with hybrid data support
+  // Determine if we're in YTD mode (Full Year + Current Year)
+  // YTD mode: Only count plans up to current month
+  // Period mode: Respect the selected range without YTD cutoff
+  const isYTDMode = selectedPeriod === 'FY' && selectedYear === CURRENT_YEAR;
+
+  // Current month index for YTD calculations
+  const currentMonthIndex = new Date().getMonth(); // 0 = Jan, 11 = Dec
+
+  // EFFECTIVE PLANS: Apply YTD filtering for charts when in YTD mode
+  // This ensures all charts show data only up to current month when viewing current year full year
+  const effectivePlans = useMemo(() => {
+    if (!isYTDMode) {
+      // Period mode: use filteredPlans as-is (already filtered by selected period)
+      return filteredPlans;
+    }
+    
+    // YTD Mode: Filter to plans due on or before current month
+    return filteredPlans.filter(p => {
+      const planMonthIndex = MONTH_MAP[p.month];
+      if (planMonthIndex === undefined) return true; // Include if month is unknown
+      return planMonthIndex <= currentMonthIndex;
+    });
+  }, [filteredPlans, isYTDMode, currentMonthIndex]);
+
+  // Calculate stats with hybrid data support - uses effectivePlans for YTD consistency
   const stats = useMemo(() => {
-    const total = filteredPlans.length;
-    const achieved = filteredPlans.filter((p) => p.status === 'Achieved').length;
-    const inProgress = filteredPlans.filter((p) => p.status === 'On Progress').length;
-    const pending = filteredPlans.filter((p) => p.status === 'Pending').length;
-    const notAchieved = filteredPlans.filter((p) => p.status === 'Not Achieved').length;
+    const total = effectivePlans.length;
+    const achieved = effectivePlans.filter((p) => p.status === 'Achieved').length;
+    const inProgress = effectivePlans.filter((p) => p.status === 'On Progress').length;
+    const pending = effectivePlans.filter((p) => p.status === 'Pending').length;
+    const notAchieved = effectivePlans.filter((p) => p.status === 'Not Achieved').length;
 
     // Build department stats from real data - include both completion and score
     const deptMap = {};
-    filteredPlans.forEach((plan) => {
+    effectivePlans.forEach((plan) => {
       if (!deptMap[plan.department_code]) deptMap[plan.department_code] = { total: 0, achieved: 0, scores: [] };
       deptMap[plan.department_code].total++;
       if (plan.status === 'Achieved') deptMap[plan.department_code].achieved++;
@@ -301,8 +391,7 @@ export default function AdminDashboard({ onNavigate }) {
     byDepartment.sort((a, b) => b.rate - a.rate);
 
     // Calculate overdue count (status != 'Achieved' AND month < current month)
-    const currentMonthIndex = new Date().getMonth();
-    const overdue = filteredPlans.filter((p) => {
+    const overdue = effectivePlans.filter((p) => {
       if (p.status === 'Achieved') return false;
       const monthIndex = MONTH_MAP[p.month];
       if (monthIndex === undefined) return false;
@@ -310,42 +399,42 @@ export default function AdminDashboard({ onNavigate }) {
     }).length;
 
     return { total, achieved, inProgress, pending, notAchieved, byDepartment, overdue };
-  }, [filteredPlans, filteredHistoricalStats, isCompletionView]);
+  }, [effectivePlans, filteredHistoricalStats, isCompletionView, currentMonthIndex]);
 
-  // Determine if we're in YTD mode (Full Year + Current Year)
-  // YTD mode: Only count plans up to current month
-  // Period mode: Respect the selected range without YTD cutoff
-  const isYTDMode = selectedPeriod === 'FY' && selectedYear === CURRENT_YEAR;
+  // Dynamic period label for UI display
+  const periodLabel = useMemo(() => {
+    // Specific period selected (Q1, Q2, etc. or custom range)
+    if (selectedPeriod !== 'FY') {
+      if (startMonth === endMonth) {
+        return `${startMonth} ${selectedYear}`;
+      }
+      return `${startMonth} - ${endMonth} ${selectedYear}`;
+    }
+    
+    // Full Year mode
+    if (isYTDMode) {
+      const currentMonthName = MONTHS_ORDER[currentMonthIndex];
+      return `Jan - ${currentMonthName} ${selectedYear} (YTD)`;
+    }
+    
+    // Past year - full year
+    return `Full Year ${selectedYear}`;
+  }, [selectedPeriod, selectedYear, startMonth, endMonth, isYTDMode, currentMonthIndex]);
 
-  // Quality Score and Action Plan Completion stats (separate for clarity)
-  // FILTER MODE LOGIC:
-  // - YTD Mode (FY + Current Year): Only count plans where month <= current month
-  // - Period Mode (Q1, Q2, Custom, etc.): Use all plans in the selected range (no YTD cutoff)
+  // Quality Score and Action Plan Completion stats
+  // Uses effectivePlans which already has YTD filtering applied
   const qualityStats = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    const currentMonthIndex = new Date().getMonth(); // 0 = Jan
-    
-    // Apply filter based on mode
-    let statsPlans = filteredPlans;
-    if (isYTDMode) {
-      // YTD Mode: Filter to plans due on or before current month
-      statsPlans = filteredPlans.filter(p => {
-        const planMonthIndex = MONTH_MAP[p.month];
-        if (planMonthIndex === undefined) return true; // Include if month is unknown
-        return planMonthIndex <= currentMonthIndex;
-      });
-    }
-    // If not YTD mode, use filteredPlans as-is (already filtered by selected period)
     
     // --- 1. COMPLETION RATE ---
-    const achieved = statsPlans.filter(p => p.status === 'Achieved').length;
-    const statsTotal = statsPlans.length;
+    const achieved = effectivePlans.filter(p => p.status === 'Achieved').length;
+    const statsTotal = effectivePlans.length;
     let completionRate = statsTotal > 0 
       ? Number(((achieved / statsTotal) * 100).toFixed(1)) 
       : 0;
     
     // --- 2. QUALITY SCORE ---
-    const gradedItems = statsPlans.filter(p => 
+    const gradedItems = effectivePlans.filter(p => 
       p.submission_status === 'submitted' && p.quality_score != null
     );
     let qualityScore = gradedItems.length > 0 
@@ -371,7 +460,7 @@ export default function AdminDashboard({ onNavigate }) {
       ytdTotal: statsTotal,
       isYTD: isYTDMode && statsTotal > 0 // Flag to show (YTD) label in UI
     };
-  }, [filteredPlans, selectedYear, filteredHistoricalStats, isYTDMode]);
+  }, [effectivePlans, selectedYear, filteredHistoricalStats, isYTDMode]);
 
   // Helper: Find department with most items of a given status (for KPI drill-down)
   const getDeptWithMostStatus = useMemo(() => {
@@ -503,11 +592,12 @@ export default function AdminDashboard({ onNavigate }) {
   }, [startMonth, endMonth]);
 
   // Org Chart Data - with historical fallback - Now includes both completion and score
+  // Uses effectivePlans to respect YTD filtering
   const orgChartData = useMemo(() => {
     // If we have real plans, use them
-    if (filteredPlans.length > 0) {
+    if (effectivePlans.length > 0) {
       const dataMap = {};
-      filteredPlans.forEach((plan) => {
+      effectivePlans.forEach((plan) => {
         let key = orgMetric === 'department_code' ? (plan.department_code || 'Unknown') : (plan.pic?.trim() || 'Unassigned');
         const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
         if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
@@ -561,12 +651,13 @@ export default function AdminDashboard({ onNavigate }) {
     }
     
     return [];
-  }, [filteredPlans, orgMetric, filteredHistoricalStats, isCompletionView]);
+  }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView]);
 
   // Strategy Chart Data - Now includes both completion and score
+  // Uses effectivePlans to respect YTD filtering
   const stratChartData = useMemo(() => {
     const dataMap = {};
-    filteredPlans.forEach((plan) => {
+    effectivePlans.forEach((plan) => {
       let key = stratMetric === 'goal_strategy' ? (plan.goal_strategy?.trim() || 'Uncategorized') : (plan.report_format?.trim() || 'No Format');
       const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
       if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: key };
@@ -592,12 +683,13 @@ export default function AdminDashboard({ onNavigate }) {
       achieved: s.achieved,
       graded: s.scores.length 
     })).sort((a, b) => b.rate - a.rate);
-  }, [filteredPlans, stratMetric, isCompletionView]);
+  }, [effectivePlans, stratMetric, isCompletionView]);
 
   // Strategic Performance Stats - Focus Area and Category (Performance-based, not just volume)
+  // Uses effectivePlans to respect YTD filtering
   const focusAreaStats = useMemo(() => {
     const areaMap = {};
-    filteredPlans.forEach((plan) => {
+    effectivePlans.forEach((plan) => {
       const area = plan.area_focus?.trim() || 'Unspecified';
       if (!areaMap[area]) areaMap[area] = { total: 0, achieved: 0, scores: [] };
       areaMap[area].total++;
@@ -626,7 +718,7 @@ export default function AdminDashboard({ onNavigate }) {
     
     // Take top 7 items
     return sorted.slice(0, 7);
-  }, [filteredPlans, isCompletionView]);
+  }, [effectivePlans, isCompletionView]);
 
   // Category/Priority Performance Stats
   const CATEGORY_COLORS = {
@@ -639,8 +731,11 @@ export default function AdminDashboard({ onNavigate }) {
   
   const categoryStats = useMemo(() => {
     const catMap = {};
-    filteredPlans.forEach((plan) => {
-      const cat = plan.category?.trim() || 'Unspecified';
+    effectivePlans.forEach((plan) => {
+      // Extract category code from full string (e.g., "UH (Ultra High)" -> "UH")
+      const rawCat = (plan.category || '').toUpperCase().trim();
+      const cat = rawCat.split(/[\s(]/)[0] || 'Unspecified';
+      
       if (!catMap[cat]) catMap[cat] = { total: 0, achieved: 0, scores: [] };
       catMap[cat].total++;
       if (plan.status === 'Achieved') catMap[cat].achieved++;
@@ -650,14 +745,15 @@ export default function AdminDashboard({ onNavigate }) {
     });
     
     // Define priority order (UH at top, L at bottom)
-    const priorityOrder = ['UH', 'H', 'M', 'L', 'Unspecified'];
+    const priorityOrder = ['UH', 'H', 'M', 'L', 'UNSPECIFIED'];
     
     return priorityOrder
       .filter(cat => catMap[cat] && catMap[cat].total > 0)
       .map(cat => {
         const data = catMap[cat];
+        const displayName = cat === 'UH' ? 'Ultra High' : cat === 'H' ? 'High' : cat === 'M' ? 'Medium' : cat === 'L' ? 'Low' : 'Unspecified';
         return {
-          name: cat === 'UH' ? 'Ultra High' : cat === 'H' ? 'High' : cat === 'M' ? 'Medium' : cat === 'L' ? 'Low' : 'Unspecified',
+          name: displayName,
           shortName: cat,
           volume: data.total,
           achieved: data.achieved,
@@ -671,10 +767,89 @@ export default function AdminDashboard({ onNavigate }) {
             : (data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : 0)
         };
       });
-  }, [filteredPlans, isCompletionView]);
+  }, [effectivePlans, isCompletionView]);
 
   // Check if viewing historical year with no real data
-  const isHistoricalView = filteredPlans.length === 0 && filteredHistoricalStats.length > 0;
+  const isHistoricalView = effectivePlans.length === 0 && filteredHistoricalStats.length > 0;
+
+  // Weekly Activity Pulse - Track updates for selected week with view mode support
+  // Uses filteredPlans to respect global filters (Dept, Priority, Month)
+  const weeklyActivityData = useMemo(() => {
+    const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
+    
+    // Filter plans updated within the selected week range (from already filtered data)
+    const weekPlans = filteredPlans.filter(p => {
+      if (!p.updated_at) return false;
+      const updateDate = new Date(p.updated_at);
+      return updateDate >= startOfWeek && updateDate <= endOfWeek;
+    });
+    
+    let chartData;
+    
+    if (activityViewMode === 'dept') {
+      // Group by department
+      const deptActivity = {};
+      weekPlans.forEach(plan => {
+        const dept = plan.department_code || 'Unknown';
+        deptActivity[dept] = (deptActivity[dept] || 0) + 1;
+      });
+      
+      // Convert to chart data and sort by activity count
+      chartData = Object.entries(deptActivity)
+        .map(([name, value]) => ({
+          name,
+          value,
+          fill: value >= 10 ? '#059669' : value >= 5 ? '#3b82f6' : value > 0 ? '#f59e0b' : '#d1d5db'
+        }))
+        .sort((a, b) => b.value - a.value);
+    } else {
+      // Group by day of week (daily trend view)
+      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const dayActivity = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+      
+      weekPlans.forEach(plan => {
+        const updateDate = new Date(plan.updated_at);
+        const dayIndex = (updateDate.getDay() + 6) % 7; // Convert to Mon=0
+        const dayName = dayNames[dayIndex];
+        dayActivity[dayName]++;
+      });
+      
+      chartData = dayNames.map(day => ({
+        name: day,
+        value: dayActivity[day],
+        fill: dayActivity[day] >= 10 ? '#059669' : dayActivity[day] >= 5 ? '#3b82f6' : dayActivity[day] > 0 ? '#f59e0b' : '#d1d5db'
+      }));
+    }
+    
+    // Get top 5 most recent updates for the feed
+    const recentUpdates = [...weekPlans]
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+      .slice(0, 5);
+    
+    return {
+      chartData,
+      recentUpdates,
+      totalUpdates: weekPlans.length,
+      activeDepts: new Set(weekPlans.map(p => p.department_code)).size,
+      startOfWeek,
+      endOfWeek
+    };
+  }, [filteredPlans, currentDate, activityViewMode]);
+
+  // Helper: Format relative time (e.g., "2 hours ago")
+  const formatRelativeTime = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  };
 
   // Leaderboard is now just the stats.byDepartment (filtering is done at the data level)
   const filteredLeaderboard = stats.byDepartment;
@@ -723,12 +898,50 @@ export default function AdminDashboard({ onNavigate }) {
     }
     // 'Custom' - don't change months, let user pick manually
   };
+
+  // Week navigation handlers for Activity Chart
+  const handlePrevWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() - 7);
+      return newDate;
+    });
+  };
+
+  const handleNextWeek = () => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() + 7);
+      return newDate;
+    });
+  };
   
   const getDateRangeLabel = () => {
     if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
     if (startMonth === endMonth) return startMonth;
     return `${startMonth} – ${endMonth}`;
   };
+
+  // Helper: Sort chart data by different criteria
+  const sortChartData = (data, sortMode) => {
+    const sorted = [...data]; // Copy array to avoid mutations
+    switch (sortMode) {
+      case 'high-low':
+        return sorted.sort((a, b) => b.rate - a.rate);
+      case 'low-high':
+        return sorted.sort((a, b) => a.rate - b.rate);
+      case 'a-z':
+        return sorted.sort((a, b) => (a.fullName || a.name).localeCompare(b.fullName || b.name));
+      default:
+        return sorted;
+    }
+  };
+
+  // Apply sorting to chart data
+  const sortedOrgChartData = useMemo(() => sortChartData(orgChartData, orgChartSort), [orgChartData, orgChartSort]);
+  const sortedStratChartData = useMemo(() => sortChartData(stratChartData, stratChartSort), [stratChartData, stratChartSort]);
+  const sortedFocusAreaStats = useMemo(() => sortChartData(focusAreaStats, focusAreaSort), [focusAreaStats, focusAreaSort]);
+  const sortedCategoryStats = useMemo(() => sortChartData(categoryStats, categorySort), [categoryStats, categorySort]);
 
   // Dynamic titles based on isCompletionView toggle
   const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Quality Score';
@@ -755,7 +968,12 @@ export default function AdminDashboard({ onNavigate }) {
           {/* Left: Title */}
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Company Dashboard</h1>
-            <p className="text-gray-500 text-sm">Executive Performance Overview — FY {selectedYear}</p>
+            <p className="text-gray-500 text-sm">
+              Executive Performance Overview — FY {selectedYear}
+              <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
+                📅 {periodLabel}
+              </span>
+            </p>
           </div>
           
           {/* Right: All Filters - Compact Layout */}
@@ -1142,6 +1360,176 @@ export default function AdminDashboard({ onNavigate }) {
           />
         </div>
 
+        {/* Weekly Activity Pulse - Real-time department engagement tracking */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          {/* CHART: Department Activity Bar Chart */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-800">Department Activity Pulse</h3>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  {formatShortDate(weeklyActivityData.startOfWeek)} - {formatFullDate(weeklyActivityData.endOfWeek)}
+                  <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
+                    {weeklyActivityData.totalUpdates} updates
+                  </span>
+                </p>
+              </div>
+              <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-lg border border-gray-200">
+                {/* VIEW TOGGLE */}
+                <div className="flex bg-white rounded shadow-sm">
+                  <button 
+                    onClick={() => setActivityViewMode('dept')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-l ${activityViewMode === 'dept' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    By Dept
+                  </button>
+                  <button 
+                    onClick={() => setActivityViewMode('daily')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-r border-l ${activityViewMode === 'daily' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    Daily Trend
+                  </button>
+                </div>
+                {/* WEEK NAVIGATOR */}
+                <div className="flex items-center gap-1">
+                  <button onClick={handlePrevWeek} className="p-1 hover:bg-gray-200 rounded">
+                    <ChevronLeft size={16} className="text-gray-600" />
+                  </button>
+                  <span className="text-xs font-bold w-16 text-center text-gray-700">Week {getWeekNumber(currentDate)}</span>
+                  <button onClick={handleNextWeek} className="p-1 hover:bg-gray-200 rounded">
+                    <ChevronRight size={16} className="text-gray-600" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Color Legend */}
+            <div className="flex items-center gap-3 text-xs mb-4">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> ≥10</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500"></span> 5-9</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 1-4</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-300"></span> 0</span>
+            </div>
+            
+            {weeklyActivityData.chartData.length > 0 ? (
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer>
+                  <BarChart data={weeklyActivityData.chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="name" 
+                      tick={{ fontSize: 11, fill: '#6b7280' }}
+                      tickLine={false}
+                      axisLine={{ stroke: '#e5e7eb' }}
+                    />
+                    <YAxis 
+                      allowDecimals={false} 
+                      tick={{ fontSize: 11, fill: '#6b7280' }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={30}
+                    />
+                    <Tooltip 
+                      cursor={{ fill: 'transparent' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          const label = activityViewMode === 'dept' 
+                            ? `${getDeptName(data.name)} (${data.name})`
+                            : data.name;
+                          return (
+                            <div className="bg-white p-3 border border-gray-200 shadow-lg rounded-lg">
+                              <p className="font-medium text-gray-800">{label}</p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                <span className="font-bold text-blue-600">{data.value}</span> updates
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={40}>
+                      {weeklyActivityData.chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                      <LabelList dataKey="value" position="top" fill="#374151" fontSize={11} fontWeight={600} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-[220px] flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                <div className="text-center">
+                  <Activity className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-500 text-sm font-medium">No activity recorded</p>
+                  <p className="text-gray-400 text-xs mt-1">No plan updates for this week</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* LIST: Recent Activity Feed */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="w-5 h-5 text-gray-500" />
+              <h3 className="text-lg font-semibold text-gray-800">Latest Updates</h3>
+            </div>
+            
+            <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
+              {weeklyActivityData.recentUpdates.length > 0 ? (
+                weeklyActivityData.recentUpdates.map((plan) => (
+                  <div key={plan.id} className="flex gap-3 items-start border-b border-gray-50 pb-3 last:border-0">
+                    <div className={`w-2 h-2 mt-2 rounded-full shrink-0 ${
+                      plan.status === 'Achieved' ? 'bg-emerald-500' :
+                      plan.status === 'On Progress' ? 'bg-amber-500' :
+                      plan.status === 'Not Achieved' ? 'bg-red-500' : 'bg-gray-400'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{plan.pic || 'Unknown'}</p>
+                        <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded font-medium shrink-0">
+                          {plan.department_code}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 line-clamp-1 mt-0.5" title={plan.action_plan}>
+                        {plan.action_plan || plan.goal_strategy || 'Untitled plan'}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] text-gray-400">{formatRelativeTime(plan.updated_at)}</span>
+                        <span className="text-[10px] text-gray-300">•</span>
+                        <span className={`text-[10px] font-medium ${
+                          plan.status === 'Achieved' ? 'text-emerald-600' :
+                          plan.status === 'On Progress' ? 'text-amber-600' :
+                          plan.status === 'Not Achieved' ? 'text-red-600' : 'text-gray-500'
+                        }`}>
+                          {plan.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-8 text-center">
+                  <Clock className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-400 italic">No activity recorded this week</p>
+                </div>
+              )}
+            </div>
+            
+            {weeklyActivityData.recentUpdates.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100 text-center">
+                <p className="text-xs text-gray-400">
+                  {weeklyActivityData.activeDepts} active department{weeklyActivityData.activeDepts !== 1 ? 's' : ''} this week
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Decision Layer: YoY Trend (2/3) + Bottleneck Radar (1/3) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         
@@ -1345,14 +1733,15 @@ export default function AdminDashboard({ onNavigate }) {
                   <Layers className="w-5 h-5 text-slate-600" />
                   <h3 className="text-lg font-semibold text-gray-800">Success Rate by Focus Area</h3>
                 </div>
+                <SortDropdown value={focusAreaSort} onChange={setFocusAreaSort} />
               </div>
               <p className="text-sm text-gray-500 mb-4">Which strategic areas are we actually delivering on?</p>
-              {focusAreaStats.length > 0 ? (
+              {sortedFocusAreaStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
                     <BarChart 
                       layout="vertical" 
-                      data={focusAreaStats} 
+                      data={sortedFocusAreaStats} 
                       margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
@@ -1403,7 +1792,7 @@ export default function AdminDashboard({ onNavigate }) {
                         radius={[0, 4, 4, 0]} 
                         barSize={24}
                       >
-                        {focusAreaStats.map((entry, index) => (
+                        {sortedFocusAreaStats.map((entry, index) => (
                           <Cell 
                             key={`cell-${index}`} 
                             fill={entry.rate >= 80 ? '#059669' : entry.rate >= 50 ? '#f59e0b' : '#ef4444'} 
@@ -1435,14 +1824,15 @@ export default function AdminDashboard({ onNavigate }) {
                   <PieChartIcon className="w-5 h-5 text-slate-600" />
                   <h3 className="text-lg font-semibold text-gray-800">Execution by Priority</h3>
                 </div>
+                <SortDropdown value={categorySort} onChange={setCategorySort} />
               </div>
               <p className="text-sm text-gray-500 mb-4">Are we hitting our "Ultra High" targets?</p>
-              {categoryStats.length > 0 ? (
+              {sortedCategoryStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
                     <BarChart 
                       layout="vertical" 
-                      data={categoryStats} 
+                      data={sortedCategoryStats} 
                       margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
@@ -1493,7 +1883,7 @@ export default function AdminDashboard({ onNavigate }) {
                         radius={[0, 4, 4, 0]} 
                         barSize={32}
                       >
-                        {categoryStats.map((entry, index) => (
+                        {sortedCategoryStats.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                         <LabelList 
@@ -1520,7 +1910,12 @@ export default function AdminDashboard({ onNavigate }) {
         {/* Strategy Analysis - Combo Chart (Volume + Completion) */}
         {!isHistoricalView && filteredPlans.length > 0 && (
           <div className="mb-6">
-            <StrategyComboChart plans={filteredPlans} isCompletionView={isCompletionView} />
+            <StrategyComboChart 
+              plans={filteredPlans} 
+              isCompletionView={isCompletionView} 
+              sortMode={stratChartSort}
+              onSortChange={setStratChartSort}
+            />
           </div>
         )}
 
@@ -1530,13 +1925,16 @@ export default function AdminDashboard({ onNavigate }) {
             <div>
               <h3 className="text-lg font-semibold text-gray-800">{orgTitle}</h3>
               <p className="text-sm text-gray-500">
-                {orgChartData.length} items
+                {sortedOrgChartData.length} items
                 {isHistoricalView && orgMetric === 'department_code' && (
                   <span className="ml-2 text-amber-600 italic">(Historical avg.)</span>
                 )}
               </p>
             </div>
-            <ChartDropdown value={orgMetric} onChange={setOrgMetric} options={[{ value: 'department_code', label: 'Department' }, { value: 'pic', label: 'PIC' }]} />
+            <div className="flex items-center gap-2">
+              <SortDropdown value={orgChartSort} onChange={setOrgChartSort} />
+              <ChartDropdown value={orgMetric} onChange={setOrgMetric} options={[{ value: 'department_code', label: 'Department' }, { value: 'pic', label: 'PIC' }]} />
+            </div>
           </div>
           {isHistoricalView && orgMetric === 'pic' ? (
             <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
@@ -1547,7 +1945,7 @@ export default function AdminDashboard({ onNavigate }) {
               </div>
             </div>
           ) : (
-            <PerformanceChart data={orgChartData} xKey="name" yKey="rate" height={300} hideHeader />
+            <PerformanceChart data={sortedOrgChartData} xKey="name" yKey="rate" height={300} hideHeader />
           )}
         </div>
 

@@ -17,6 +17,7 @@ const CHANGE_TYPE_LABELS = {
   'REJECTED': { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: '❌' },
   'REVISION_REQUESTED': { label: '↩️ Revision Requested', color: 'bg-amber-100 text-amber-700', icon: '↩️' },
   'LEADER_BATCH_SUBMIT': { label: 'Leader Submitted to Admin', color: 'bg-blue-100 text-blue-700', icon: '📤' },
+  'GRADE_RESET': { label: 'Assessment Cleared', color: 'bg-orange-100 text-orange-700', icon: '🔄' },
 };
 
 function formatDate(dateString) {
@@ -194,7 +195,8 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                         {/* Show value changes for status updates and revision requests */}
                         {(log.change_type === 'STATUS_UPDATE' || 
                           log.change_type === 'REVISION_REQUESTED' || 
-                          log.change_type === 'APPROVED') && log.previous_value && (
+                          log.change_type === 'APPROVED' ||
+                          log.change_type === 'GRADE_RESET') && log.previous_value && (
                           <div className="mt-3 pt-3 border-t border-gray-200">
                             <div className="flex items-center gap-2 text-xs">
                               <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
@@ -206,7 +208,9 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                                   ? 'bg-amber-100 text-amber-700'
                                   : log.change_type === 'APPROVED'
                                     ? 'bg-green-100 text-green-700'
-                                    : 'bg-teal-100 text-teal-700'
+                                    : log.change_type === 'GRADE_RESET'
+                                      ? 'bg-orange-100 text-orange-700'
+                                      : 'bg-teal-100 text-teal-700'
                               }`}>
                                 {log.new_value?.status || log.new_value?.submission_status || 'Unknown'}
                               </span>
@@ -215,6 +219,14 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                             {log.change_type === 'APPROVED' && log.new_value?.quality_score != null && (
                               <div className="mt-2 text-xs text-gray-600">
                                 Quality Score: <span className="font-bold text-green-600">{log.new_value.quality_score}%</span>
+                              </div>
+                            )}
+                            {/* Show cleared score for grade resets */}
+                            {log.change_type === 'GRADE_RESET' && log.previous_value?.quality_score != null && (
+                              <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                                <span className="font-medium text-orange-800">Previous Score Cleared: </span>
+                                <span className="text-orange-700 line-through">{log.previous_value.quality_score}%</span>
+                                <span className="text-orange-600 ml-2">→ Reset to Pending</span>
                               </div>
                             )}
                             {/* Show feedback for revision requests */}

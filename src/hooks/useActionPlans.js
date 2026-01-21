@@ -872,6 +872,161 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
+  // Reset a single plan (Admin only) - COMPLETE WIPE
+  // Clears score, status, feedback, AND user submissions (outcome_link, remark)
+  // Uses dedicated GRADE_RESET audit log type for proper history tracking
+  const resetPlan = async (id) => {
+    const original = plans.find((p) => p.id === id);
+    if (!original) throw new Error('Plan not found');
+    
+    const { id: userId, name: userName } = await getCurrentUser();
+    
+    const resetData = {
+      quality_score: null,
+      status: 'Pending',
+      submission_status: 'draft',
+      admin_feedback: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      outcome_link: null,
+      remark: null
+    };
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...resetData, updated_at: new Date().toISOString() } : p))
+    );
+
+    try {
+      const { data, error } = await supabase
+        .from('action_plans')
+        .update(resetData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      setPlans((prev) =>
+        prev.map((p) => (p.id === id ? data : p))
+      );
+
+      // Audit log with GRADE_RESET type
+      if (userId) {
+        await createAuditLog(
+          id,
+          userId,
+          'GRADE_RESET',
+          { 
+            quality_score: original.quality_score, 
+            status: original.status,
+            submission_status: original.submission_status,
+            outcome_link: original.outcome_link,
+            remark: original.remark,
+            admin_feedback: original.admin_feedback
+          },
+          resetData,
+          `Assessment cleared by ${userName} - score (${original.quality_score}), evidence, and remarks wiped`
+        );
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Reset plan failed:', err);
+      throw err;
+    }
+  };
+
+  // Bulk reset ALL graded items back to Pending (Admin only)
+  // COMPLETE WIPE: Clears score, status, feedback, AND user submissions (outcome_link, remark)
+  const bulkResetGrades = async () => {
+    const { id: userId, name: userName } = await getCurrentUser();
+    
+    // Find all graded items (quality_score is not null)
+    const gradedItems = plans.filter(p => p.quality_score != null);
+    
+    if (gradedItems.length === 0) {
+      throw new Error('No graded items to reset');
+    }
+
+    const gradedIds = gradedItems.map(p => p.id);
+    
+    // Optimistic update - COMPLETE WIPE
+    setPlans((prev) =>
+      prev.map((p) => {
+        if (gradedIds.includes(p.id)) {
+          return { 
+            ...p, 
+            quality_score: null,
+            status: 'Pending',
+            submission_status: 'draft',
+            admin_feedback: null,
+            reviewed_by: null,
+            reviewed_at: null,
+            outcome_link: null,  // WIPE evidence link
+            remark: null         // WIPE staff remarks
+          };
+        }
+        return p;
+      })
+    );
+
+    try {
+      const { error } = await supabase
+        .from('action_plans')
+        .update({ 
+          quality_score: null,
+          status: 'Pending',
+          submission_status: 'draft',
+          admin_feedback: null,
+          reviewed_by: null,
+          reviewed_at: null,
+          outcome_link: null,  // WIPE evidence link
+          remark: null         // WIPE staff remarks
+        })
+        .not('quality_score', 'is', null);
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Create audit logs for each reset item with GRADE_RESET type
+      if (userId) {
+        for (const item of gradedItems) {
+          await createAuditLog(
+            item.id,
+            userId,
+            'GRADE_RESET',
+            { 
+              quality_score: item.quality_score, 
+              status: item.status,
+              submission_status: item.submission_status,
+              outcome_link: item.outcome_link,
+              remark: item.remark
+            },
+            { 
+              quality_score: null, 
+              status: 'Pending',
+              submission_status: 'draft',
+              outcome_link: null,
+              remark: null
+            },
+            `Bulk reset by ${userName} - score (${item.quality_score}), evidence, and remarks cleared`
+          );
+        }
+      }
+
+      return gradedItems.length;
+    } catch (err) {
+      console.error('Bulk reset failed:', err);
+      throw err;
+    }
+  };
+
   return {
     plans,
     setPlans,
@@ -890,6 +1045,8 @@ export function useActionPlans(departmentCode = null) {
     recallMonthReport,
     unlockItem,
     gradePlan,
+    resetPlan,
+    bulkResetGrades,
   };
 }
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { 
-  Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar, 
+import {
+  Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar,
   X, Users, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon, Activity, Clock
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
@@ -39,11 +39,11 @@ function getWeekRange(date) {
   const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday start
   start.setDate(diff);
   start.setHours(0, 0, 0, 0);
-  
+
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
   end.setHours(23, 59, 59, 999);
-  
+
   return { startOfWeek: start, endOfWeek: end };
 }
 
@@ -82,8 +82,8 @@ function ChartDropdown({ value, onChange, options }) {
 function SortDropdown({ value, onChange }) {
   return (
     <div className="relative">
-      <select 
-        value={value} 
+      <select
+        value={value}
         onChange={(e) => onChange(e.target.value)}
         className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
       >
@@ -99,7 +99,7 @@ function SortDropdown({ value, onChange }) {
 
 export default function AdminDashboard({ onNavigate }) {
   const { plans, loading, refetch } = useActionPlans(null);
-  
+
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
@@ -110,21 +110,26 @@ export default function AdminDashboard({ onNavigate }) {
   const [stratMetric, setStratMetric] = useState('goal_strategy');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
   const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
-  
+
   // Weekly Activity Chart state
   const [currentDate, setCurrentDate] = useState(new Date()); // Reference date for week selection
   const [activityViewMode, setActivityViewMode] = useState('dept'); // 'dept' | 'daily'
-  
+
   // Chart sorting state
   const [orgChartSort, setOrgChartSort] = useState('high-low'); // 'high-low' | 'low-high' | 'a-z'
   const [stratChartSort, setStratChartSort] = useState('high-low');
   const [focusAreaSort, setFocusAreaSort] = useState('high-low');
   const [categorySort, setCategorySort] = useState('high-low');
-  
+
+  // Soft refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   // Hybrid data: annual targets and historical stats (monthly)
   const [annualTarget, setAnnualTarget] = useState(null);
   const [historicalStats, setHistoricalStats] = useState([]);
   const [comparisonHistorical, setComparisonHistorical] = useState([]);
+  // Audit logs for tracking organic vs admin activity
+  const [auditLogs, setAuditLogs] = useState([]);
 
   // Calculate comparison year value FIRST (before useEffects that depend on it)
   const comparisonYearValue = useMemo(() => {
@@ -142,7 +147,7 @@ export default function AdminDashboard({ onNavigate }) {
         .select('target_percentage')
         .eq('year', selectedYear)
         .single();
-      
+
       setAnnualTarget(targetData?.target_percentage || null);
 
       // Fetch historical stats for selected year (monthly data)
@@ -150,7 +155,7 @@ export default function AdminDashboard({ onNavigate }) {
         .from('historical_stats')
         .select('*')
         .eq('year', selectedYear);
-      
+
       setHistoricalStats(histData || []);
     };
 
@@ -169,12 +174,58 @@ export default function AdminDashboard({ onNavigate }) {
         .from('historical_stats')
         .select('*')
         .eq('year', comparisonYearValue);
-      
+
       setComparisonHistorical(data || []);
     };
 
     fetchComparisonHistory();
   }, [comparisonYearValue]);
+
+  // 1. DEFINISI FUNGSI: Buat ini berdiri sendiri (Global dalam component)
+  const fetchAuditLogs = async () => {
+    const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
+
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('id, action_plan_id, change_type, created_at, user_id, description')
+      .gte('created_at', startOfWeek.toISOString())
+      .lte('created_at', endOfWeek.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching audit logs:', error);
+      setAuditLogs([]);
+      return;
+    }
+
+    // SANITIZE & NORMALIZE the data
+    const sanitizedLogs = (data || []).map(log => {
+      let cleanDescription = log.description || '';
+      if (cleanDescription.startsWith('["')) {
+        cleanDescription = cleanDescription.replace(/^\["|"\]$/g, '');
+      }
+      if (cleanDescription.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(cleanDescription);
+          cleanDescription = Array.isArray(parsed) ? parsed.join(', ') : cleanDescription;
+        } catch (e) { /* ignore */ }
+      }
+
+      return {
+        ...log,
+        description: cleanDescription,
+        timestampDate: new Date(log.created_at),
+        localDateKey: new Date(log.created_at).toLocaleDateString('en-CA')
+      };
+    });
+
+    setAuditLogs(sanitizedLogs);
+  };
+
+  // 2. USE EFFECT: Panggil fungsi tadi saat tanggal berubah (Load Awal)
+  useEffect(() => {
+    fetchAuditLogs();
+  }, [currentDate]);
 
   // Filter plans by year first, then by date range
   const yearFilteredPlans = useMemo(() => {
@@ -211,7 +262,7 @@ export default function AdminDashboard({ onNavigate }) {
   const filteredHistoricalStats = useMemo(() => {
     const startIdx = MONTH_MAP[startMonth] ?? 0;
     const endIdx = MONTH_MAP[endMonth] ?? 11;
-    
+
     return historicalStats.filter((h) => {
       // Filter by department
       if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
@@ -225,7 +276,7 @@ export default function AdminDashboard({ onNavigate }) {
   const filteredComparisonHistorical = useMemo(() => {
     const startIdx = MONTH_MAP[startMonth] ?? 0;
     const endIdx = MONTH_MAP[endMonth] ?? 11;
-    
+
     return comparisonHistorical.filter((h) => {
       // Filter by department
       if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
@@ -240,12 +291,12 @@ export default function AdminDashboard({ onNavigate }) {
   const comparisonPlans = useMemo(() => {
     if (!comparisonYearValue) return [];
     let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === comparisonYearValue);
-    
+
     // Also apply department filter to comparison plans
     if (selectedDept !== 'All') {
       filtered = filtered.filter((plan) => plan.department_code === selectedDept);
     }
-    
+
     return filtered;
   }, [plans, comparisonYearValue, selectedDept]);
 
@@ -260,11 +311,11 @@ export default function AdminDashboard({ onNavigate }) {
   const failureAnalysis = useMemo(() => {
     // Filter plans where status === 'Not Achieved'
     const failedPlans = filteredPlans.filter((p) => p.status === 'Not Achieved');
-    
+
     if (failedPlans.length === 0) {
       return { reasons: [], topBlocker: null, totalFailed: 0 };
     }
-    
+
     // Parse reasons from remark field: [Cause: ...]
     const reasonCounts = {};
     failedPlans.forEach((plan) => {
@@ -272,19 +323,19 @@ export default function AdminDashboard({ onNavigate }) {
       const reason = match?.[1]?.trim() || 'Unspecified';
       reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
-    
+
     // Convert to sorted array
     const sortedReasons = Object.entries(reasonCounts)
       .map(([reason, count]) => ({
         reason,
         count,
-        percentage: Number(((count  / failedPlans.length) * 100).toFixed(1))
+        percentage: Number(((count / failedPlans.length) * 100).toFixed(1))
       }))
       .sort((a, b) => b.count - a.count);
-    
+
     // Identify top blocker
     const topBlocker = sortedReasons.length > 0 ? sortedReasons[0] : null;
-    
+
     return {
       reasons: sortedReasons,
       topBlocker,
@@ -307,7 +358,7 @@ export default function AdminDashboard({ onNavigate }) {
       // Period mode: use filteredPlans as-is (already filtered by selected period)
       return filteredPlans;
     }
-    
+
     // YTD Mode: Filter to plans due on or before current month
     return filteredPlans.filter(p => {
       const planMonthIndex = MONTH_MAP[p.month];
@@ -410,13 +461,13 @@ export default function AdminDashboard({ onNavigate }) {
       }
       return `${startMonth} - ${endMonth} ${selectedYear}`;
     }
-    
+
     // Full Year mode
     if (isYTDMode) {
       const currentMonthName = MONTHS_ORDER[currentMonthIndex];
       return `Jan - ${currentMonthName} ${selectedYear} (YTD)`;
     }
-    
+
     // Past year - full year
     return `Full Year ${selectedYear}`;
   }, [selectedPeriod, selectedYear, startMonth, endMonth, isYTDMode, currentMonthIndex]);
@@ -425,23 +476,23 @@ export default function AdminDashboard({ onNavigate }) {
   // Uses effectivePlans which already has YTD filtering applied
   const qualityStats = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    
+
     // --- 1. COMPLETION RATE ---
     const achieved = effectivePlans.filter(p => p.status === 'Achieved').length;
     const statsTotal = effectivePlans.length;
-    let completionRate = statsTotal > 0 
-      ? Number(((achieved / statsTotal) * 100).toFixed(1)) 
+    let completionRate = statsTotal > 0
+      ? Number(((achieved / statsTotal) * 100).toFixed(1))
       : 0;
-    
+
     // --- 2. QUALITY SCORE ---
-    const gradedItems = effectivePlans.filter(p => 
+    const gradedItems = effectivePlans.filter(p =>
       p.submission_status === 'submitted' && p.quality_score != null
     );
-    let qualityScore = gradedItems.length > 0 
+    let qualityScore = gradedItems.length > 0
       ? Number((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(1))
       : null;
     let gradedCount = gradedItems.length;
-    
+
     // --- 3. HISTORICAL FALLBACK (From database historical_stats table) ---
     // When no real data exists AND viewing a past year, calculate from fetched historical_stats
     // NOTE: Quality Score system did not exist prior to 2026, so NO score data for past years
@@ -451,11 +502,11 @@ export default function AdminDashboard({ onNavigate }) {
       completionRate = Number(avgCompletion.toFixed(1));
       // qualityScore remains null for historical years (displays as "—" in UI)
     }
-    
-    return { 
+
+    return {
       completionRate, // Will use database historical_stats for historical years
       qualityScore,   // Will be null for historical years (no score system existed)
-      gradedCount, 
+      gradedCount,
       achievedCount: achieved,
       ytdTotal: statsTotal,
       isYTD: isYTDMode && statsTotal > 0 // Flag to show (YTD) label in UI
@@ -471,7 +522,7 @@ export default function AdminDashboard({ onNavigate }) {
           deptCounts[plan.department_code] = (deptCounts[plan.department_code] || 0) + 1;
         }
       });
-      
+
       let maxDept = null;
       let maxCount = 0;
       Object.entries(deptCounts).forEach(([dept, count]) => {
@@ -480,7 +531,7 @@ export default function AdminDashboard({ onNavigate }) {
           maxCount = count;
         }
       });
-      
+
       return maxDept;
     };
   }, [filteredPlans]);
@@ -500,7 +551,7 @@ export default function AdminDashboard({ onNavigate }) {
         currentYearMap[month].scores.push(plan.quality_score);
       }
     });
-    
+
     // Build comparison year data from real plans (already filtered by dept search)
     const comparisonMap = {};
     comparisonPlans.forEach((plan) => {
@@ -538,7 +589,7 @@ export default function AdminDashboard({ onNavigate }) {
     return MONTHS_ORDER.map((month) => {
       const curr = currentYearMap[month];
       const comp = comparisonMap[month];
-      
+
       // COMPLETION RATE: Use real data if available, otherwise fall back to historical
       let mainCompletion = null;
       if (curr && curr.total > 0) {
@@ -608,23 +659,23 @@ export default function AdminDashboard({ onNavigate }) {
           dataMap[shortName].scores.push(plan.quality_score);
         }
       });
-      return Object.entries(dataMap).map(([name, s]) => ({ 
-        name, 
-        fullName: s.fullName, 
+      return Object.entries(dataMap).map(([name, s]) => ({
+        name,
+        fullName: s.fullName,
         // Score metric
         score: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0,
         // Completion metric
         completion: s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0,
         // Rate is dynamic based on isCompletionView
-        rate: isCompletionView 
+        rate: isCompletionView
           ? (s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0)
           : (s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0),
-        total: s.total, 
+        total: s.total,
         achieved: s.achieved,
-        graded: s.scores.length 
+        graded: s.scores.length
       })).sort((a, b) => b.rate - a.rate);
     }
-    
+
     // Fallback to filtered historical stats (only for department view, not PIC)
     if (orgMetric === 'department_code' && filteredHistoricalStats.length > 0) {
       // Calculate average completion rate per department from monthly data
@@ -636,7 +687,7 @@ export default function AdminDashboard({ onNavigate }) {
         deptAvgMap[h.department_code].sum += h.completion_rate;
         deptAvgMap[h.department_code].count++;
       });
-      
+
       return Object.entries(deptAvgMap).map(([code, data]) => ({
         name: code,
         fullName: getDeptName(code),
@@ -649,7 +700,7 @@ export default function AdminDashboard({ onNavigate }) {
         isHistorical: true,
       })).sort((a, b) => b.rate - a.rate);
     }
-    
+
     return [];
   }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView]);
 
@@ -668,20 +719,20 @@ export default function AdminDashboard({ onNavigate }) {
         dataMap[shortName].scores.push(plan.quality_score);
       }
     });
-    return Object.entries(dataMap).map(([name, s]) => ({ 
-      name, 
-      fullName: s.fullName, 
+    return Object.entries(dataMap).map(([name, s]) => ({
+      name,
+      fullName: s.fullName,
       // Score metric
       score: s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0,
       // Completion metric
       completion: s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0,
       // Rate is dynamic based on isCompletionView
-      rate: isCompletionView 
+      rate: isCompletionView
         ? (s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0)
         : (s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0),
-      total: s.total, 
+      total: s.total,
       achieved: s.achieved,
-      graded: s.scores.length 
+      graded: s.scores.length
     })).sort((a, b) => b.rate - a.rate);
   }, [effectivePlans, stratMetric, isCompletionView]);
 
@@ -698,11 +749,11 @@ export default function AdminDashboard({ onNavigate }) {
         areaMap[area].scores.push(plan.quality_score);
       }
     });
-    
+
     // Convert to array with performance metrics
     const sorted = Object.entries(areaMap)
-      .map(([name, data]) => ({ 
-        name: name.length > 28 ? name.substring(0, 25) + '...' : name, 
+      .map(([name, data]) => ({
+        name: name.length > 28 ? name.substring(0, 25) + '...' : name,
         fullName: name,
         volume: data.total,
         achieved: data.achieved,
@@ -710,12 +761,12 @@ export default function AdminDashboard({ onNavigate }) {
         avgScore: data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : null,
         graded: data.scores.length,
         // Dynamic rate based on view mode
-        rate: isCompletionView 
+        rate: isCompletionView
           ? (data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0)
           : (data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : 0)
       }))
       .sort((a, b) => b.rate - a.rate); // Sort by performance, not volume
-    
+
     // Take top 7 items
     return sorted.slice(0, 7);
   }, [effectivePlans, isCompletionView]);
@@ -728,14 +779,14 @@ export default function AdminDashboard({ onNavigate }) {
     'L': '#64748b',  // Slate-500 (Low)
     'Unspecified': '#d1d5db' // Gray-300
   };
-  
+
   const categoryStats = useMemo(() => {
     const catMap = {};
     effectivePlans.forEach((plan) => {
       // Extract category code from full string (e.g., "UH (Ultra High)" -> "UH")
       const rawCat = (plan.category || '').toUpperCase().trim();
       const cat = rawCat.split(/[\s(]/)[0] || 'Unspecified';
-      
+
       if (!catMap[cat]) catMap[cat] = { total: 0, achieved: 0, scores: [] };
       catMap[cat].total++;
       if (plan.status === 'Achieved') catMap[cat].achieved++;
@@ -743,10 +794,10 @@ export default function AdminDashboard({ onNavigate }) {
         catMap[cat].scores.push(plan.quality_score);
       }
     });
-    
+
     // Define priority order (UH at top, L at bottom)
     const priorityOrder = ['UH', 'H', 'M', 'L', 'UNSPECIFIED'];
-    
+
     return priorityOrder
       .filter(cat => catMap[cat] && catMap[cat].total > 0)
       .map(cat => {
@@ -762,7 +813,7 @@ export default function AdminDashboard({ onNavigate }) {
           graded: data.scores.length,
           color: CATEGORY_COLORS[cat] || '#d1d5db',
           // Dynamic rate based on view mode
-          rate: isCompletionView 
+          rate: isCompletionView
             ? (data.total > 0 ? Number(((data.achieved / data.total) * 100).toFixed(1)) : 0)
             : (data.scores.length > 0 ? Number((data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1)) : 0)
         };
@@ -772,28 +823,72 @@ export default function AdminDashboard({ onNavigate }) {
   // Check if viewing historical year with no real data
   const isHistoricalView = effectivePlans.length === 0 && filteredHistoricalStats.length > 0;
 
-  // Weekly Activity Pulse - Track updates for selected week with view mode support
-  // Uses filteredPlans to respect global filters (Dept, Priority, Month)
+  // Weekly Activity Pulse - Track ORGANIC team updates for selected week
+  // BLACKLIST APPROACH: Only hide specific admin maintenance actions
+  // ALLOW: SUBMIT (monthly milestones), UPDATE, GRADE, CREATE, STATUS_CHANGE
+  // HIDE: IMPORT (data entry noise), RESET (admin corrections), DELETE (cleanup)
   const weeklyActivityData = useMemo(() => {
     const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
-    
-    // Filter plans updated within the selected week range (from already filtered data)
+
+    // BLACKLIST: Specific actions to HIDE (admin maintenance only)
+    // We DO NOT filter out 'BULK' generically - 'BULK_SUBMIT' is valid team work!
+    const BLACKLIST_ACTIONS = ['IMPORT', 'RESET', 'DELETE', 'RESTORE'];
+
+    // Filter audit logs - BLACKLIST approach (everything NOT on blacklist is shown)
+    const organicLogs = auditLogs.filter(log => {
+      const changeType = (log.change_type || '').toUpperCase();
+      const description = (log.description || '').toUpperCase();
+      const combinedText = `${changeType} ${description}`;
+
+      // Exclude actions on the blacklist (check both change_type AND description)
+      if (BLACKLIST_ACTIONS.some(blocked => combinedText.includes(blocked))) return false;
+
+      // EVERYTHING ELSE is a valid "pulse" including:
+      // - SUBMIT (manual or bulk monthly submission milestone)
+      // - STATUS_UPDATE, STATUS_CHANGE
+      // - CREATE, UPDATE
+      // - APPROVED, GRADED
+      // - MARKED_READY, SUBMITTED_FOR_REVIEW
+      return true;
+    });
+
+    // Create a set of action plan IDs with organic activity this week
+    const organicPlanIds = new Set(organicLogs.map(log => log.action_plan_id));
+
+    // Filter plans that have organic activity this week
+    // Also filter by date range for backwards compatibility (in case audit logs incomplete)
     const weekPlans = filteredPlans.filter(p => {
+      // Primary check: has organic audit log entry
+      if (organicPlanIds.has(p.id)) return true;
+
+      // Fallback: use updated_at but exclude if no audit log (likely bulk action)
+      // Only include if no audit logs for this plan exist in the week (legacy data)
       if (!p.updated_at) return false;
       const updateDate = new Date(p.updated_at);
-      return updateDate >= startOfWeek && updateDate <= endOfWeek;
+      const isInWeek = updateDate >= startOfWeek && updateDate <= endOfWeek;
+
+      // If there are audit logs but this plan has none, it means no activity
+      if (auditLogs.length > 0 && !organicPlanIds.has(p.id)) return false;
+
+      return isInWeek;
     });
-    
+
     let chartData;
-    
+
     if (activityViewMode === 'dept') {
-      // Group by department
+      // Group by department - count organic activity per dept
       const deptActivity = {};
-      weekPlans.forEach(plan => {
-        const dept = plan.department_code || 'Unknown';
+
+      // Use audit logs for more accurate counting (one plan can have multiple updates)
+      // FIX: Use 'plans' (raw data) instead of 'filteredPlans' to catch ALL activities
+      // This ensures activities on plans hidden by filters still appear in the Pulse
+      organicLogs.forEach(log => {
+        const plan = plans.find(p => p.id === log.action_plan_id);
+        // If plan not found (maybe deleted?), still count it under 'General'
+        const dept = plan?.department_code || 'General';
         deptActivity[dept] = (deptActivity[dept] || 0) + 1;
       });
-      
+
       // Convert to chart data and sort by activity count
       chartData = Object.entries(deptActivity)
         .map(([name, value]) => ({
@@ -806,35 +901,59 @@ export default function AdminDashboard({ onNavigate }) {
       // Group by day of week (daily trend view)
       const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const dayActivity = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
-      
-      weekPlans.forEach(plan => {
-        const updateDate = new Date(plan.updated_at);
-        const dayIndex = (updateDate.getDay() + 6) % 7; // Convert to Mon=0
+
+      // Use audit logs for accurate daily breakdown
+      organicLogs.forEach(log => {
+        const logDate = new Date(log.created_at);
+        const dayIndex = (logDate.getDay() + 6) % 7; // Convert to Mon=0
         const dayName = dayNames[dayIndex];
         dayActivity[dayName]++;
       });
-      
+
       chartData = dayNames.map(day => ({
         name: day,
         value: dayActivity[day],
         fill: dayActivity[day] >= 10 ? '#059669' : dayActivity[day] >= 5 ? '#3b82f6' : dayActivity[day] > 0 ? '#f59e0b' : '#d1d5db'
       }));
     }
-    
-    // Get top 5 most recent updates for the feed
-    const recentUpdates = [...weekPlans]
-      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
-      .slice(0, 5);
-    
+
+    // Get top 10 most recent ORGANIC updates for the feed
+    // Each log entry = one distinct event (multiple edits to same plan = multiple entries)
+    const recentUpdates = organicLogs
+      .slice(0, 15) // Take first 15 logs (already sorted by created_at desc)
+      .map(log => {
+        const plan = plans.find(p => p.id === log.action_plan_id);
+        return {
+          // Include log details - EACH LOG IS A UNIQUE EVENT
+          logId: log.id,
+          changeType: log.change_type,
+          description: log.description,
+          timestamp: log.created_at,
+          // Include plan details if matched (for department, PIC info)
+          planId: log.action_plan_id,
+          plan: plan || null,
+          departmentCode: plan?.department_code || 'N/A',
+          pic: plan?.pic || 'System',
+          actionPlanTitle: plan?.action_plan?.substring(0, 50) || log.description?.substring(0, 50) || 'Activity'
+        };
+      })
+      .slice(0, 10); // Take top 10 unique events
+
+    // Count total organic activity (use logs count, not unique plans)
+    const totalOrganicUpdates = organicLogs.length;
+
     return {
       chartData,
       recentUpdates,
-      totalUpdates: weekPlans.length,
-      activeDepts: new Set(weekPlans.map(p => p.department_code)).size,
+      totalUpdates: totalOrganicUpdates,
+      activeDepts: new Set(organicLogs.map(log => {
+        const plan = plans.find(p => p.id === log.action_plan_id);
+        return plan?.department_code || 'General';
+      }).filter(Boolean)).size,
       startOfWeek,
       endOfWeek
     };
-  }, [filteredPlans, currentDate, activityViewMode]);
+  }, [plans, currentDate, activityViewMode, auditLogs]);
 
   // Helper: Format relative time (e.g., "2 hours ago")
   const formatRelativeTime = (dateString) => {
@@ -844,7 +963,7 @@ export default function AdminDashboard({ onNavigate }) {
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-    
+
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
@@ -866,7 +985,7 @@ export default function AdminDashboard({ onNavigate }) {
   const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
   const clearDeptFilter = () => { setSelectedDept('All'); };
   const clearCategoryFilter = () => { setSelectedCategory('All'); };
-  
+
   // Reset all filters to default state
   const resetFilters = () => {
     setSelectedYear(CURRENT_YEAR);
@@ -876,7 +995,26 @@ export default function AdminDashboard({ onNavigate }) {
     setStartMonth('Jan');
     setEndMonth('Dec');
   };
-  
+
+  // 3. REFRESH HANDLER: Panggil ulang data Action Plan DAN Audit Logs
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Gunakan Promise.all agar kedua data ditarik bersamaan (Paralel)
+      await Promise.all([
+        refetch(),       // 1. Ambil data Tabel Utama (dari useActionPlans)
+        fetchAuditLogs() // 2. Ambil data Pulse/Log (fungsi yang baru kita perbaiki)
+      ]);
+
+      // Delay kecil untuk efek visual loading
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error("Refresh failed", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Period change handler - updates month range based on selection
   const handlePeriodChange = (period) => {
     setSelectedPeriod(period);
@@ -915,7 +1053,7 @@ export default function AdminDashboard({ onNavigate }) {
       return newDate;
     });
   };
-  
+
   const getDateRangeLabel = () => {
     if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
     if (startMonth === endMonth) return startMonth;
@@ -953,7 +1091,7 @@ export default function AdminDashboard({ onNavigate }) {
       <div className="flex-1 bg-gray-50 min-h-screen p-6">
         <div className="animate-pulse space-y-6">
           <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="grid grid-cols-4 gap-4">{[1,2,3,4].map((i) => <div key={i} className="h-24 bg-gray-200 rounded-xl"></div>)}</div>
+          <div className="grid grid-cols-4 gap-4">{[1, 2, 3, 4].map((i) => <div key={i} className="h-24 bg-gray-200 rounded-xl"></div>)}</div>
           <div className="grid grid-cols-2 gap-6"><div className="h-80 bg-gray-200 rounded-xl"></div><div className="h-80 bg-gray-200 rounded-xl"></div></div>
         </div>
       </div>
@@ -962,201 +1100,211 @@ export default function AdminDashboard({ onNavigate }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Unified Sticky Header - Title + All Filters */}
+      {/* --- REDESIGNED DASHBOARD HEADER --- */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          {/* Left: Title */}
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">Company Dashboard</h1>
-            <p className="text-gray-500 text-sm">
-              Executive Performance Overview — FY {selectedYear}
-              <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
-                📅 {periodLabel}
-              </span>
-            </p>
-          </div>
-          
-          {/* Right: All Filters - Compact Layout */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Year Selector */}
-            <Select 
-              value={selectedYear.toString()} 
-              onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
-            >
-              <SelectTrigger className="w-[120px] h-8 text-sm pl-3">
-                <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
-                <SelectValue placeholder="Year" />
-              </SelectTrigger>
-              <SelectContent>
-                {AVAILABLE_YEARS.map((year) => (
-                  <SelectItem key={year} value={year.toString()}>
-                    {year}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Department Selector */}
-            <Select value={selectedDept} onValueChange={setSelectedDept}>
-              <SelectTrigger className="w-[140px] h-8 text-sm">
-                <SelectValue placeholder="All Depts" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Departments</SelectItem>
-                {DEPARTMENTS.map((dept) => (
-                  <SelectItem key={dept.code} value={dept.code}>
-                    {dept.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Category/Priority Selector */}
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-              <SelectTrigger className="w-[130px] h-8 text-sm">
-                <SelectValue placeholder="All Priorities" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Priorities</SelectItem>
-                <SelectItem value="UH">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                    UH (Ultra High)
-                  </span>
-                </SelectItem>
-                <SelectItem value="H">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-                    H (High)
-                  </span>
-                </SelectItem>
-                <SelectItem value="M">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    M (Medium)
-                  </span>
-                </SelectItem>
-                <SelectItem value="L">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-slate-500"></span>
-                    L (Low)
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {/* Period Selector (Unified) */}
-            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
-              <SelectTrigger className="w-[120px] h-8 text-sm bg-slate-50">
-                <SelectValue placeholder="Period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FY">Full Year</SelectItem>
-                <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
-                <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
-                <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
-                <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
-                <SelectItem value="Custom">Custom...</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {/* Custom Month Pickers (Only show if Custom) */}
-            {selectedPeriod === 'Custom' && (
-              <div className="flex items-center gap-1">
-                <Select value={startMonth} onValueChange={setStartMonth}>
-                  <SelectTrigger className="w-[70px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS_ORDER.map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-gray-400 text-sm">–</span>
-                <Select value={endMonth} onValueChange={setEndMonth}>
-                  <SelectTrigger className="w-[70px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS_ORDER.map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <div className="space-y-4">
+
+          {/* TOP ROW: TITLE & REFRESH BUTTON */}
+          <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Company Dashboard</h1>
+              <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                <span>Executive Performance Overview — FY {selectedYear}</span>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                  📅 {periodLabel}
+                </span>
               </div>
-            )}
-            
-            <div className="h-6 w-px bg-gray-200"></div>
-            
-            {/* Global View Mode Toggle (Switch) */}
-            <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-gray-200">
-              <Label 
-                htmlFor="view-mode-switch" 
-                className={`text-xs font-medium cursor-pointer transition-colors ${!isCompletionView ? 'text-purple-600' : 'text-gray-400'}`}
-                onClick={() => setIsCompletionView(false)}
-              >
-                Score
-              </Label>
-              <Switch 
-                id="view-mode-switch" 
-                checked={isCompletionView}
-                onCheckedChange={setIsCompletionView}
-                className={isCompletionView ? 'bg-emerald-500' : 'bg-purple-500'}
-              />
-              <Label 
-                htmlFor="view-mode-switch" 
-                className={`text-xs font-medium cursor-pointer transition-colors ${isCompletionView ? 'text-emerald-600' : 'text-gray-400'}`}
-                onClick={() => setIsCompletionView(true)}
-              >
-                Completion
-              </Label>
             </div>
-            
-            {/* Reset Filters Button (Only show when filters are active) */}
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                title="Reset all filters"
+
+            {/* REFRESH BUTTON (Prominent & Clear) */}
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              <RotateCcw size={16} className={isRefreshing ? "animate-spin text-emerald-600" : "text-gray-500"} />
+              <span className="font-medium text-sm">{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+            </button>
+          </div>
+
+          {/* BOTTOM ROW: FILTERS & CONTROLS (The Control Bar) */}
+          <div className="flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+
+            {/* LEFT: DATA FILTERS (Grouped) */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Year Selector */}
+              <Select
+                value={selectedYear.toString()}
+                onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </button>
-            )}
+                <SelectTrigger className="w-[100px] h-9 text-sm bg-white">
+                  <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AVAILABLE_YEARS.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Department Selector */}
+              <Select value={selectedDept} onValueChange={setSelectedDept}>
+                <SelectTrigger className="w-[145px] h-9 text-sm bg-white">
+                  <SelectValue placeholder="All Depts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Departments</SelectItem>
+                  {DEPARTMENTS.map((dept) => (
+                    <SelectItem key={dept.code} value={dept.code}>
+                      {dept.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Category/Priority Selector */}
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-[130px] h-9 text-sm bg-white">
+                  <SelectValue placeholder="All Priorities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Priorities</SelectItem>
+                  <SelectItem value="UH">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      Ultra High
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="H">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                      High
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="M">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Medium
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="L">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                      Low
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Period Selector */}
+              <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                <SelectTrigger className="w-[120px] h-9 text-sm bg-white">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FY">Full Year</SelectItem>
+                  <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
+                  <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
+                  <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
+                  <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
+                  <SelectItem value="Custom">Custom...</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Custom Month Pickers (Only show if Custom) */}
+              {selectedPeriod === 'Custom' && (
+                <div className="flex items-center gap-1">
+                  <Select value={startMonth} onValueChange={setStartMonth}>
+                    <SelectTrigger className="w-[70px] h-9 text-sm bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS_ORDER.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-gray-400 text-sm">–</span>
+                  <Select value={endMonth} onValueChange={setEndMonth}>
+                    <SelectTrigger className="w-[70px] h-9 text-sm bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS_ORDER.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Reset Filters Button (Only show when filters are active) */}
+              {hasActiveFilters && (
+                <button
+                  onClick={resetFilters}
+                  className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Reset all filters"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* RIGHT: VIEW MODE TOGGLE */}
+            <div className="flex items-center gap-3 border-t xl:border-t-0 xl:border-l border-gray-200 pt-3 xl:pt-0 xl:pl-4">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">View:</span>
+              <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-200">
+                <button
+                  onClick={() => setIsCompletionView(false)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${!isCompletionView ? 'bg-purple-100 text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Score
+                </button>
+                <button
+                  onClick={() => setIsCompletionView(true)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${isCompletionView ? 'bg-emerald-100 text-emerald-700 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Completion
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* Active Filters Summary */}
+          {hasActiveFilters && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-gray-500">Active:</span>
+              {selectedYear !== CURRENT_YEAR && (
+                <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">
+                  {selectedYear}
+                </span>
+              )}
+              {selectedDept !== 'All' && (
+                <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-full flex items-center gap-1">
+                  {getDeptName(selectedDept)} ({selectedDept})
+                  <button onClick={clearDeptFilter} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
+              {selectedCategory !== 'All' && (
+                <span className="px-2 py-1 bg-rose-50 text-rose-700 rounded-full flex items-center gap-1">
+                  Priority: {selectedCategory === 'UH' ? 'Ultra High' : selectedCategory === 'H' ? 'High' : selectedCategory === 'M' ? 'Medium' : 'Low'}
+                  <button onClick={clearCategoryFilter} className="hover:text-rose-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
+              {selectedPeriod !== 'FY' && (
+                <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full flex items-center gap-1">
+                  {selectedPeriod === 'Custom' ? getDateRangeLabel() : selectedPeriod}
+                  <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
+              <span className="text-gray-400 ml-auto">{filteredPlans.length} plans</span>
+            </div>
+          )}
         </div>
-        
-        {/* Active Filters Summary */}
-        {hasActiveFilters && (
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500">Filters:</span>
-            {selectedYear !== CURRENT_YEAR && (
-              <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
-                {selectedYear}
-              </span>
-            )}
-            {selectedDept !== 'All' && (
-              <span className="px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full flex items-center gap-1">
-                {getDeptName(selectedDept)} ({selectedDept})
-                <button onClick={clearDeptFilter} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            {selectedCategory !== 'All' && (
-              <span className="px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full flex items-center gap-1">
-                Priority: {selectedCategory === 'UH' ? 'Ultra High' : selectedCategory === 'H' ? 'High' : selectedCategory === 'M' ? 'Medium' : 'Low'}
-                <button onClick={clearCategoryFilter} className="hover:text-rose-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            {selectedPeriod !== 'FY' && (
-              <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1">
-                {selectedPeriod === 'Custom' ? getDateRangeLabel() : selectedPeriod}
-                <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            <span className="text-xs text-gray-400 ml-auto">{filteredPlans.length} plans</span>
-          </div>
-        )}
       </header>
 
       <main className="p-6">
@@ -1177,12 +1325,12 @@ export default function AdminDashboard({ onNavigate }) {
               return (
                 <div className="space-y-2">
                   <div className="w-full bg-black/10 rounded-full h-1.5 relative">
-                    <div 
-                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10" 
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
                       style={{ left: `${target}%` }}
                     />
-                    <div 
-                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500" 
+                    <div
+                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(qualityStats.completionRate, 100)}%` }}
                     />
                   </div>
@@ -1208,12 +1356,12 @@ export default function AdminDashboard({ onNavigate }) {
               </div>
             }
           />
-          
+
           {/* 2. Quality Score */}
           <KPICard
-            gradient={qualityStats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
-              qualityStats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
-              qualityStats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
+            gradient={qualityStats.qualityScore === null ? 'from-gray-400 to-gray-500' :
+              qualityStats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' :
+                qualityStats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
             icon={Star}
             value={qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : '—'}
             label={`Quality Score${qualityStats.isYTD ? ' (YTD)' : ''}`}
@@ -1236,7 +1384,7 @@ export default function AdminDashboard({ onNavigate }) {
               </div>
             }
           />
-          
+
           {/* 3. Total Plans */}
           <KPICard
             gradient="from-teal-500 to-teal-600"
@@ -1271,7 +1419,7 @@ export default function AdminDashboard({ onNavigate }) {
             }
             onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
           />
-          
+
           {/* 4. Achieved */}
           <KPICard
             gradient="from-emerald-500 to-emerald-600"
@@ -1283,7 +1431,7 @@ export default function AdminDashboard({ onNavigate }) {
             footerContent={stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <Users className="w-2.5 h-2.5 text-emerald-200" />
-                <span className="font-bold text-white/90">{Number(((stats.achieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.achieved / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1299,7 +1447,7 @@ export default function AdminDashboard({ onNavigate }) {
             }
             onClick={onNavigate && stats.achieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Achieved' }) : undefined}
           />
-          
+
           {/* 5. In Progress */}
           <KPICard
             gradient="from-amber-500 to-amber-600"
@@ -1311,7 +1459,7 @@ export default function AdminDashboard({ onNavigate }) {
             footerContent={stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <Users className="w-2.5 h-2.5 text-amber-200" />
-                <span className="font-bold text-white/90">{Number(((stats.inProgress  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.inProgress / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1327,7 +1475,7 @@ export default function AdminDashboard({ onNavigate }) {
             }
             onClick={onNavigate && stats.inProgress > 0 ? () => onNavigate('all-plans', { statusFilter: 'On Progress' }) : undefined}
           />
-          
+
           {/* 6. Not Achieved */}
           <KPICard
             gradient={stats.notAchieved > 0 ? 'from-red-500 to-red-600' : 'from-gray-400 to-gray-500'}
@@ -1339,7 +1487,7 @@ export default function AdminDashboard({ onNavigate }) {
             footerContent={stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <AlertTriangle className="w-2.5 h-2.5 text-rose-200" />
-                <span className="font-bold text-white/90">{Number(((stats.notAchieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.notAchieved / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1380,13 +1528,13 @@ export default function AdminDashboard({ onNavigate }) {
               <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-lg border border-gray-200">
                 {/* VIEW TOGGLE */}
                 <div className="flex bg-white rounded shadow-sm">
-                  <button 
+                  <button
                     onClick={() => setActivityViewMode('dept')}
                     className={`px-3 py-1.5 text-xs font-medium rounded-l ${activityViewMode === 'dept' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'}`}
                   >
                     By Dept
                   </button>
-                  <button 
+                  <button
                     onClick={() => setActivityViewMode('daily')}
                     className={`px-3 py-1.5 text-xs font-medium rounded-r border-l ${activityViewMode === 'daily' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'}`}
                   >
@@ -1405,7 +1553,7 @@ export default function AdminDashboard({ onNavigate }) {
                 </div>
               </div>
             </div>
-            
+
             {/* Color Legend */}
             <div className="flex items-center gap-3 text-xs mb-4">
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> ≥10</span>
@@ -1413,31 +1561,31 @@ export default function AdminDashboard({ onNavigate }) {
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 1-4</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-300"></span> 0</span>
             </div>
-            
+
             {weeklyActivityData.chartData.length > 0 ? (
               <div className="h-[220px] w-full">
                 <ResponsiveContainer>
                   <BarChart data={weeklyActivityData.chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="name" 
+                    <XAxis
+                      dataKey="name"
                       tick={{ fontSize: 11, fill: '#6b7280' }}
                       tickLine={false}
                       axisLine={{ stroke: '#e5e7eb' }}
                     />
-                    <YAxis 
-                      allowDecimals={false} 
+                    <YAxis
+                      allowDecimals={false}
                       tick={{ fontSize: 11, fill: '#6b7280' }}
                       tickLine={false}
                       axisLine={false}
                       width={30}
                     />
-                    <Tooltip 
+                    <Tooltip
                       cursor={{ fill: 'transparent' }}
                       content={({ active, payload }) => {
                         if (active && payload && payload.length) {
                           const data = payload[0].payload;
-                          const label = activityViewMode === 'dept' 
+                          const label = activityViewMode === 'dept'
                             ? `${getDeptName(data.name)} (${data.name})`
                             : data.name;
                           return (
@@ -1478,35 +1626,54 @@ export default function AdminDashboard({ onNavigate }) {
               <Clock className="w-5 h-5 text-gray-500" />
               <h3 className="text-lg font-semibold text-gray-800">Latest Updates</h3>
             </div>
-            
-            <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 custom-scrollbar">
+
+            {/* Timeline Feed - Each log = one distinct event */}
+            <div className="space-y-0 overflow-y-auto max-h-[280px] pr-2 custom-scrollbar">
               {weeklyActivityData.recentUpdates.length > 0 ? (
-                weeklyActivityData.recentUpdates.map((plan) => (
-                  <div key={plan.id} className="flex gap-3 items-start border-b border-gray-50 pb-3 last:border-0">
-                    <div className={`w-2 h-2 mt-2 rounded-full shrink-0 ${
-                      plan.status === 'Achieved' ? 'bg-emerald-500' :
-                      plan.status === 'On Progress' ? 'bg-amber-500' :
-                      plan.status === 'Not Achieved' ? 'bg-red-500' : 'bg-gray-400'
-                    }`} />
-                    <div className="flex-1 min-w-0">
+                weeklyActivityData.recentUpdates.map((update, index) => (
+                  <div key={update.logId} className="relative pl-5 pb-4 last:pb-0">
+                    {/* Timeline Line (except last item) */}
+                    {index < weeklyActivityData.recentUpdates.length - 1 && (
+                      <div className="absolute left-[7px] top-3 bottom-0 w-0.5 bg-gray-100"></div>
+                    )}
+                    {/* Timeline Dot - Color coded by action type */}
+                    <div className={`absolute left-0 top-1.5 h-4 w-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center ${update.changeType?.includes('SUBMIT') ? 'bg-emerald-500' :
+                      update.changeType?.includes('STATUS') ? 'bg-blue-500' :
+                        update.changeType?.includes('CREATE') ? 'bg-purple-500' :
+                          update.changeType?.includes('UPDATE') ? 'bg-amber-500' :
+                            'bg-gray-400'
+                      }`}>
+                      <div className="h-1.5 w-1.5 rounded-full bg-white/80"></div>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5">
+                      {/* Header: User + Department + Time */}
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-800 truncate">{plan.pic || 'Unknown'}</p>
-                        <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded font-medium shrink-0">
-                          {plan.department_code}
+                        <span className="font-semibold text-gray-900 text-sm truncate max-w-[120px]">
+                          {update.pic || 'System'}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded font-medium shrink-0">
+                          {update.departmentCode}
+                        </span>
+                        <span className="text-[10px] text-gray-400 ml-auto shrink-0">
+                          {formatRelativeTime(update.timestamp)}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 line-clamp-1 mt-0.5" title={plan.action_plan}>
-                        {plan.action_plan || plan.goal_strategy || 'Untitled plan'}
+
+                      {/* Event Description (from audit log) */}
+                      <p className="text-xs text-gray-600 leading-snug line-clamp-2" title={update.description}>
+                        {update.description || update.actionPlanTitle || 'Activity logged'}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[10px] text-gray-400">{formatRelativeTime(plan.updated_at)}</span>
-                        <span className="text-[10px] text-gray-300">•</span>
-                        <span className={`text-[10px] font-medium ${
-                          plan.status === 'Achieved' ? 'text-emerald-600' :
-                          plan.status === 'On Progress' ? 'text-amber-600' :
-                          plan.status === 'Not Achieved' ? 'text-red-600' : 'text-gray-500'
-                        }`}>
-                          {plan.status}
+
+                      {/* Event Type Badge */}
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${update.changeType?.includes('SUBMIT') ? 'bg-emerald-50 text-emerald-700' :
+                          update.changeType?.includes('STATUS') ? 'bg-blue-50 text-blue-700' :
+                            update.changeType?.includes('CREATE') ? 'bg-purple-50 text-purple-700' :
+                              update.changeType?.includes('UPDATE') ? 'bg-amber-50 text-amber-700' :
+                                'bg-gray-100 text-gray-600'
+                          }`}>
+                          {update.changeType || 'ACTIVITY'}
                         </span>
                       </div>
                     </div>
@@ -1519,7 +1686,7 @@ export default function AdminDashboard({ onNavigate }) {
                 </div>
               )}
             </div>
-            
+
             {weeklyActivityData.recentUpdates.length > 0 && (
               <div className="mt-3 pt-3 border-t border-gray-100 text-center">
                 <p className="text-xs text-gray-400">
@@ -1532,195 +1699,195 @@ export default function AdminDashboard({ onNavigate }) {
 
         {/* Decision Layer: YoY Trend (2/3) + Bottleneck Radar (1/3) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-        
-        {/* YoY Trend Chart - Left Column (Span 2) */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[340px] flex flex-col">
-          {/* Chart Header */}
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Performance Trend (YoY)</h3>
-              <p className="text-sm text-gray-500">
-                Monthly {isCompletionView ? 'completion rate' : 'quality score'} comparison
-                {highlightRange && (
-                  <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                    Viewing: {highlightRange.x1}{highlightRange.x1 !== highlightRange.x2 ? ` – ${highlightRange.x2}` : ''}
-                  </span>
-                )}
-              </p>
-            </div>
-            
-            {/* Comparison Year Dropdown + Legend */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center">
-                <span className="text-sm text-gray-500 mr-2">Compare with:</span>
-                <select
-                  value={comparisonYear}
-                  onChange={(e) => setComparisonYear(e.target.value)}
-                  className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                >
-                  <option value="none">None</option>
-                  <option value="prev_year">{selectedYear - 1}</option>
-                  {COMPARISON_YEARS.filter(y => y !== selectedYear && y !== selectedYear - 1).map((year) => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Legend */}
-              <div className="flex items-center gap-3 text-xs border-l border-gray-200 pl-3">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-0.5 bg-teal-600 rounded"></span>
-                  {selectedYear}
-                </span>
-                {comparisonYear !== 'none' && hasComparisonData && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-4 h-0.5 bg-amber-500 rounded"></span>
-                    {comparisonLabel}
-                  </span>
-                )}
-                {annualTarget && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-4 h-0.5 bg-red-500 rounded"></span>
-                    Target {annualTarget}%
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          {/* No comparison data warning */}
-          {comparisonYear !== 'none' && !hasComparisonData && (
-            <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-              ⚠️ No data available for {comparisonLabel}
-            </div>
-          )}
-          
-          {/* Quality Score not available for historical years warning */}
-          {!isCompletionView && selectedYear < 2026 && (
-            <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-              ℹ️ Quality Score system was introduced in 2026. No score data available for {selectedYear}.
-            </div>
-          )}
-          
-          <div className="flex-1 min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={yoyChartData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => `${v}%`} width={40} />
-              <Tooltip 
-                content={({ active, payload, label }) => {
-                  if (active && payload && payload.length) {
-                    // Extract values for gap calculations
-                    const currentVal = payload[0]?.value ?? null;
-                    const prevVal = payload[1]?.value ?? null;
-                    const targetRate = annualTarget || 80; // Use dynamic target or default to 80%
-                    
-                    // Calculate gaps with precision formatting
-                    const canShowYoYGap = currentVal !== null && prevVal !== null && payload.length > 1;
-                    const yoyGap = canShowYoYGap ? Number((currentVal - prevVal).toFixed(1)) : 0;
-                    const targetGap = currentVal !== null ? Number((currentVal - targetRate).toFixed(1)) : null;
-                    
-                    // Helper for trend styling
-                    const getTrend = (val) => ({
-                      color: val >= 0 ? 'text-emerald-600' : 'text-red-600',
-                      icon: val >= 0 ? '▲' : '▼',
-                      prefix: val >= 0 ? '+' : ''
-                    });
-                    
-                    const yoyTrend = getTrend(yoyGap);
-                    const targetTrend = targetGap !== null ? getTrend(targetGap) : null;
-                    
-                    return (
-                      <div className="bg-white p-3 border border-gray-200 shadow-xl rounded-lg min-w-[180px]">
-                        <p className="font-bold text-gray-700 mb-2 border-b pb-1">{`Month: ${label}`}</p>
-                        {/* Individual year values */}
-                        {payload.map((entry, index) => (
-                          entry.value !== null && (
-                            <div key={index} className="flex justify-between items-center text-sm mb-1">
-                              <span style={{ color: entry.color }} className="font-medium mr-3">{entry.name}:</span>
-                              <span className="font-bold">{entry.value}%</span>
-                            </div>
-                          )
-                        ))}
-                        {/* Target reference line */}
-                        <div className="flex justify-between items-center text-sm mb-1 opacity-60">
-                          <span className="font-medium mr-3 text-red-500">Target:</span>
-                          <span className="font-bold text-red-500">{targetRate}%</span>
-                        </div>
-                        {/* Gap metrics */}
-                        <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
-                          {canShowYoYGap && (
-                            <div className={`flex justify-between items-center text-sm font-bold ${yoyTrend.color}`}>
-                              <span className="text-xs uppercase text-gray-500">YoY Gap:</span>
-                              <span>{yoyTrend.prefix}{yoyGap.toFixed(1)}% {yoyTrend.icon}</span>
-                            </div>
-                          )}
-                          {targetTrend && (
-                            <div className={`flex justify-between items-center text-sm font-bold ${targetTrend.color}`}>
-                              <span className="text-xs uppercase text-gray-500">vs Target:</span>
-                              <span>{targetTrend.prefix}{targetGap.toFixed(1)}% {targetTrend.icon}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              {/* Reference Area to highlight selected date range */}
-              {highlightRange && (
-                <ReferenceArea
-                  x1={highlightRange.x1}
-                  x2={highlightRange.x2}
-                  fill="#dcfce7"
-                  fillOpacity={0.5}
-                  stroke="#86efac"
-                  strokeOpacity={0.8}
-                />
-              )}
-              {/* Target Reference Line */}
-              {annualTarget && (
-                <ReferenceLine
-                  y={annualTarget}
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  strokeDasharray="8 4"
-                  label={{ value: `Target ${annualTarget}%`, position: 'right', fill: '#ef4444', fontSize: 11 }}
-                />
-              )}
-              <Line 
-                type="monotone" 
-                dataKey={isCompletionView ? 'main_completion' : 'main_score'} 
-                stroke="#0d9488" 
-                strokeWidth={2.5} 
-                dot={{ fill: '#0d9488', r: 4 }} 
-                connectNulls 
-                name={`${selectedYear}`} 
-              />
-              {comparisonYear !== 'none' && hasComparisonData && (
-                <Line 
-                  type="monotone" 
-                  dataKey={isCompletionView ? 'compare_completion' : 'compare_score'} 
-                  stroke="#f59e0b" 
-                  strokeWidth={2} 
-                  strokeDasharray="5 5" 
-                  dot={{ fill: '#f59e0b', r: 3 }} 
-                  connectNulls 
-                  name={comparisonLabel} 
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-          </div>
-        </div>
 
-        {/* Bottleneck Radar - Right Column */}
-        <BottleneckChart 
-          plans={!isHistoricalView ? filteredPlans : []} 
-          getDeptName={getDeptName} 
-          failureReasons={failureAnalysis.reasons}
-        />
+          {/* YoY Trend Chart - Left Column (Span 2) */}
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[340px] flex flex-col">
+            {/* Chart Header */}
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Performance Trend (YoY)</h3>
+                <p className="text-sm text-gray-500">
+                  Monthly {isCompletionView ? 'completion rate' : 'quality score'} comparison
+                  {highlightRange && (
+                    <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                      Viewing: {highlightRange.x1}{highlightRange.x1 !== highlightRange.x2 ? ` – ${highlightRange.x2}` : ''}
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              {/* Comparison Year Dropdown + Legend */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center">
+                  <span className="text-sm text-gray-500 mr-2">Compare with:</span>
+                  <select
+                    value={comparisonYear}
+                    onChange={(e) => setComparisonYear(e.target.value)}
+                    className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    <option value="none">None</option>
+                    <option value="prev_year">{selectedYear - 1}</option>
+                    {COMPARISON_YEARS.filter(y => y !== selectedYear && y !== selectedYear - 1).map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* Legend */}
+                <div className="flex items-center gap-3 text-xs border-l border-gray-200 pl-3">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-4 h-0.5 bg-teal-600 rounded"></span>
+                    {selectedYear}
+                  </span>
+                  {comparisonYear !== 'none' && hasComparisonData && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-0.5 bg-amber-500 rounded"></span>
+                      {comparisonLabel}
+                    </span>
+                  )}
+                  {annualTarget && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-0.5 bg-red-500 rounded"></span>
+                      Target {annualTarget}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* No comparison data warning */}
+            {comparisonYear !== 'none' && !hasComparisonData && (
+              <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                ⚠️ No data available for {comparisonLabel}
+              </div>
+            )}
+
+            {/* Quality Score not available for historical years warning */}
+            {!isCompletionView && selectedYear < 2026 && (
+              <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                ℹ️ Quality Score system was introduced in 2026. No score data available for {selectedYear}.
+              </div>
+            )}
+
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={yoyChartData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={(v) => `${v}%`} width={40} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        // Extract values for gap calculations
+                        const currentVal = payload[0]?.value ?? null;
+                        const prevVal = payload[1]?.value ?? null;
+                        const targetRate = annualTarget || 80; // Use dynamic target or default to 80%
+
+                        // Calculate gaps with precision formatting
+                        const canShowYoYGap = currentVal !== null && prevVal !== null && payload.length > 1;
+                        const yoyGap = canShowYoYGap ? Number((currentVal - prevVal).toFixed(1)) : 0;
+                        const targetGap = currentVal !== null ? Number((currentVal - targetRate).toFixed(1)) : null;
+
+                        // Helper for trend styling
+                        const getTrend = (val) => ({
+                          color: val >= 0 ? 'text-emerald-600' : 'text-red-600',
+                          icon: val >= 0 ? '▲' : '▼',
+                          prefix: val >= 0 ? '+' : ''
+                        });
+
+                        const yoyTrend = getTrend(yoyGap);
+                        const targetTrend = targetGap !== null ? getTrend(targetGap) : null;
+
+                        return (
+                          <div className="bg-white p-3 border border-gray-200 shadow-xl rounded-lg min-w-[180px]">
+                            <p className="font-bold text-gray-700 mb-2 border-b pb-1">{`Month: ${label}`}</p>
+                            {/* Individual year values */}
+                            {payload.map((entry, index) => (
+                              entry.value !== null && (
+                                <div key={index} className="flex justify-between items-center text-sm mb-1">
+                                  <span style={{ color: entry.color }} className="font-medium mr-3">{entry.name}:</span>
+                                  <span className="font-bold">{entry.value}%</span>
+                                </div>
+                              )
+                            ))}
+                            {/* Target reference line */}
+                            <div className="flex justify-between items-center text-sm mb-1 opacity-60">
+                              <span className="font-medium mr-3 text-red-500">Target:</span>
+                              <span className="font-bold text-red-500">{targetRate}%</span>
+                            </div>
+                            {/* Gap metrics */}
+                            <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+                              {canShowYoYGap && (
+                                <div className={`flex justify-between items-center text-sm font-bold ${yoyTrend.color}`}>
+                                  <span className="text-xs uppercase text-gray-500">YoY Gap:</span>
+                                  <span>{yoyTrend.prefix}{yoyGap.toFixed(1)}% {yoyTrend.icon}</span>
+                                </div>
+                              )}
+                              {targetTrend && (
+                                <div className={`flex justify-between items-center text-sm font-bold ${targetTrend.color}`}>
+                                  <span className="text-xs uppercase text-gray-500">vs Target:</span>
+                                  <span>{targetTrend.prefix}{targetGap.toFixed(1)}% {targetTrend.icon}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  {/* Reference Area to highlight selected date range */}
+                  {highlightRange && (
+                    <ReferenceArea
+                      x1={highlightRange.x1}
+                      x2={highlightRange.x2}
+                      fill="#dcfce7"
+                      fillOpacity={0.5}
+                      stroke="#86efac"
+                      strokeOpacity={0.8}
+                    />
+                  )}
+                  {/* Target Reference Line */}
+                  {annualTarget && (
+                    <ReferenceLine
+                      y={annualTarget}
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      strokeDasharray="8 4"
+                      label={{ value: `Target ${annualTarget}%`, position: 'right', fill: '#ef4444', fontSize: 11 }}
+                    />
+                  )}
+                  <Line
+                    type="monotone"
+                    dataKey={isCompletionView ? 'main_completion' : 'main_score'}
+                    stroke="#0d9488"
+                    strokeWidth={2.5}
+                    dot={{ fill: '#0d9488', r: 4 }}
+                    connectNulls
+                    name={`${selectedYear}`}
+                  />
+                  {comparisonYear !== 'none' && hasComparisonData && (
+                    <Line
+                      type="monotone"
+                      dataKey={isCompletionView ? 'compare_completion' : 'compare_score'}
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={{ fill: '#f59e0b', r: 3 }}
+                      connectNulls
+                      name={comparisonLabel}
+                    />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Bottleneck Radar - Right Column */}
+          <BottleneckChart
+            plans={!isHistoricalView ? filteredPlans : []}
+            getDeptName={getDeptName}
+            failureReasons={failureAnalysis.reasons}
+          />
         </div>
 
         {/* Strategic Performance - Focus Area & Priority Execution */}
@@ -1739,23 +1906,23 @@ export default function AdminDashboard({ onNavigate }) {
               {sortedFocusAreaStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
-                    <BarChart 
-                      layout="vertical" 
-                      data={sortedFocusAreaStats} 
+                    <BarChart
+                      layout="vertical"
+                      data={sortedFocusAreaStats}
                       margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
                       <XAxis type="number" domain={[0, 100]} hide />
-                      <YAxis 
-                        dataKey="name" 
-                        type="category" 
-                        width={150} 
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        width={150}
                         tick={{ fontSize: 11, fill: '#4b5563' }}
                         tickLine={false}
                         axisLine={false}
                         interval={0}
                       />
-                      <Tooltip 
+                      <Tooltip
                         cursor={{ fill: 'transparent' }}
                         content={({ active, payload }) => {
                           if (active && payload && payload.length) {
@@ -1787,20 +1954,20 @@ export default function AdminDashboard({ onNavigate }) {
                           return null;
                         }}
                       />
-                      <Bar 
-                        dataKey="rate" 
-                        radius={[0, 4, 4, 0]} 
+                      <Bar
+                        dataKey="rate"
+                        radius={[0, 4, 4, 0]}
                         barSize={24}
                       >
                         {sortedFocusAreaStats.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={entry.rate >= 80 ? '#059669' : entry.rate >= 50 ? '#f59e0b' : '#ef4444'} 
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.rate >= 80 ? '#059669' : entry.rate >= 50 ? '#f59e0b' : '#ef4444'}
                           />
                         ))}
-                        <LabelList 
-                          dataKey="rate" 
-                          position="right" 
+                        <LabelList
+                          dataKey="rate"
+                          position="right"
                           formatter={(val) => `${val}%`}
                           fill="#374151"
                           fontSize={11}
@@ -1830,22 +1997,22 @@ export default function AdminDashboard({ onNavigate }) {
               {sortedCategoryStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
-                    <BarChart 
-                      layout="vertical" 
-                      data={sortedCategoryStats} 
+                    <BarChart
+                      layout="vertical"
+                      data={sortedCategoryStats}
                       margin={{ left: 10, right: 50, top: 5, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f0f0f0" />
                       <XAxis type="number" domain={[0, 100]} hide />
-                      <YAxis 
-                        dataKey="name" 
-                        type="category" 
-                        width={100} 
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        width={100}
                         tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
                         tickLine={false}
                         axisLine={false}
                       />
-                      <Tooltip 
+                      <Tooltip
                         cursor={{ fill: 'transparent' }}
                         content={({ active, payload }) => {
                           if (active && payload && payload.length) {
@@ -1878,17 +2045,17 @@ export default function AdminDashboard({ onNavigate }) {
                           return null;
                         }}
                       />
-                      <Bar 
-                        dataKey="rate" 
-                        radius={[0, 4, 4, 0]} 
+                      <Bar
+                        dataKey="rate"
+                        radius={[0, 4, 4, 0]}
                         barSize={32}
                       >
                         {sortedCategoryStats.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
-                        <LabelList 
-                          dataKey="rate" 
-                          position="right" 
+                        <LabelList
+                          dataKey="rate"
+                          position="right"
                           formatter={(val) => `${val}%`}
                           fill="#374151"
                           fontSize={12}
@@ -1910,9 +2077,9 @@ export default function AdminDashboard({ onNavigate }) {
         {/* Strategy Analysis - Combo Chart (Volume + Completion) */}
         {!isHistoricalView && filteredPlans.length > 0 && (
           <div className="mb-6">
-            <StrategyComboChart 
-              plans={filteredPlans} 
-              isCompletionView={isCompletionView} 
+            <StrategyComboChart
+              plans={filteredPlans}
+              isCompletionView={isCompletionView}
               sortMode={stratChartSort}
               onSortChange={setStratChartSort}
             />
@@ -1977,20 +2144,20 @@ export default function AdminDashboard({ onNavigate }) {
           <div className="divide-y divide-gray-100">
             {filteredLeaderboard.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                {selectedDept !== 'All' 
-                  ? `No data for ${getDeptName(selectedDept)} in ${selectedYear}` 
+                {selectedDept !== 'All'
+                  ? `No data for ${getDeptName(selectedDept)} in ${selectedYear}`
                   : `No data for ${selectedYear}`}
               </div>
             ) : (
               filteredLeaderboard.map((dept, index) => {
                 // Dynamic color based on isCompletionView
-                const progressColor = isCompletionView 
+                const progressColor = isCompletionView
                   ? (dept.rate >= 90 ? '#059669' : dept.rate >= 70 ? '#34d399' : '#6ee7b7') // Emerald shades
                   : (dept.rate >= 90 ? '#d97706' : dept.rate >= 70 ? '#f59e0b' : '#fbbf24'); // Amber shades
                 const textColor = isCompletionView
                   ? (dept.rate >= 90 ? '#059669' : dept.rate >= 70 ? '#10b981' : '#34d399')
                   : (dept.rate >= 90 ? '#d97706' : dept.rate >= 70 ? '#f59e0b' : '#fbbf24');
-                
+
                 return (
                   <div key={dept.code} className={`p-4 flex items-center gap-4 ${index < 3 && selectedDept === 'All' ? 'bg-gradient-to-r from-yellow-50/50 to-transparent' : ''}`}>
                     <div className="w-8 flex justify-center">{getRankIcon(index)}</div>
@@ -1998,9 +2165,9 @@ export default function AdminDashboard({ onNavigate }) {
                     <div className="flex-1">
                       <p className="font-medium text-gray-800">{getDeptName(dept.code)}</p>
                       <p className="text-sm text-gray-500">
-                        {dept.isHistorical 
+                        {dept.isHistorical
                           ? <span className="text-amber-600 italic">Historical data</span>
-                          : isCompletionView 
+                          : isCompletionView
                             ? `${dept.achieved} of ${dept.total} achieved`
                             : `${dept.graded} graded of ${dept.total} total`
                         }
@@ -2011,8 +2178,8 @@ export default function AdminDashboard({ onNavigate }) {
                         <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
                           {/* Target marker */}
                           {annualTarget && isCompletionView && (
-                            <div 
-                              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
                               style={{ left: `${annualTarget}%` }}
                             />
                           )}

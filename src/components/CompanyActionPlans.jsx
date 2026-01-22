@@ -21,17 +21,17 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const { isAdmin } = useAuth();
   const { toast } = useToast();
   // Fetch ALL plans (no department filter)
-  const { plans, loading, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan, bulkResetGrades } = useActionPlans(null);
-  
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan, bulkResetGrades } = useActionPlans(null);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
-  
+
   // Tab state for Admin Grading Inbox - use initialActiveTab prop
   const [activeTab, setActiveTab] = useState(initialActiveTab);
-  
+
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
-  
+
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [startMonth, setStartMonth] = useState('Jan');
@@ -42,14 +42,14 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [exporting, setExporting] = useState(false);
   const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
   const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
-  
+
   // Legacy: Keep selectedMonth for backward compatibility with DashboardCards
   const selectedMonth = startMonth === endMonth ? startMonth : 'all';
-  
+
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [deleting, setDeleting] = useState(false);
-  
+
   // Grade modal state
   const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
 
@@ -57,6 +57,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
   const [resettingAll, setResettingAll] = useState(false);
   const [resetConfirmationText, setResetConfirmationText] = useState('');
+
+  // Soft refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Update filters when props change (from dashboard drill-down)
   useEffect(() => {
@@ -80,7 +83,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   // Count items needing grading (submitted but not yet graded)
   const needsGradingCount = useMemo(() => {
-    return plans.filter(p => 
+    return plans.filter(p =>
       p.submission_status === 'submitted' && p.quality_score == null
     ).length;
   }, [plans]);
@@ -135,28 +138,28 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     if (activeTab === 'needs_grading') {
       return needsGradingPlans;
     }
-    
+
     const startIdx = MONTH_INDEX[startMonth] ?? 0;
     const endIdx = MONTH_INDEX[endMonth] ?? 11;
-    
+
     // Otherwise apply normal filters for "all_records" tab
     return plans.filter((plan) => {
       // Department filter
       if (selectedDept !== 'all' && plan.department_code !== selectedDept) {
         return false;
       }
-      
+
       // Month range filter
       const planMonthIdx = MONTH_INDEX[plan.month];
       if (planMonthIdx !== undefined && (planMonthIdx < startIdx || planMonthIdx > endIdx)) {
         return false;
       }
-      
+
       // Status filter
       if (selectedStatus !== 'all' && plan.status !== selectedStatus) {
         return false;
       }
-      
+
       // Category filter (UH, H, M, L)
       if (selectedCategory !== 'all') {
         const planCategory = (plan.category || '').toUpperCase();
@@ -166,7 +169,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           return false;
         }
       }
-      
+
       // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -178,14 +181,14 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           plan.remark,
           plan.department_code,
         ].filter(Boolean);
-        
+
         const matchesSearch = searchableFields.some((field) =>
           field.toLowerCase().includes(query)
         );
-        
+
         if (!matchesSearch) return false;
       }
-      
+
       return true;
     });
   }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, activeTab, needsGradingPlans]);
@@ -200,10 +203,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     setSelectedDept('all');
     setSelectedCategory('all');
   };
-  
+
   const clearMonthFilter = () => {
     setStartMonth('Jan');
     setEndMonth('Dec');
+  };
+
+  // Soft refresh handler - re-fetches data without page reload
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      // Small delay so user feels the "work" happening
+      await new Promise(resolve => setTimeout(resolve, 400));
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Export Excel handler
@@ -243,10 +258,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
-      
+
       // Set column widths
       ws['!cols'] = columns.map(() => ({ wch: 20 }));
-      
+
       // Generate filename and download
       const timestamp = new Date().toISOString().split('T')[0];
       XLSX.writeFile(wb, `All_Action_Plans_${CURRENT_YEAR}_${timestamp}.xlsx`);
@@ -393,6 +408,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 </span>
               </button>
             )}
+            {/* Soft Refresh Button */}
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing || loading}
+              className="flex items-center gap-2 px-3 py-2.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
+              <span className="text-sm font-medium">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
             <button
               onClick={handleExportExcel}
               disabled={exporting || filteredPlans.length === 0}
@@ -410,38 +434,35 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         <div className="flex items-center gap-2 mb-6 flex-wrap">
           <button
             onClick={() => setActiveTab('needs_grading')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
-              activeTab === 'needs_grading'
-                ? 'bg-purple-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'needs_grading'
+              ? 'bg-purple-600 text-white'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
           >
             <ClipboardCheck className="w-4 h-4" />
             Needs Grading
             {needsGradingCount > 0 && (
-              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
-                activeTab === 'needs_grading'
-                  ? 'bg-white text-purple-600'
-                  : 'bg-orange-500 text-white'
-              }`}>
+              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === 'needs_grading'
+                ? 'bg-white text-purple-600'
+                : 'bg-orange-500 text-white'
+                }`}>
                 {needsGradingCount}
               </span>
             )}
           </button>
           <button
             onClick={() => setActiveTab('all_records')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
-              activeTab === 'all_records'
-                ? 'bg-gray-800 text-white'
-                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'all_records'
+              ? 'bg-gray-800 text-white'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
           >
             All Records
             <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-gray-200 text-gray-600">
               {plans.length}
             </span>
           </button>
-          
+
           {/* Department Filter for Grading Tab */}
           {activeTab === 'needs_grading' && needsGradingCount > 0 && (
             <div className="flex items-center gap-2 ml-auto">
@@ -469,8 +490,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
         {/* KPI Cards - Only show on All Records tab */}
         {activeTab === 'all_records' && (
-          <DashboardCards 
-            data={filteredPlans} 
+          <DashboardCards
+            data={filteredPlans}
             selectedMonth={selectedMonth}
             startMonth={startMonth}
             endMonth={endMonth}
@@ -478,263 +499,261 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             activeFilter={selectedStatus}
           />
         )}
-        
+
         {/* Control Toolbar - Only show on All Records tab */}
         {activeTab === 'all_records' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search across all departments..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            
-            {/* Filter Dropdowns */}
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* Department Filter */}
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <Building2 className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedDept}
-                  onChange={(e) => setSelectedDept(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                >
-                  <option value="all">All Departments</option>
-                  {DEPARTMENTS.map((dept) => (
-                    <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Column Toggle */}
-              <ColumnToggle 
-                visibleColumns={visibleColumns} 
-                columnOrder={columnOrder}
-                toggleColumn={toggleColumn} 
-                moveColumn={moveColumn}
-                reorderColumns={reorderColumns}
-                resetColumns={resetColumns} 
-              />
-              
-              {/* Month Range Filter */}
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <Calendar className="w-4 h-4 text-gray-500" />
-                
-                {/* Start Month Dropdown */}
-                <div className="relative">
-                  <button 
-                    onClick={() => {
-                      setIsStartMonthDropdownOpen(!isStartMonthDropdownOpen);
-                      setIsEndMonthDropdownOpen(false);
-                    }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
-                  >
-                    <span>{startMonth}</span>
-                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {isStartMonthDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsStartMonthDropdownOpen(false)} />
-                      <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
-                        <div className="max-h-48 overflow-y-auto p-1">
-                          {MONTHS_ORDER.map((month) => (
-                            <button
-                              key={month}
-                              onClick={() => {
-                                setStartMonth(month);
-                                // Auto-adjust end month if start > end
-                                if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
-                                  setEndMonth(month);
-                                }
-                                setIsStartMonthDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                                startMonth === month 
-                                  ? 'bg-teal-50 text-teal-700' 
-                                  : 'text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {month}
-                              {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                <span className="text-gray-400 text-sm">—</span>
-                
-                {/* End Month Dropdown */}
-                <div className="relative">
-                  <button 
-                    onClick={() => {
-                      setIsEndMonthDropdownOpen(!isEndMonthDropdownOpen);
-                      setIsStartMonthDropdownOpen(false);
-                    }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
-                  >
-                    <span>{endMonth}</span>
-                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {isEndMonthDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsEndMonthDropdownOpen(false)} />
-                      <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
-                        <div className="max-h-48 overflow-y-auto p-1">
-                          {MONTHS_ORDER.map((month) => (
-                            <button
-                              key={month}
-                              onClick={() => {
-                                setEndMonth(month);
-                                // Auto-adjust start month if end < start
-                                if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
-                                  setStartMonth(month);
-                                }
-                                setIsEndMonthDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                                endMonth === month 
-                                  ? 'bg-teal-50 text-teal-700' 
-                                  : 'text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {month}
-                              {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                {/* Clear month filter button */}
-                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              {/* Search Input */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search across all departments..."
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                />
+                {searchQuery && (
                   <button
-                    onClick={clearMonthFilter}
-                    className="ml-1 text-gray-400 hover:text-gray-600"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
-              
-              {/* Status Filter */}
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <CheckCircle className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                >
-                  <option value="all">All Status</option>
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Category/Priority Filter */}
-              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                <Flag className="w-4 h-4 text-gray-500" />
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                >
-                  <option value="all">All Priority</option>
-                  <option value="UH">UH - Ultra High</option>
-                  <option value="H">H - High</option>
-                  <option value="M">M - Medium</option>
-                  <option value="L">L - Low</option>
-                </select>
+
+              {/* Filter Dropdowns */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Department Filter */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  <select
+                    value={selectedDept}
+                    onChange={(e) => setSelectedDept(e.target.value)}
+                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                  >
+                    <option value="all">All Departments</option>
+                    {DEPARTMENTS.map((dept) => (
+                      <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Column Toggle */}
+                <ColumnToggle
+                  visibleColumns={visibleColumns}
+                  columnOrder={columnOrder}
+                  toggleColumn={toggleColumn}
+                  moveColumn={moveColumn}
+                  reorderColumns={reorderColumns}
+                  resetColumns={resetColumns}
+                />
+
+                {/* Month Range Filter */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <Calendar className="w-4 h-4 text-gray-500" />
+
+                  {/* Start Month Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setIsStartMonthDropdownOpen(!isStartMonthDropdownOpen);
+                        setIsEndMonthDropdownOpen(false);
+                      }}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                    >
+                      <span>{startMonth}</span>
+                      <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isStartMonthDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsStartMonthDropdownOpen(false)} />
+                        <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                          <div className="max-h-48 overflow-y-auto p-1">
+                            {MONTHS_ORDER.map((month) => (
+                              <button
+                                key={month}
+                                onClick={() => {
+                                  setStartMonth(month);
+                                  // Auto-adjust end month if start > end
+                                  if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
+                                    setEndMonth(month);
+                                  }
+                                  setIsStartMonthDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${startMonth === month
+                                  ? 'bg-teal-50 text-teal-700'
+                                  : 'text-gray-600 hover:bg-gray-50'
+                                  }`}
+                              >
+                                {month}
+                                {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <span className="text-gray-400 text-sm">—</span>
+
+                  {/* End Month Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        setIsEndMonthDropdownOpen(!isEndMonthDropdownOpen);
+                        setIsStartMonthDropdownOpen(false);
+                      }}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                    >
+                      <span>{endMonth}</span>
+                      <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isEndMonthDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsEndMonthDropdownOpen(false)} />
+                        <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                          <div className="max-h-48 overflow-y-auto p-1">
+                            {MONTHS_ORDER.map((month) => (
+                              <button
+                                key={month}
+                                onClick={() => {
+                                  setEndMonth(month);
+                                  // Auto-adjust start month if end < start
+                                  if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
+                                    setStartMonth(month);
+                                  }
+                                  setIsEndMonthDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${endMonth === month
+                                  ? 'bg-teal-50 text-teal-700'
+                                  : 'text-gray-600 hover:bg-gray-50'
+                                  }`}
+                              >
+                                {month}
+                                {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Clear month filter button */}
+                  {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                    <button
+                      onClick={clearMonthFilter}
+                      className="ml-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Filter */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <CheckCircle className="w-4 h-4 text-gray-500" />
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                  >
+                    <option value="all">All Status</option>
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Category/Priority Filter */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <Flag className="w-4 h-4 text-gray-500" />
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                  >
+                    <option value="all">All Priority</option>
+                    <option value="UH">UH - Ultra High</option>
+                    <option value="H">H - High</option>
+                    <option value="M">M - Medium</option>
+                    <option value="L">L - Low</option>
+                  </select>
+                </div>
               </div>
             </div>
+
+            {/* Active Filters Summary */}
+            {hasActiveFilters && (
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-500">Active filters:</span>
+
+                {searchQuery && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full">
+                    Search: "{searchQuery}"
+                    <button onClick={() => setSearchQuery('')} className="hover:text-teal-900">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedDept !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-full">
+                    Dept: {selectedDept}
+                    <button onClick={() => setSelectedDept('all')} className="hover:text-emerald-900">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
+                    {startMonth === endMonth ? startMonth : `${startMonth} — ${endMonth}`}
+                    <button onClick={clearMonthFilter} className="hover:text-blue-900">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedStatus !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                    Status: {selectedStatus}
+                    <button onClick={() => setSelectedStatus('all')} className="hover:text-purple-900">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedCategory !== 'all' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full">
+                    Priority: {selectedCategory}
+                    <button onClick={() => setSelectedCategory('all')} className="hover:text-rose-900">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                <button
+                  onClick={clearAllFilters}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline ml-2"
+                >
+                  Clear all
+                </button>
+
+                <span className="text-xs text-gray-400 ml-auto">
+                  Showing {filteredPlans.length} of {plans.length} plans
+                </span>
+              </div>
+            )}
           </div>
-          
-          {/* Active Filters Summary */}
-          {hasActiveFilters && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-gray-500">Active filters:</span>
-              
-              {searchQuery && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full">
-                  Search: "{searchQuery}"
-                  <button onClick={() => setSearchQuery('')} className="hover:text-teal-900">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              
-              {selectedDept !== 'all' && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-full">
-                  Dept: {selectedDept}
-                  <button onClick={() => setSelectedDept('all')} className="hover:text-emerald-900">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              
-              {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                  {startMonth === endMonth ? startMonth : `${startMonth} — ${endMonth}`}
-                  <button onClick={clearMonthFilter} className="hover:text-blue-900">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              
-              {selectedStatus !== 'all' && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
-                  Status: {selectedStatus}
-                  <button onClick={() => setSelectedStatus('all')} className="hover:text-purple-900">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              
-              {selectedCategory !== 'all' && (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full">
-                  Priority: {selectedCategory}
-                  <button onClick={() => setSelectedCategory('all')} className="hover:text-rose-900">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              
-              <button
-                onClick={clearAllFilters}
-                className="text-xs text-gray-500 hover:text-gray-700 underline ml-2"
-              >
-                Clear all
-              </button>
-              
-              <span className="text-xs text-gray-400 ml-auto">
-                Showing {filteredPlans.length} of {plans.length} plans
-              </span>
-            </div>
-          )}
-        </div>
         )}
-        
+
         {/* Empty State for Needs Grading Tab */}
         {activeTab === 'needs_grading' && needsGradingCount === 0 && !loading && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
@@ -755,22 +774,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             </div>
           </div>
         )}
-        
+
         {/* Data Table with Department Column */}
         {(activeTab === 'all_records' || (activeTab === 'needs_grading' && needsGradingCount > 0)) && (
-        <DataTable
-          data={filteredPlans}
-          loading={loading}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          onStatusChange={handleStatusChange}
-          onCompletionStatusChange={handleCompletionStatusChange}
-          onGrade={handleOpenGradeModal}
-          onQuickReset={handleQuickReset}
-          showDepartmentColumn={true}
-          visibleColumns={visibleColumns}
-          columnOrder={columnOrder}
-        />
+          <DataTable
+            data={filteredPlans}
+            loading={loading}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onStatusChange={handleStatusChange}
+            onCompletionStatusChange={handleCompletionStatusChange}
+            onGrade={handleOpenGradeModal}
+            onQuickReset={handleQuickReset}
+            showDepartmentColumn={true}
+            visibleColumns={visibleColumns}
+            columnOrder={columnOrder}
+          />
         )}
       </main>
 
@@ -819,7 +838,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <p className="text-sm text-gray-500">This is a destructive action</p>
               </div>
             </div>
-            
+
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
               <p className="text-red-800 text-sm font-medium mb-2">
                 ⚠️ DANGER: COMPLETE WIPE
@@ -838,7 +857,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 This action cannot be undone!
               </p>
             </div>
-            
+
             {/* Type-to-Confirm Safety */}
             <div className="mb-4">
               <label className="text-sm text-gray-700 block mb-2">
@@ -853,7 +872,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors"
               />
             </div>
-            
+
             <div className="flex gap-3">
               <button
                 onClick={() => {
@@ -898,7 +917,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <p className="text-sm text-gray-500">Complete wipe for single item</p>
               </div>
             </div>
-            
+
             <div className="bg-gray-50 rounded-lg p-3 mb-4 border border-gray-200">
               <p className="text-xs text-gray-500 mb-1">Action Plan:</p>
               <p className="text-sm text-gray-800 font-medium line-clamp-2">{quickResetItem.action_plan}</p>
@@ -910,7 +929,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <span>Score: {quickResetItem.quality_score}</span>
               </div>
             </div>
-            
+
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
               <p className="text-orange-800 text-sm">
                 This will reset the item as if it was never submitted:
@@ -923,7 +942,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <li>Clear staff remarks</li>
               </ul>
             </div>
-            
+
             <div className="flex gap-3">
               <button
                 onClick={() => setQuickResetItem(null)}

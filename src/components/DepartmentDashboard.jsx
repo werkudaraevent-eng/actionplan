@@ -63,13 +63,13 @@ const BenchmarkTooltip = ({ active, payload, label, currentYear, comparisonLabel
     const compValue = payload.find(p => p.dataKey === 'comparison')?.value;
     const data = payload[0]?.payload;
     const metricLabel = metricType === 'score' ? 'Avg Score' : 'Completion';
-    
+
     // Calculate YoY Gap
     const hasGap = currentValue != null && compValue != null;
     const gap = hasGap ? Number((currentValue - compValue).toFixed(1)) : null;
     const gapFormatted = gap !== null ? (gap >= 0 ? `+${gap}%` : `${gap}%`) : null;
     const gapColor = gap !== null ? (gap >= 0 ? '#15803d' : '#b91c1c') : null; // green-700 or red-700
-    
+
     return (
       <div className="bg-white px-3 py-2 shadow-lg rounded-lg border border-gray-200 max-w-[220px]">
         <p className="font-medium text-gray-800 mb-1">{label}</p>
@@ -103,22 +103,26 @@ const BenchmarkTooltip = ({ active, payload, label, currentYear, comparisonLabel
 
 export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const { profile, isStaff } = useAuth();
-  const { plans, loading } = useActionPlans(departmentCode);
-  
+  const { plans, loading, refetch } = useActionPlans(departmentCode);
+
   // Staff users should not navigate from KPI cards - they can only view
   const canNavigate = onNavigate && !isStaff;
-  
+
   // Year and dimension switching states
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [breakdownMetric, setBreakdownMetric] = useState('goal_strategy');
   const [timeMetric, setTimeMetric] = useState('monthly');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
-  
+
   // Month range filter states
   const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
   const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
+
+  // Priority filter and refresh states
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Computed chartMetric based on isCompletionView toggle (for chart compatibility)
   const chartMetric = isCompletionView ? 'completion' : 'score';
@@ -134,7 +138,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         .select('*')
         .eq('year', selectedYear)
         .eq('department_code', departmentCode);
-      
+
       setHistoricalStats(data || []);
     };
 
@@ -147,14 +151,14 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   // Helper functions for filter management
   const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
-  
+
   const resetFilters = () => {
     setSelectedYear(CURRENT_YEAR);
     setSelectedPeriod('FY');
     setStartMonth('Jan');
     setEndMonth('Dec');
   };
-  
+
   const handlePeriodChange = (period) => {
     setSelectedPeriod(period);
     if (period === 'FY') {
@@ -175,31 +179,53 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     }
     // 'Custom' - don't change months, let user pick manually
   };
-  
+
+  // Soft refresh handler - re-fetches data without page reload
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      await new Promise(resolve => setTimeout(resolve, 400));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const clearCategoryFilter = () => setSelectedCategory('All');
+
   const getFilterRangeLabel = () => {
     if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
     if (startMonth === endMonth) return startMonth;
     return `${startMonth} – ${endMonth}`;
   };
-  
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY';
 
-  // Filter plans by selected year and month range
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY' || selectedCategory !== 'All';
+
+  // Filter plans by selected year, month range, and priority
   const yearFilteredPlans = useMemo(() => {
     let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
-    
+
     // Apply month range filter
     const startIdx = MONTH_ORDER[startMonth] ?? 0;
     const endIdx = MONTH_ORDER[endMonth] ?? 11;
-    
+
     filtered = filtered.filter((plan) => {
       const planMonthIdx = MONTH_ORDER[plan.month];
       if (planMonthIdx === undefined) return true; // Include plans without month
       return planMonthIdx >= startIdx && planMonthIdx <= endIdx;
     });
-    
+
+    // Apply priority/category filter - use startsWith for safe matching
+    // DB may store "UH (Ultra High)" but we filter by "UH"
+    if (selectedCategory && selectedCategory !== 'All') {
+      filtered = filtered.filter((plan) => {
+        const planCategory = (plan.category || '').toUpperCase();
+        return planCategory.startsWith(selectedCategory);
+      });
+    }
+
     return filtered;
-  }, [plans, selectedYear, startMonth, endMonth]);
+  }, [plans, selectedYear, startMonth, endMonth, selectedCategory]);
 
   // Check if viewing historical data (no real plans but has historical stats)
   const isHistoricalView = yearFilteredPlans.length === 0 && historicalStats.length > 0;
@@ -232,7 +258,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         .select('*')
         .eq('year', comparisonYearValue)
         .eq('department_code', departmentCode);
-      
+
       setComparisonHistorical(data || []);
     };
 
@@ -261,7 +287,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const pending = yearFilteredPlans.filter((p) => p.status === 'Pending').length;
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
       const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
-      
+
       // FILTER MODE LOGIC:
       // - YTD Mode (FY + Current Year): Only count plans where month <= current month
       // - Period Mode (Q1, Q2, Custom, etc.): Use all plans in the selected range (no YTD cutoff)
@@ -274,24 +300,24 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         });
       }
       // If not YTD mode, use yearFilteredPlans as-is (already filtered by selected period)
-      
+
       const statsTotal = statsPlans.length;
       const statsAchieved = statsPlans.filter((p) => p.status === 'Achieved').length;
       const completionRate = statsTotal > 0 ? Number(((statsAchieved / statsTotal) * 100).toFixed(1)) : 0;
-      
+
       // Quality Score: Average of graded items
       // Apply same filter logic
-      const gradedItems = statsPlans.filter(p => 
+      const gradedItems = statsPlans.filter(p =>
         p.submission_status === 'submitted' && p.quality_score != null
       );
-      const qualityScore = gradedItems.length > 0 
+      const qualityScore = gradedItems.length > 0
         ? Number((gradedItems.reduce((sum, p) => sum + p.quality_score, 0) / gradedItems.length).toFixed(1))
         : null;
       const gradedCount = gradedItems.length;
 
-      return { 
-        total, achieved, inProgress, pending, notAchieved, rate, 
-        completionRate, qualityScore, gradedCount, 
+      return {
+        total, achieved, inProgress, pending, notAchieved, rate,
+        completionRate, qualityScore, gradedCount,
         isHistorical: false,
         // YTD specific stats
         isYTD: isYTDMode,
@@ -306,12 +332,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const avgRate = Number(
         (historicalStats.reduce((sum, h) => sum + h.completion_rate, 0) / historicalStats.length).toFixed(1)
       );
-      return { 
-        total: 0, 
-        achieved: 0, 
-        inProgress: 0, 
-        pending: 0, 
-        notAchieved: 0, 
+      return {
+        total: 0,
+        achieved: 0,
+        inProgress: 0,
+        pending: 0,
+        notAchieved: 0,
         rate: avgRate,
         completionRate: avgRate, // Historical completion rate (FIXED - was incorrectly assigned to qualityScore)
         qualityScore: null,      // Quality Score system didn't exist pre-2026
@@ -324,8 +350,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       };
     }
 
-    return { 
-      total: 0, achieved: 0, inProgress: 0, pending: 0, notAchieved: 0, rate: 0, 
+    return {
+      total: 0, achieved: 0, inProgress: 0, pending: 0, notAchieved: 0, rate: 0,
       completionRate: 0, qualityScore: null, gradedCount: 0, isHistorical: false,
       isYTD: false, ytdTotal: 0, ytdAchieved: 0, ytdMonthName: null
     };
@@ -335,7 +361,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const prevYearQualityScore = useMemo(() => {
     // Calculate from comparison plans if available
     if (comparisonPlans.length > 0) {
-      const gradedItems = comparisonPlans.filter(p => 
+      const gradedItems = comparisonPlans.filter(p =>
         p.submission_status === 'submitted' && p.quality_score != null
       );
       if (gradedItems.length > 0) {
@@ -352,7 +378,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   // Quality Score Target (company standard)
   const qualityScoreTarget = 80;
-  
+
   // Completion Rate Target (company standard)
   const completionTarget = 80;
 
@@ -360,11 +386,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const failureAnalysis = useMemo(() => {
     // Filter plans where status === 'Not Achieved'
     const failedPlans = yearFilteredPlans.filter((p) => p.status === 'Not Achieved');
-    
+
     if (failedPlans.length === 0) {
       return { reasons: [], topBlocker: null, totalFailed: 0 };
     }
-    
+
     // Parse reasons from remark field: [Cause: ...]
     const reasonCounts = {};
     failedPlans.forEach((plan) => {
@@ -372,19 +398,19 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const reason = match?.[1]?.trim() || 'Unspecified';
       reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
-    
+
     // Convert to sorted array
     const sortedReasons = Object.entries(reasonCounts)
       .map(([reason, count]) => ({
         reason,
         count,
-        percentage: Number(((count  / failedPlans.length) * 100).toFixed(1))
+        percentage: Number(((count / failedPlans.length) * 100).toFixed(1))
       }))
       .sort((a, b) => b.count - a.count);
-    
+
     // Identify top blocker
     const topBlocker = sortedReasons.length > 0 ? sortedReasons[0] : null;
-    
+
     return {
       reasons: sortedReasons,
       topBlocker,
@@ -395,7 +421,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Helper: Generate date range label for tooltips based on current filters
   const getDateRangeLabel = () => {
     const year = selectedYear;
-    
+
     // Case 1: Custom Range Filter (startMonth and/or endMonth set)
     if (startMonth || endMonth) {
       const start = startMonth || 'Jan';
@@ -403,23 +429,23 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       if (start === end) return `${start} ${year}`;
       return `${start} - ${end} ${year}`;
     }
-    
+
     // Case 2: Default Logic (YTD for current year, Full Year for past)
     if (year === CURRENT_YEAR) {
       const currentMonthName = MONTHS_ORDER[new Date().getMonth()];
       return `Jan - ${currentMonthName} ${year} (YTD)`;
     }
-    
+
     // Case 3: Past Year Default
     return `Jan - Dec ${year}`;
   };
-  
+
   const dateRangeLabel = getDateRangeLabel();
 
   // Chart 1: Performance Breakdown (by Strategy or PIC) - Respects chartMetric toggle
   const breakdownChartData = useMemo(() => {
     const dataMap = {};
-    
+
     yearFilteredPlans.forEach((plan) => {
       let key;
       if (breakdownMetric === 'goal_strategy') {
@@ -427,19 +453,19 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       } else {
         key = plan.pic?.trim() || 'Unassigned';
       }
-      
+
       const shortName = key.length > 25 ? key.substring(0, 22) + '...' : key;
-      
+
       if (!dataMap[shortName]) {
         dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: key };
       }
       dataMap[shortName].total++;
-      
+
       // Track achieved count for completion metric
       if (plan.status === 'Achieved') {
         dataMap[shortName].achieved++;
       }
-      
+
       // Track quality scores for graded items (score metric)
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         dataMap[shortName].scores.push(plan.quality_score);
@@ -451,14 +477,14 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         // Calculate rate based on selected metric
         let rate;
         if (chartMetric === 'score') {
-          rate = s.scores.length > 0 
-            ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) 
+          rate = s.scores.length > 0
+            ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1))
             : 0;
         } else {
           // Completion rate: achieved / total * 100
           rate = s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0;
         }
-        
+
         return {
           name,
           fullName: s.fullName,
@@ -476,7 +502,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     // If we have real plans, use them
     if (yearFilteredPlans.length > 0) {
       const dataMap = {};
-      
+
       yearFilteredPlans.forEach((plan) => {
         let key;
         if (timeMetric === 'monthly') {
@@ -484,17 +510,17 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         } else {
           key = getQuarter(plan.month);
         }
-        
+
         if (!dataMap[key]) {
           dataMap[key] = { total: 0, achieved: 0, scores: [] };
         }
         dataMap[key].total++;
-        
+
         // Track achieved count for completion metric
         if (plan.status === 'Achieved') {
           dataMap[key].achieved++;
         }
-        
+
         // Track quality scores for graded items (score metric)
         if (plan.submission_status === 'submitted' && plan.quality_score != null) {
           dataMap[key].scores.push(plan.quality_score);
@@ -506,14 +532,14 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           // Calculate rate based on selected metric
           let rate;
           if (chartMetric === 'score') {
-            rate = s.scores.length > 0 
-              ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) 
+            rate = s.scores.length > 0
+              ? parseFloat((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1))
               : 0;
           } else {
             // Completion rate: achieved / total * 100
             rate = s.total > 0 ? parseFloat(((s.achieved / s.total) * 100).toFixed(1)) : 0;
           }
-          
+
           return {
             name,
             fullName: name,
@@ -539,7 +565,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         return MONTHS_ORDER.map((month, idx) => {
           const hist = historicalStats.find(h => h.month === idx + 1);
           const completionRate = hist ? Number(hist.completion_rate.toFixed(1)) : 0;
-          
+
           return {
             name: month,
             fullName: month,
@@ -554,12 +580,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       } else {
         // Quarterly aggregation from database historical_stats
         const quarterData = { Q1: [], Q2: [], Q3: [], Q4: [] };
-        
+
         MONTHS_ORDER.forEach((month, idx) => {
           const quarter = getQuarter(month);
           const hist = historicalStats.find(h => h.month === idx + 1);
           const completionRate = hist ? hist.completion_rate : 0;
-          
+
           if (quarterData[quarter]) {
             quarterData[quarter].push(completionRate);
           }
@@ -570,7 +596,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           fullName: quarter,
           // If viewing Score metric: show 0 (system didn't exist pre-2026)
           // If viewing Completion metric: show historical completion_rate average
-          rate: chartMetric === 'score' ? 0 : (quarterData[quarter].length > 0 
+          rate: chartMetric === 'score' ? 0 : (quarterData[quarter].length > 0
             ? Number((quarterData[quarter].reduce((a, b) => a + b, 0) / quarterData[quarter].length).toFixed(1))
             : 0),
           total: 0,
@@ -627,10 +653,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     return MONTHS_ORDER.map((month) => {
       const curr = currentMap[month];
       const comp = compMap[month];
-      
+
       // Current year value based on chartMetric
       let currentValue = null;
-      
+
       // For historical years (pre-2026), use database historical_stats
       if (selectedYear < 2026) {
         if (chartMetric === 'score') {
@@ -646,7 +672,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         // Current year (2026+) - use real plan data
         if (curr && curr.total > 0) {
           if (chartMetric === 'score') {
-            currentValue = curr.scores.length > 0 
+            currentValue = curr.scores.length > 0
               ? Number((curr.scores.reduce((a, b) => a + b, 0) / curr.scores.length).toFixed(1))
               : null;
           } else {
@@ -661,7 +687,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
       // Comparison value based on chartMetric
       let comparisonValue = null;
-      
+
       // For historical comparison years (pre-2026), use database historical_stats
       if (comparisonYearValue && comparisonYearValue < 2026) {
         if (chartMetric === 'score') {
@@ -677,7 +703,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         // Comparison year (2026+) - use real plan data
         if (comp && comp.total > 0) {
           if (chartMetric === 'score') {
-            comparisonValue = comp.scores.length > 0 
+            comparisonValue = comp.scores.length > 0
               ? Number((comp.scores.reduce((a, b) => a + b, 0) / comp.scores.length).toFixed(1))
               : null;
           } else {
@@ -704,7 +730,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Benchmark chart data for Quarterly view - Respects chartMetric
   const benchmarkQuarterlyData = useMemo(() => {
     const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
-    
+
     // Build current year data by quarter from real plans
     const currentMap = {};
     yearFilteredPlans.forEach((plan) => {
@@ -751,10 +777,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     return QUARTERS.map((quarter) => {
       const curr = currentMap[quarter];
       const comp = compMap[quarter];
-      
+
       // Current year value based on chartMetric
       let currentValue = null;
-      
+
       // For historical years (pre-2026), use database historical_stats
       if (selectedYear < 2026) {
         if (chartMetric === 'score') {
@@ -771,7 +797,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         // Current year (2026+) - use real plan data
         if (curr && curr.total > 0) {
           if (chartMetric === 'score') {
-            currentValue = curr.scores.length > 0 
+            currentValue = curr.scores.length > 0
               ? Number((curr.scores.reduce((a, b) => a + b, 0) / curr.scores.length).toFixed(1))
               : null;
           } else {
@@ -787,7 +813,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
       // Comparison value based on chartMetric
       let comparisonValue = null;
-      
+
       // For historical comparison years (pre-2026), use database historical_stats
       if (comparisonYearValue && comparisonYearValue < 2026) {
         if (chartMetric === 'score') {
@@ -804,7 +830,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         // Comparison year (2026+) - use real plan data
         if (comp && comp.total > 0) {
           if (chartMetric === 'score') {
-            comparisonValue = comp.scores.length > 0 
+            comparisonValue = comp.scores.length > 0
               ? Number((comp.scores.reduce((a, b) => a + b, 0) / comp.scores.length).toFixed(1))
               : null;
           } else {
@@ -834,15 +860,15 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   // Chart titles based on selected metric - Dynamic based on chartMetric toggle
   const metricLabel = chartMetric === 'score' ? 'Quality Score' : 'Completion Rate';
-  const breakdownTitle = breakdownMetric === 'goal_strategy' 
-    ? `${metricLabel} by Strategy` 
+  const breakdownTitle = breakdownMetric === 'goal_strategy'
+    ? `${metricLabel} by Strategy`
     : `${metricLabel} by PIC`;
-  const breakdownSubtitle = breakdownMetric === 'goal_strategy' 
+  const breakdownSubtitle = breakdownMetric === 'goal_strategy'
     ? `${breakdownChartData.length} strategies tracked`
     : `${breakdownChartData.length} team members`;
-  
-  const timeTitle = timeMetric === 'monthly' 
-    ? `Monthly ${metricLabel} Trend` 
+
+  const timeTitle = timeMetric === 'monthly'
+    ? `Monthly ${metricLabel} Trend`
     : `Quarterly ${metricLabel} Trend`;
   const timeSubtitle = chartMetric === 'score'
     ? (timeMetric === 'monthly' ? 'Average quality score by month' : 'Average quality score by quarter')
@@ -869,142 +895,190 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Unified Sticky Header - Title + All Filters */}
+      {/* --- REDESIGNED DEPARTMENT DASHBOARD HEADER --- */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          {/* Left: Title */}
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">{deptName}</h1>
-            <p className="text-gray-500 text-sm">Department Performance Dashboard — FY {selectedYear}</p>
-          </div>
-          
-          {/* Right: All Filters - Compact Layout */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Year Selector */}
-            <Select 
-              value={selectedYear.toString()} 
-              onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
-            >
-              <SelectTrigger className="w-[120px] h-8 text-sm pl-3">
-                <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
-                <SelectValue placeholder="Year" />
-              </SelectTrigger>
-              <SelectContent>
-                {AVAILABLE_YEARS.map((year) => (
-                  <SelectItem key={year} value={year.toString()}>
-                    {year}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Period Selector (Unified) */}
-            <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
-              <SelectTrigger className="w-[120px] h-8 text-sm bg-slate-50">
-                <SelectValue placeholder="Period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FY">Full Year</SelectItem>
-                <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
-                <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
-                <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
-                <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
-                <SelectItem value="Custom">Custom...</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            {/* Custom Month Pickers (Only show if Custom) */}
-            {selectedPeriod === 'Custom' && (
-              <div className="flex items-center gap-1">
-                <Select value={startMonth} onValueChange={setStartMonth}>
-                  <SelectTrigger className="w-[70px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS_ORDER.map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-gray-400 text-sm">–</span>
-                <Select value={endMonth} onValueChange={setEndMonth}>
-                  <SelectTrigger className="w-[70px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS_ORDER.map(m => (
-                      <SelectItem key={m} value={m}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <div className="space-y-4">
+
+          {/* TOP ROW: TITLE & REFRESH BUTTON */}
+          <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{deptName}</h1>
+              <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                <span>Performance Overview — FY {selectedYear}</span>
+                <span className="hidden sm:inline-block">•</span>
+                <span className="text-emerald-600 font-medium">Welcome back, {profile?.full_name}</span>
               </div>
-            )}
-            
-            <div className="h-6 w-px bg-gray-200"></div>
-            
-            {/* Global View Mode Toggle (Switch) */}
-            <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-lg border border-gray-200">
-              <Label 
-                htmlFor="dept-view-mode-switch" 
-                className={`text-xs font-medium cursor-pointer transition-colors ${!isCompletionView ? 'text-purple-600' : 'text-gray-400'}`}
-                onClick={() => setIsCompletionView(false)}
-              >
-                Score
-              </Label>
-              <Switch 
-                id="dept-view-mode-switch" 
-                checked={isCompletionView}
-                onCheckedChange={setIsCompletionView}
-                className={isCompletionView ? 'bg-emerald-500' : 'bg-purple-500'}
-              />
-              <Label 
-                htmlFor="dept-view-mode-switch" 
-                className={`text-xs font-medium cursor-pointer transition-colors ${isCompletionView ? 'text-emerald-600' : 'text-gray-400'}`}
-                onClick={() => setIsCompletionView(true)}
-              >
-                Completion
-              </Label>
             </div>
-            
-            {/* Reset Filters Button (Only show when filters are active) */}
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                title="Reset all filters"
+
+            {/* REFRESH BUTTON (Prominent & Clear) */}
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              <RotateCcw size={16} className={isRefreshing ? "animate-spin text-emerald-600" : "text-gray-500"} />
+              <span className="font-medium text-sm">{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+            </button>
+          </div>
+
+          {/* BOTTOM ROW: FILTERS & CONTROLS (The Control Bar) */}
+          <div className="flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+
+            {/* LEFT: DATA FILTERS (Grouped) */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Year Selector */}
+              <Select
+                value={selectedYear.toString()}
+                onValueChange={(val) => { setSelectedYear(parseInt(val)); clearDateFilters(); }}
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </button>
-            )}
-            
-            {/* User Info */}
-            <div className="text-right border-l border-gray-200 pl-3">
-              <p className="text-sm text-gray-500">Welcome back,</p>
-              <p className="font-medium text-gray-800">{profile?.full_name}</p>
+                <SelectTrigger className="w-[100px] h-9 text-sm bg-white">
+                  <Calendar className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AVAILABLE_YEARS.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Priority Selector (NEW) */}
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-[130px] h-9 text-sm bg-white">
+                  <SelectValue placeholder="All Priorities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Priorities</SelectItem>
+                  <SelectItem value="UH">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      Ultra High
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="H">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                      High
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="M">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Medium
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="L">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                      Low
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Period Selector */}
+              <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                <SelectTrigger className="w-[120px] h-9 text-sm bg-white">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FY">Full Year</SelectItem>
+                  <SelectItem value="Q1">Q1 (Jan-Mar)</SelectItem>
+                  <SelectItem value="Q2">Q2 (Apr-Jun)</SelectItem>
+                  <SelectItem value="Q3">Q3 (Jul-Sep)</SelectItem>
+                  <SelectItem value="Q4">Q4 (Oct-Dec)</SelectItem>
+                  <SelectItem value="Custom">Custom...</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Custom Month Pickers (Only show if Custom) */}
+              {selectedPeriod === 'Custom' && (
+                <div className="flex items-center gap-1">
+                  <Select value={startMonth} onValueChange={setStartMonth}>
+                    <SelectTrigger className="w-[70px] h-9 text-sm bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS_ORDER.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-gray-400 text-sm">–</span>
+                  <Select value={endMonth} onValueChange={setEndMonth}>
+                    <SelectTrigger className="w-[70px] h-9 text-sm bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS_ORDER.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Reset Filters Button (Only show when filters are active) */}
+              {hasActiveFilters && (
+                <button
+                  onClick={resetFilters}
+                  className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Reset all filters"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* RIGHT: VIEW MODE TOGGLE */}
+            <div className="flex items-center gap-3 border-t xl:border-t-0 xl:border-l border-gray-200 pt-3 xl:pt-0 xl:pl-4">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">View:</span>
+              <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-200">
+                <button
+                  onClick={() => setIsCompletionView(false)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${!isCompletionView ? 'bg-purple-100 text-purple-700 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Score
+                </button>
+                <button
+                  onClick={() => setIsCompletionView(true)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${isCompletionView ? 'bg-emerald-100 text-emerald-700 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Completion
+                </button>
+              </div>
             </div>
           </div>
+
+          {/* Active Filters Summary */}
+          {hasActiveFilters && (
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-gray-500">Active:</span>
+              {selectedYear !== CURRENT_YEAR && (
+                <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">
+                  {selectedYear}
+                </span>
+              )}
+              {selectedCategory !== 'All' && (
+                <span className="px-2 py-1 bg-rose-50 text-rose-700 rounded-full flex items-center gap-1">
+                  Priority: {selectedCategory === 'UH' ? 'Ultra High' : selectedCategory === 'H' ? 'High' : selectedCategory === 'M' ? 'Medium' : 'Low'}
+                  <button onClick={clearCategoryFilter} className="hover:text-rose-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
+              {selectedPeriod !== 'FY' && (
+                <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full flex items-center gap-1">
+                  {selectedPeriod === 'Custom' ? getFilterRangeLabel() : selectedPeriod}
+                  <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
+              <span className="text-gray-400 ml-auto">{yearFilteredPlans.length} plans</span>
+            </div>
+          )}
         </div>
-        
-        {/* Active Filters Summary */}
-        {hasActiveFilters && (
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500">Filters:</span>
-            {selectedYear !== CURRENT_YEAR && (
-              <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
-                {selectedYear}
-              </span>
-            )}
-            {selectedPeriod !== 'FY' && (
-              <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1">
-                {selectedPeriod === 'Custom' ? getFilterRangeLabel() : selectedPeriod}
-                <button onClick={clearDateFilters} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            <span className="text-xs text-gray-400 ml-auto">{yearFilteredPlans.length} plans</span>
-          </div>
-        )}
-      </header>
+      </header >
 
       <main className="p-6">
         {/* KPI Cards - Executive View Layout with Uniform Footer Design */}
@@ -1025,12 +1099,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                   {/* Progress Bar */}
                   <div className="w-full bg-black/10 rounded-full h-1.5 relative">
                     {/* Target marker at 80% */}
-                    <div 
-                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10" 
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
                       style={{ left: `${completionTarget}%` }}
                     />
-                    <div 
-                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500" 
+                    <div
+                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(stats.completionRate, 100)}%` }}
                     />
                   </div>
@@ -1077,9 +1151,9 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
           {/* 2. Quality Score (or Historical Performance for past years) */}
           <KPICard
-            gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
-              stats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
-              stats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
+            gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' :
+              stats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' :
+                stats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
             icon={Star}
             value={stats.qualityScore !== null ? `${stats.qualityScore}%` : '—'}
             label={stats.isHistorical ? 'Historical Performance' : `Quality Score${stats.isYTD ? ' (YTD)' : ''}`}
@@ -1176,7 +1250,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             footerContent={!stats.isHistorical && stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <PieChart className="w-2.5 h-2.5 text-emerald-200" />
-                <span className="font-bold text-white/90">{Number(((stats.achieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.achieved / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1208,7 +1282,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             footerContent={!stats.isHistorical && stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <PieChart className="w-2.5 h-2.5 text-amber-200" />
-                <span className="font-bold text-white/90">{Number(((stats.inProgress  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.inProgress / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1240,7 +1314,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             footerContent={!stats.isHistorical && stats.total > 0 && (
               <div className="flex items-center gap-1 text-xs">
                 <AlertTriangle className="w-2.5 h-2.5 text-rose-200" />
-                <span className="font-bold text-white/90">{Number(((stats.notAchieved  / stats.total) * 100).toFixed(1))}%</span>
+                <span className="font-bold text-white/90">{Number(((stats.notAchieved / stats.total) * 100).toFixed(1))}%</span>
                 <span className="text-[8px] uppercase text-white/50">of Total</span>
               </div>
             )}
@@ -1338,14 +1412,14 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                 />
               </div>
             </div>
-            
+
             {/* Warning if no comparison data */}
             {comparisonYear !== 'none' && !hasComparisonData && (
               <div className="mb-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
                 ⚠️ No data for {comparisonLabel}
               </div>
             )}
-            
+
             {/* Legend - fixed height container to prevent layout shift */}
             <div className="h-5 mb-2 flex items-center">
               {comparisonYear !== 'none' && (
@@ -1363,51 +1437,51 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                 </div>
               )}
             </div>
-            
+
             {/* Chart wrapper - fixed height to prevent axis shift */}
             <div className="h-[220px] w-[99%]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart 
-                  data={comparisonYear !== 'none' ? benchmarkChartData : timeChartData.map(d => ({ ...d, current: d.rate, comparison: null }))} 
+                <ComposedChart
+                  data={comparisonYear !== 'none' ? benchmarkChartData : timeChartData.map(d => ({ ...d, current: d.rate, comparison: null }))}
                   margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
                 >
                   <defs>
                     <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0d9488" stopOpacity={1}/>
-                      <stop offset="100%" stopColor="#0d9488" stopOpacity={0.5}/>
+                      <stop offset="0%" stopColor="#0d9488" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#0d9488" stopOpacity={0.5} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis 
-                    dataKey="name" 
+                  <XAxis
+                    dataKey="name"
                     height={50}
                     tickMargin={10}
-                    tick={{ fontSize: 12, fill: '#64748b' }} 
-                    axisLine={false} 
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    axisLine={false}
                     tickLine={false}
                     interval={0}
                   />
-                  <YAxis 
+                  <YAxis
                     domain={[0, 100]}
                     padding={{ top: 50, bottom: 20 }}
-                    tick={{ fontSize: 12, fill: '#64748b' }} 
-                    tickFormatter={(v) => `${v}%`} 
-                    axisLine={false} 
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    tickFormatter={(v) => `${v}%`}
+                    axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip 
-                    content={<BenchmarkTooltip currentYear={selectedYear} comparisonLabel={comparisonLabel} metricType={chartMetric} />} 
+                  <Tooltip
+                    content={<BenchmarkTooltip currentYear={selectedYear} comparisonLabel={comparisonLabel} metricType={chartMetric} />}
                     cursor={{ fill: '#f8fafc' }}
                   />
-                  <Bar 
-                    dataKey="current" 
-                    radius={[4, 4, 0, 0]} 
+                  <Bar
+                    dataKey="current"
+                    radius={[4, 4, 0, 0]}
                     barSize={32}
                     isAnimationActive={false}
                   >
-                    <LabelList 
-                      dataKey="current" 
-                      position="top" 
+                    <LabelList
+                      dataKey="current"
+                      position="top"
                       formatter={(val) => val != null ? `${val}%` : ''}
                       style={{ fill: '#374151', fontSize: '12px', fontWeight: 700 }}
                       offset={5}
@@ -1488,11 +1562,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                       {priorityItems.map((item) => (
                         <div
                           key={item.id}
-                          className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${
-                            item.isOverdue 
-                              ? 'bg-red-50 border-red-200' 
-                              : 'bg-amber-50 border-amber-200'
-                          }`}
+                          className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${item.isOverdue
+                            ? 'bg-red-50 border-red-200'
+                            : 'bg-amber-50 border-amber-200'
+                            }`}
                         >
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm font-medium ${item.isOverdue ? 'text-red-800' : 'text-amber-800'}`} title={item.action_plan || item.goal_strategy}>
@@ -1503,11 +1576,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                             )}
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              item.isOverdue 
-                                ? 'bg-red-200 text-red-800' 
-                                : 'bg-amber-200 text-amber-800'
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.isOverdue
+                              ? 'bg-red-200 text-red-800'
+                              : 'bg-amber-200 text-amber-800'
+                              }`}>
                               {item.isOverdue ? '⚠️ ' : '⏰ '}{item.month}
                             </span>
                             <span className="text-xs text-gray-500">{item.status}</span>
@@ -1528,7 +1600,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                 <AlertTriangle className="w-5 h-5 text-red-500" />
                 <h3 className="text-lg font-semibold text-gray-800">Failure Analysis</h3>
               </div>
-              
+
               {failureAnalysis.totalFailed === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center">
                   <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
@@ -1545,7 +1617,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                   <div className="space-y-4">
                     {(() => {
                       const maxCount = Math.max(...failureAnalysis.reasons.map(r => r.count));
-                      
+
                       return failureAnalysis.reasons.slice(0, 6).map((item) => {
                         const isTop = item.count === maxCount;
                         return (
@@ -1559,7 +1631,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                               </span>
                             </div>
                             <div className="w-full bg-gray-100 rounded-full h-2">
-                              <div 
+                              <div
                                 className={`h-2 rounded-full transition-all ${isTop ? 'bg-red-500' : 'bg-gray-400'}`}
                                 style={{ width: `${item.percentage}%` }}
                               />
@@ -1581,7 +1653,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
             <h3 className="text-lg font-semibold text-amber-800 mb-1">No Action Plans for {selectedYear}</h3>
             <p className="text-amber-600 text-sm">
-              {plans.length > 0 
+              {plans.length > 0
                 ? `Try selecting a different year. You have ${plans.length} plans in other years.`
                 : 'Contact your administrator to add action plans for your department.'}
             </p>
@@ -1597,7 +1669,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           </div>
         )}
       </main>
-    </div>
+    </div >
   );
 }
 

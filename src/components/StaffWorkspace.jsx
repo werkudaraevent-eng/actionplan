@@ -1,8 +1,10 @@
 import { useState, useMemo, useRef } from 'react';
 import { ClipboardList, CheckCircle2, Clock, AlertCircle, Search, X, Calendar, XCircle, Star, ChevronDown, Check, Target, TrendingUp, TrendingDown, PieChart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useDepartmentContext } from '../context/DepartmentContext';
 import { useActionPlans } from '../hooks/useActionPlans';
-import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import KPICard from './KPICard';
@@ -21,7 +23,13 @@ const QUALITY_SCORE_TARGET = 80;
 
 export default function StaffWorkspace() {
   const { profile, departmentCode } = useAuth();
-  const { plans, loading, updatePlan, updateStatus } = useActionPlans(departmentCode);
+  const { currentDept } = useDepartmentContext();
+  
+  // Use currentDept if available, fallback to departmentCode (primary department)
+  const activeDept = currentDept || departmentCode;
+  
+  const { plans, loading, updatePlan, updateStatus } = useActionPlans(activeDept);
+  const { departments } = useDepartments();
   const { toast } = useToast();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,7 +45,7 @@ export default function StaffWorkspace() {
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
 
-  const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
+  const currentDeptInfo = departments.find((d) => d.code === activeDept);
   const userName = profile?.full_name || '';
 
   // Helper function to normalize strings for comparison
@@ -246,7 +254,7 @@ export default function StaffWorkspace() {
           <div>
             <h1 className="text-2xl font-bold text-gray-800">My Action Plans</h1>
             <p className="text-gray-500 text-sm">
-              Welcome back, {userName} • {currentDept?.name || departmentCode}
+              Welcome back, {userName} • {currentDeptInfo?.name || activeDept}
             </p>
           </div>
         </div>
@@ -677,6 +685,7 @@ export default function StaffWorkspace() {
               onDelete={handleDelete}
               onStatusChange={handleStatusChange}
               onCompletionStatusChange={handleCompletionStatusChange}
+              showDepartmentColumn={true}
               visibleColumns={visibleColumns}
               columnOrder={columnOrder}
             />

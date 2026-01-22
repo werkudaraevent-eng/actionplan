@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { User, Mail, Building2, Shield, Lock, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase, DEPARTMENTS } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from './Toast';
 
 export default function UserProfile() {
   const { profile, isAdmin, isStaff, isLeader, departmentCode } = useAuth();
   const { toast } = useToast();
+  const { departments } = useDepartments();
   
   // Password change state
   const [newPassword, setNewPassword] = useState('');
@@ -18,7 +20,7 @@ export default function UserProfile() {
 
   // Get department name
   const getDepartmentName = () => {
-    const dept = DEPARTMENTS.find(d => d.code === departmentCode);
+    const dept = departments.find(d => d.code === departmentCode);
     return dept ? dept.name : departmentCode || 'N/A';
   };
 
@@ -134,11 +136,30 @@ export default function UserProfile() {
               
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Building2 className="w-5 h-5 text-gray-400" />
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Department</p>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider">Primary Department</p>
                   <p className="text-gray-800 font-medium">{getDepartmentName()}</p>
                   {departmentCode && (
                     <p className="text-xs text-gray-400">Code: {departmentCode}</p>
+                  )}
+                  
+                  {/* Additional Access Section */}
+                  {profile?.additional_departments && profile.additional_departments.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        Additional Access
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.additional_departments.map(code => (
+                          <span 
+                            key={code} 
+                            className="px-2.5 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-md text-xs font-mono font-medium"
+                          >
+                            {code}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

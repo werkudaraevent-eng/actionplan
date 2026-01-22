@@ -1,12 +1,33 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, DEPARTMENTS } from '../lib/supabase';
+import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
+import { useDepartmentUsers } from '../hooks/useDepartmentUsers';
 import { useToast } from './Toast';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
   const { toast } = useToast();
+  const { departments } = useDepartments();
+  
+  // Calculate available departments for the user
+  const availableDepartments = useMemo(() => {
+    if (isAdmin) {
+      // Admin can access all departments
+      return departments;
+    }
+    
+    // For non-admin users, combine primary + additional departments
+    const primary = profile?.department_code;
+    const additional = profile?.additional_departments || [];
+    
+    const deptCodes = [primary, ...additional].filter(Boolean);
+    return departments.filter(d => deptCodes.includes(d.code));
+  }, [isAdmin, profile, departments]);
+  
+  // Check if user has multiple departments
+  const hasMultipleDepartments = availableDepartments.length > 1;
   
   // SECURITY: Determine if this plan is locked (finalized for Management grading)
   // Admin God Mode: Admins can edit locked plans, others cannot
@@ -58,15 +79,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [selectedMonths, setSelectedMonths] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [allStaff, setAllStaff] = useState([]); // All profiles from DB
-  const [loadingStaff, setLoadingStaff] = useState(false);
-  const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB
-  const [loadingReasons, setLoadingReasons] = useState(false);
-  const [areaFocusOptions, setAreaFocusOptions] = useState([]); // Dynamic area focus options
-  const [categoryOptions, setCategoryOptions] = useState([]); // Dynamic category options
-  const [goalOptions, setGoalOptions] = useState([]); // Dynamic goal/strategy options
-  const [actionPlanOptions, setActionPlanOptions] = useState([]); // Dynamic action plan templates
-  const [loadingDropdowns, setLoadingDropdowns] = useState(false);
+  
+  // Initialize formData state BEFORE using it in hooks
   const [formData, setFormData] = useState({
     department_code: departmentCode || '',
     month: 'Jan',
@@ -83,6 +97,17 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     remark: '',
   });
   
+  // Use the new hook to fetch department users (includes primary + additional access)
+  const { users: departmentUsers, loading: loadingStaff } = useDepartmentUsers(formData.department_code);
+  
+  const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB
+  const [loadingReasons, setLoadingReasons] = useState(false);
+  const [areaFocusOptions, setAreaFocusOptions] = useState([]); // Dynamic area focus options
+  const [categoryOptions, setCategoryOptions] = useState([]); // Dynamic category options
+  const [goalOptions, setGoalOptions] = useState([]); // Dynamic goal/strategy options
+  const [actionPlanOptions, setActionPlanOptions] = useState([]); // Dynamic action plan templates
+  const [loadingDropdowns, setLoadingDropdowns] = useState(false);
+  
   // Failure reason state (for "Not Achieved" status)
   const [failureReason, setFailureReason] = useState('');
   const [otherReason, setOtherReason] = useState('');
@@ -91,13 +116,6 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [isCustomGoal, setIsCustomGoal] = useState(false);
   const [isCustomAction, setIsCustomAction] = useState(false);
 
-  // Fetch all staff/profiles when modal opens
-  useEffect(() => {
-    if (isOpen && hasFullAccess) {
-      fetchStaff();
-    }
-  }, [isOpen, hasFullAccess]);
-
   // Fetch failure reasons when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -105,23 +123,6 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       fetchDropdownOptions();
     }
   }, [isOpen]);
-
-  const fetchStaff = async () => {
-    setLoadingStaff(true);
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, department_code, role')
-        .order('full_name');
-      
-      if (error) throw error;
-      setAllStaff(data || []);
-    } catch (err) {
-      console.error('Failed to fetch staff:', err);
-    } finally {
-      setLoadingStaff(false);
-    }
-  };
 
   const fetchFailureReasons = async () => {
     setLoadingReasons(true);
@@ -172,11 +173,20 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     }
   };
 
-  // Filter staff by selected department
+  // Filter staff by selected department - now handled by useDepartmentUsers hook
+  // Sort users: Primary first, then Secondary (Access Rights)
   const filteredStaff = useMemo(() => {
-    if (!formData.department_code) return [];
-    return allStaff.filter(s => s.department_code === formData.department_code);
-  }, [allStaff, formData.department_code]);
+    if (!formData.department_code || !departmentUsers) return [];
+    
+    // Sort: Primary users first, then Secondary users, both alphabetically
+    return [...departmentUsers].sort((a, b) => {
+      // Primary comes before Secondary
+      if (a.isPrimary && !b.isPrimary) return -1;
+      if (!a.isPrimary && b.isPrimary) return 1;
+      // Within same type, sort alphabetically
+      return a.full_name.localeCompare(b.full_name);
+    });
+  }, [departmentUsers, formData.department_code]);
 
   // Get remaining months (excluding the selected month)
   const remainingMonths = useMemo(() => {
@@ -474,25 +484,31 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           {(hasFullAccess && !isLocked) && (
             <>
               {/* Row 1: Department & Month */}
+              {/* Row 1: Department & Month */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Department {!editData && <span className="text-red-500">*</span>}
+                  </label>
                   <select
                     value={formData.department_code}
                     onChange={(e) => handleDepartmentChange(e.target.value)}
                     className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                      !canChangeDepartment ? 'bg-gray-50 text-gray-600' : ''
+                      editData || (!hasMultipleDepartments && !staffMode) ? 'bg-gray-50 text-gray-600' : ''
                     }`}
-                    required
-                    disabled={!canChangeDepartment}
+                    required={!editData}
+                    disabled={editData || (!hasMultipleDepartments && !staffMode)}
                   >
                     <option value="">Select Department</option>
-                    {DEPARTMENTS.map((d) => (
+                    {availableDepartments.map((d) => (
                       <option key={d.code} value={d.code}>{d.code} - {d.name}</option>
                     ))}
                   </select>
-                  {isLeader && !isAdmin && (
-                    <p className="text-xs text-gray-400 mt-1">Locked to your department</p>
+                  {editData && (
+                    <p className="text-xs text-gray-500 mt-1">Department cannot be changed</p>
+                  )}
+                  {!editData && !hasMultipleDepartments && (
+                    <p className="text-xs text-gray-500 mt-1">Your assigned department</p>
                   )}
                 </div>
                 <div>
@@ -690,7 +706,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                       </option>
                       {filteredStaff.map((staff) => (
                         <option key={staff.id} value={staff.full_name}>
-                          {staff.full_name} {staff.role === 'leader' ? '(Leader)' : ''}
+                          {staff.full_name}
+                          {staff.role === 'leader' ? ' (Leader)' : ''}
+                          {staff.isPrimary ? ' - Primary' : staff.isSecondary ? ' - Access Rights' : ''}
                         </option>
                       ))}
                     </select>

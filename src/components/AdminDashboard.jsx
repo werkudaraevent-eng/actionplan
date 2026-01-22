@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
-import { DEPARTMENTS, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from './PerformanceChart';
 import StrategyComboChart from './StrategyComboChart';
 import BottleneckChart from './BottleneckChart';
@@ -99,6 +100,7 @@ function SortDropdown({ value, onChange }) {
 
 export default function AdminDashboard({ onNavigate }) {
   const { plans, loading, refetch } = useActionPlans(null);
+  const { departments } = useDepartments();
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
@@ -185,17 +187,30 @@ export default function AdminDashboard({ onNavigate }) {
   const fetchAuditLogs = async () => {
     const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
 
+    // FIX: Use audit_logs_with_user view to get ACTOR information (who performed the action)
+    // This ensures we show "Hanung changed status" not "Yulia changed status" when admin edits
     const { data, error } = await supabase
-      .from('audit_logs')
-      .select('id, action_plan_id, change_type, created_at, user_id, description')
+      .from('audit_logs_with_user')
+      .select('id, action_plan_id, change_type, created_at, user_id, description, user_name, user_department')
       .gte('created_at', startOfWeek.toISOString())
       .lte('created_at', endOfWeek.toISOString())
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(20); // Explicit limit for performance
 
     if (error) {
       console.error('Error fetching audit logs:', error);
       setAuditLogs([]);
       return;
+    }
+
+    // DEBUG: Log first record to verify user_name is being fetched
+    if (data && data.length > 0) {
+      console.log('Sample audit log:', {
+        user_id: data[0].user_id,
+        user_name: data[0].user_name,
+        user_department: data[0].user_department,
+        change_type: data[0].change_type
+      });
     }
 
     // SANITIZE & NORMALIZE the data
@@ -215,7 +230,10 @@ export default function AdminDashboard({ onNavigate }) {
         ...log,
         description: cleanDescription,
         timestampDate: new Date(log.created_at),
-        localDateKey: new Date(log.created_at).toLocaleDateString('en-CA')
+        localDateKey: new Date(log.created_at).toLocaleDateString('en-CA'),
+        // ACTOR INFO: The person who performed the action (not the plan owner)
+        actor_name: log.user_name || 'System',
+        actor_department: log.user_department
       };
     });
 
@@ -586,7 +604,7 @@ export default function AdminDashboard({ onNavigate }) {
       compHistoricalMap[monthName].count++;
     });
 
-    return MONTHS_ORDER.map((month) => {
+    const chartData = MONTHS_ORDER.map((month) => {
       const curr = currentYearMap[month];
       const comp = comparisonMap[month];
 
@@ -629,6 +647,27 @@ export default function AdminDashboard({ onNavigate }) {
         compare_value: compareCompletion,
       };
     });
+
+    // ZERO-FILL FALLBACK: If all values are null, ensure skeleton data for X-axis and target line
+    const hasAnyData = chartData.some(d => 
+      d.main_completion !== null || d.compare_completion !== null || 
+      d.main_score !== null || d.compare_score !== null
+    );
+    
+    if (!hasAnyData) {
+      // Return skeleton data with 0 values to ensure chart renders with X-axis and target line
+      return MONTHS_ORDER.map(month => ({
+        month,
+        main_completion: 0,
+        compare_completion: null,
+        main_score: 0,
+        compare_score: null,
+        main_value: 0,
+        compare_value: null,
+      }));
+    }
+
+    return chartData;
   }, [filteredPlans, comparisonPlans, filteredHistoricalStats, filteredComparisonHistorical]);
 
   // Check if we have any comparison data (real or historical)
@@ -923,6 +962,12 @@ export default function AdminDashboard({ onNavigate }) {
       .slice(0, 15) // Take first 15 logs (already sorted by created_at desc)
       .map(log => {
         const plan = plans.find(p => p.id === log.action_plan_id);
+        
+        // Determine ownership context for better messaging
+        const actorName = log.actor_name || 'System';
+        const planOwner = plan?.pic || 'Unknown';
+        const isSelfEdit = actorName === planOwner;
+        
         return {
           // Include log details - EACH LOG IS A UNIQUE EVENT
           logId: log.id,
@@ -932,8 +977,12 @@ export default function AdminDashboard({ onNavigate }) {
           // Include plan details if matched (for department, PIC info)
           planId: log.action_plan_id,
           plan: plan || null,
-          departmentCode: plan?.department_code || 'N/A',
-          pic: plan?.pic || 'System',
+          departmentCode: plan?.department_code || log.actor_department || 'N/A',
+          // FIX: Use ACTOR name (who performed the action) instead of PIC (plan owner)
+          // This ensures "Hanung changed status" not "Yulia changed status" when admin edits
+          actor: actorName,
+          planOwner: planOwner,
+          isSelfEdit: isSelfEdit,
           actionPlanTitle: plan?.action_plan?.substring(0, 50) || log.description?.substring(0, 50) || 'Activity'
         };
       })
@@ -970,10 +1019,55 @@ export default function AdminDashboard({ onNavigate }) {
     return `${diffDays}d ago`;
   };
 
+  // Helper: Generate contextual description with ownership context
+  // Shows "Hanung updated Yulia's plan" vs "Hanung updated their own plan"
+  const getContextualDescription = (update) => {
+    const { actor, planOwner, isSelfEdit, description, changeType } = update;
+    
+    // Parse the original description to extract the action
+    let action = description;
+    
+    // Try to extract a cleaner action from common patterns
+    if (description.includes('Changed status from')) {
+      const match = description.match(/Changed status from ['"](.+?)['"] to ['"](.+?)['"]/);
+      if (match) {
+        action = `changed status to ${match[2]}`;
+      }
+    } else if (description.includes('changed status to')) {
+      const match = description.match(/changed status to ['"]?(.+?)['"]?$/i);
+      if (match) {
+        action = `changed status to ${match[1]}`;
+      }
+    } else if (changeType === 'SUBMITTED_FOR_REVIEW') {
+      action = 'submitted plan for review';
+    } else if (changeType === 'MARKED_READY') {
+      action = 'marked plan ready for review';
+    } else if (changeType === 'APPROVED') {
+      action = 'approved and graded plan';
+    } else if (changeType === 'REJECTED') {
+      action = 'rejected plan';
+    } else if (changeType === 'REVISION_REQUESTED') {
+      action = 'requested revision';
+    } else if (changeType === 'CREATED') {
+      action = 'created plan';
+    } else if (changeType === 'DELETED') {
+      action = 'deleted plan';
+    } else if (description.includes('Updated')) {
+      action = 'updated plan';
+    }
+    
+    // Build contextual message
+    if (isSelfEdit) {
+      return `${action} (own plan)`;
+    } else {
+      return `${action} (${planOwner}'s plan)`;
+    }
+  };
+
   // Leaderboard is now just the stats.byDepartment (filtering is done at the data level)
   const filteredLeaderboard = stats.byDepartment;
 
-  function getDeptName(code) { const dept = DEPARTMENTS.find((d) => d.code === code); return dept ? dept.name : code; }
+  function getDeptName(code) { const dept = departments.find((d) => d.code === code); return dept ? dept.name : code; }
   const getRankIcon = (index) => {
     if (index === 0) return <Trophy className="w-5 h-5 text-yellow-500" />;
     if (index === 1) return <Medal className="w-5 h-5 text-gray-400" />;
@@ -1157,7 +1251,7 @@ export default function AdminDashboard({ onNavigate }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Departments</SelectItem>
-                  {DEPARTMENTS.map((dept) => (
+                  {departments.map((dept) => (
                     <SelectItem key={dept.code} value={dept.code}>
                       {dept.code}
                     </SelectItem>
@@ -1649,8 +1743,9 @@ export default function AdminDashboard({ onNavigate }) {
                     <div className="flex flex-col gap-0.5">
                       {/* Header: User + Department + Time */}
                       <div className="flex items-center gap-2">
+                        {/* FIX: Display ACTOR (who performed the action) not PIC (plan owner) */}
                         <span className="font-semibold text-gray-900 text-sm truncate max-w-[120px]">
-                          {update.pic || 'System'}
+                          {update.actor || 'System'}
                         </span>
                         <span className="text-[10px] px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded font-medium shrink-0">
                           {update.departmentCode}
@@ -1662,7 +1757,7 @@ export default function AdminDashboard({ onNavigate }) {
 
                       {/* Event Description (from audit log) */}
                       <p className="text-xs text-gray-600 leading-snug line-clamp-2" title={update.description}>
-                        {update.description || update.actionPlanTitle || 'Activity logged'}
+                        {getContextualDescription(update)}
                       </p>
 
                       {/* Event Type Badge */}
@@ -1687,13 +1782,20 @@ export default function AdminDashboard({ onNavigate }) {
               )}
             </div>
 
-            {weeklyActivityData.recentUpdates.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-400">
-                  {weeklyActivityData.activeDepts} active department{weeklyActivityData.activeDepts !== 1 ? 's' : ''} this week
-                </p>
-              </div>
-            )}
+            {/* Footer Message */}
+            <div className="mt-4 pt-3 border-t border-gray-100 text-center">
+              <p className="text-xs text-gray-400">
+                Showing the last 20 activities
+                {weeklyActivityData.recentUpdates.length > 0 && weeklyActivityData.activeDepts > 0 && (
+                  <span className="mx-2">•</span>
+                )}
+                {weeklyActivityData.recentUpdates.length > 0 && weeklyActivityData.activeDepts > 0 && (
+                  <span>
+                    {weeklyActivityData.activeDepts} active department{weeklyActivityData.activeDepts !== 1 ? 's' : ''} this week
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
 

@@ -3,7 +3,9 @@ import { Target, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertT
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
-import { DEPARTMENTS, supabase } from '../lib/supabase';
+import { useDepartmentContext } from '../context/DepartmentContext';
+import { supabase } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from './PerformanceChart';
 import PriorityFocusWidget from './PriorityFocusWidget';
 import KPICard from './KPICard';
@@ -102,8 +104,15 @@ const BenchmarkTooltip = ({ active, payload, label, currentYear, comparisonLabel
 };
 
 export default function DepartmentDashboard({ departmentCode, onNavigate }) {
+  // Use global department context
+  const { currentDept } = useDepartmentContext();
   const { profile, isStaff } = useAuth();
-  const { plans, loading, refetch } = useActionPlans(departmentCode);
+  
+  // Use currentDept from context (falls back to prop for compatibility)
+  const activeDepartmentCode = currentDept || departmentCode;
+  
+  const { plans, loading, refetch } = useActionPlans(activeDepartmentCode);
+  const { departments } = useDepartments();
 
   // Staff users should not navigate from KPI cards - they can only view
   const canNavigate = onNavigate && !isStaff;
@@ -137,18 +146,18 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         .from('historical_stats')
         .select('*')
         .eq('year', selectedYear)
-        .eq('department_code', departmentCode);
+        .eq('department_code', activeDepartmentCode);
 
       setHistoricalStats(data || []);
     };
 
     fetchHistoricalStats();
-  }, [selectedYear, departmentCode]);
+  }, [selectedYear, activeDepartmentCode]);
 
   // Get department info
-  const deptInfo = DEPARTMENTS.find((d) => d.code === departmentCode);
-  const deptName = deptInfo?.name || departmentCode;
-
+  const deptInfo = departments.find((d) => d.code === activeDepartmentCode);
+  const deptName = deptInfo?.name || activeDepartmentCode;
+  
   // Helper functions for filter management
   const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
 
@@ -257,13 +266,13 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         .from('historical_stats')
         .select('*')
         .eq('year', comparisonYearValue)
-        .eq('department_code', departmentCode);
+        .eq('department_code', activeDepartmentCode);
 
       setComparisonHistorical(data || []);
     };
 
     fetchComparisonHistory();
-  }, [comparisonYearValue, departmentCode]);
+  }, [comparisonYearValue, activeDepartmentCode]);
 
   const hasComparisonData = comparisonPlans.length > 0 || comparisonHistorical.length > 0;
   const hasCurrentData = yearFilteredPlans.length > 0 || historicalStats.length > 0;
@@ -649,8 +658,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       compHistoricalMap[monthName] = h.completion_rate;
     });
 
-    // Combine into chart data for all months
-    return MONTHS_ORDER.map((month) => {
+    // Combine into chart data for all months (ALWAYS generate full year skeleton)
+    const chartData = MONTHS_ORDER.map((month) => {
       const curr = currentMap[month];
       const comp = compMap[month];
 
@@ -725,6 +734,22 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         total: curr?.total || 0,
       };
     });
+
+    // ZERO-FILL FALLBACK: If all values are null/0, ensure we still have skeleton data for X-axis
+    const hasAnyData = chartData.some(d => d.current !== null || d.comparison !== null);
+    if (!hasAnyData) {
+      // Return skeleton data with 0 values to ensure chart renders with X-axis and target line
+      return MONTHS_ORDER.map(month => ({
+        name: month,
+        current: 0,
+        comparison: null,
+        achieved: 0,
+        graded: 0,
+        total: 0,
+      }));
+    }
+
+    return chartData;
   }, [yearFilteredPlans, comparisonPlans, historicalStats, comparisonHistorical, chartMetric, selectedYear, comparisonYearValue]);
 
   // Benchmark chart data for Quarterly view - Respects chartMetric
@@ -773,8 +798,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       }
     });
 
-    // Combine into chart data for all quarters
-    return QUARTERS.map((quarter) => {
+    // Combine into chart data for all quarters (ALWAYS generate full skeleton)
+    const chartData = QUARTERS.map((quarter) => {
       const curr = currentMap[quarter];
       const comp = compMap[quarter];
 
@@ -853,6 +878,22 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         total: curr?.total || 0,
       };
     });
+
+    // ZERO-FILL FALLBACK: If all values are null/0, ensure we still have skeleton data for X-axis
+    const hasAnyData = chartData.some(d => d.current !== null || d.comparison !== null);
+    if (!hasAnyData) {
+      // Return skeleton data with 0 values to ensure chart renders with X-axis and target line
+      return QUARTERS.map(quarter => ({
+        name: quarter,
+        current: 0,
+        comparison: null,
+        achieved: 0,
+        graded: 0,
+        total: 0,
+      }));
+    }
+
+    return chartData;
   }, [yearFilteredPlans, comparisonPlans, historicalStats, comparisonHistorical, chartMetric, selectedYear, comparisonYearValue]);
 
   // Select the right benchmark data based on timeMetric
@@ -901,8 +942,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
           {/* TOP ROW: TITLE & REFRESH BUTTON */}
           <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{deptName}</h1>
+            <div className="flex-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{deptName}</h1>
+              </div>
               <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
                 <span>Performance Overview — FY {selectedYear}</span>
                 <span className="hidden sm:inline-block">•</span>

@@ -3,7 +3,8 @@ import { Plus, Search, Calendar, CheckCircle, X, Download, Trash2, Lock, Loader2
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
-import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import DashboardCards from './DashboardCards';
 import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
@@ -21,6 +22,7 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
   const { isAdmin, isLeader } = useAuth();
   const { toast } = useToast();
+  const { departments } = useDepartments();
   const canManagePlans = isAdmin || isLeader; // Leaders can add/edit plans in their department
   const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -87,7 +89,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // Grade modal state (Admin only)
   const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
 
-  const currentDept = DEPARTMENTS.find((d) => d.code === departmentCode);
+  const currentDept = departments.find((d) => d.code === departmentCode);
 
   // Month status for smart button logic - supports partial recall
   const monthStatus = useMemo(() => {
@@ -1051,6 +1053,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={isAdmin ? handleOpenGradeModal : undefined}
+          showDepartmentColumn={true}
           visibleColumns={visibleColumns}
           columnOrder={columnOrder}
         />

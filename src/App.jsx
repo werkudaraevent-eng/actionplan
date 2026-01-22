@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DepartmentProvider } from './context/DepartmentContext';
 import { ToastProvider } from './components/Toast';
 import LoginPage from './components/LoginPage';
 import LoadingScreen from './components/LoadingScreen';
@@ -89,15 +90,25 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   return children;
 }
 
-// Department route guard - ensures user can only access their own department (unless admin)
+// Department route guard - ensures user can only access their own department or additional departments (unless admin)
 function DepartmentRoute({ children }) {
-  const { isAdmin, departmentCode } = useAuth();
+  const { isAdmin, departmentCode, profile } = useAuth();
   const { deptCode } = useParams();
   
-  if (!isAdmin && deptCode !== departmentCode) {
+  // Admin can access any department
+  if (isAdmin) {
+    return children;
+  }
+  
+  // Check if user has access to this department (primary or additional)
+  const hasAccess = 
+    deptCode === departmentCode || 
+    profile?.additional_departments?.includes(deptCode);
+  
+  if (!hasAccess) {
     return (
       <AccessDeniedScreen 
-        message={`You don't have permission to view the ${deptCode} department. You can only access your own department.`}
+        message={`You don't have permission to view the ${deptCode} department. You can only access your assigned departments.`}
         redirectTo={`/dept/${departmentCode}/dashboard`}
       />
     );
@@ -266,9 +277,11 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <ToastProvider>
-          <AppRoutes />
-        </ToastProvider>
+        <DepartmentProvider>
+          <ToastProvider>
+            <AppRoutes />
+          </ToastProvider>
+        </DepartmentProvider>
       </AuthProvider>
     </Router>
   );

@@ -1,12 +1,15 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { DEPARTMENTS } from '../lib/supabase';
+import { useDepartmentContext } from '../context/DepartmentContext';
+import { useDepartments } from '../hooks/useDepartments';
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
+  const { departments, loading: deptLoading } = useDepartments();
+  const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
 
   const handleSignOut = async () => {
     await signOut();
@@ -15,7 +18,7 @@ export default function Sidebar() {
 
   // Get department name for dept_head users
   const getUserDeptName = () => {
-    const dept = DEPARTMENTS.find((d) => d.code === departmentCode);
+    const dept = departments.find((d) => d.code === departmentCode);
     return dept ? dept.name : departmentCode;
   };
 
@@ -88,20 +91,26 @@ export default function Sidebar() {
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Departments</p>
             <div className="space-y-1">
-              {DEPARTMENTS.map((dept) => (
-                <button
-                  key={dept.code}
-                  onClick={() => navigate(`/dept/${dept.code}/plans`)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                    isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
-                >
-                  <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
-                    {dept.code}
-                  </span>
-                  <span className="text-sm truncate flex-1">{dept.name.split(' ')[0]}</span>
-                </button>
-              ))}
+              {deptLoading ? (
+                <div className="px-3 py-2 text-teal-300 text-sm">Loading departments...</div>
+              ) : departments.length === 0 ? (
+                <div className="px-3 py-2 text-teal-300 text-sm">No departments found</div>
+              ) : (
+                departments.map((dept) => (
+                  <button
+                    key={dept.code}
+                    onClick={() => navigate(`/dept/${dept.code}/plans`)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
+                      isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
+                  >
+                    <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
+                      {dept.code}
+                    </span>
+                    <span className="text-sm truncate flex-1">{dept.name.split(' ')[0]}</span>
+                  </button>
+                ))
+              )}
             </div>
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
@@ -129,6 +138,33 @@ export default function Sidebar() {
             {/* STAFF VIEW: My Tasks + Department Overview */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
             
+            {/* Department Switcher - Show if staff has multiple departments */}
+            {hasMultipleDepts && (
+              <div className="mb-3 px-2">
+                <label className="block text-teal-400 text-xs mb-1">Department</label>
+                <div className="relative">
+                  <select
+                    value={currentDept}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      // Update global state
+                      switchDept(newCode);
+                      // Staff navigates to workspace (their action plans view)
+                      navigate('/workspace');
+                    }}
+                    className="w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    {accessibleDepts.map((dept) => (
+                      <option key={dept.code} value={dept.code} className="bg-teal-800">
+                        {dept.code} - {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                </div>
+              </div>
+            )}
+            
             <button
               onClick={() => navigate('/workspace')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
@@ -141,29 +177,58 @@ export default function Sidebar() {
 
             {/* Allow staff to view department dashboard */}
             <button
-              onClick={() => navigate(`/dept/${departmentCode}/dashboard`)}
+              onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                isActive(`/dept/${departmentCode}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-sm">Team Overview</span>
             </button>
             
-            <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
-              {getUserDeptName()}
-            </p>
+            {!hasMultipleDepts && (
+              <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
+                {getUserDeptName()}
+              </p>
+            )}
           </>
         ) : (
           <>
-            {/* DEPT HEAD VIEW: Dashboard + Manage */}
+            {/* LEADER VIEW: Dashboard + Manage */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
+            
+            {/* Department Switcher - Show if leader has multiple departments */}
+            {hasMultipleDepts && (
+              <div className="mb-3 px-2">
+                <label className="block text-teal-400 text-xs mb-1">Department</label>
+                <div className="relative">
+                  <select
+                    value={currentDept}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      // Update global state
+                      switchDept(newCode);
+                      // Leader navigates to department dashboard
+                      navigate(`/dept/${newCode}/dashboard`);
+                    }}
+                    className="w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    {accessibleDepts.map((dept) => (
+                      <option key={dept.code} value={dept.code} className="bg-teal-800">
+                        {dept.code} - {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                </div>
+              </div>
+            )}
             
             {/* Dashboard Link */}
             <button
-              onClick={() => navigate(`/dept/${departmentCode}/dashboard`)}
+              onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                isActive(`/dept/${departmentCode}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -172,18 +237,20 @@ export default function Sidebar() {
             
             {/* Manage Action Plans Link */}
             <button
-              onClick={() => navigate(`/dept/${departmentCode}/plans`)}
+              onClick={() => navigate(`/dept/${currentDept}/plans`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                isActive(`/dept/${departmentCode}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                isActive(`/dept/${currentDept}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
               }`}
             >
               <Table className="w-4 h-4" />
               <span className="text-sm">Manage Action Plans</span>
             </button>
             
-            <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
-              {getUserDeptName()}
-            </p>
+            {!hasMultipleDepts && (
+              <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
+                {getUserDeptName()}
+              </p>
+            )}
           </>
         )}
       </nav>

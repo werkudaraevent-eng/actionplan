@@ -47,10 +47,12 @@ export default function ViewDetailModal({ plan, onClose }) {
                   {priorityCode}
                 </span>
               )}
-              {/* ID Badge */}
-              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-mono">
-                #{plan.id?.slice(0, 8)}
-              </span>
+              {/* Full Category Name (if available) */}
+              {plan.category && (
+                <span className="text-xs text-gray-500 font-medium">
+                  {plan.category}
+                </span>
+              )}
             </div>
             <h2 className="text-lg font-semibold text-gray-800 line-clamp-2">
               {plan.goal_strategy || 'Action Plan Details'}

@@ -1,25 +1,27 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X } from 'lucide-react';
-import { supabase, DEPARTMENTS } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import UserModal from './UserModal';
 import ConfirmationModal from './ConfirmationModal';
 import CredentialSuccessModal from './CredentialSuccessModal';
 import { useToast } from './Toast';
+import { useDepartments } from '../hooks/useDepartments';
 
 const TEMP_PASSWORD = 'Werkudara123!';
 
 export default function UserManagement({ initialFilter = '' }) {
   const { toast } = useToast();
+  const { departments, loading: deptLoading } = useDepartments();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All'); // Strict department filter
-  
+
   // Modal states
   const [userModal, setUserModal] = useState({ isOpen: false, editData: null });
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, user: null });
   const [deleting, setDeleting] = useState(false);
-  
+
   // Credential success modal state
   const [createdUserCreds, setCreatedUserCreds] = useState(null);
 
@@ -56,20 +58,22 @@ export default function UserManagement({ initialFilter = '' }) {
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
       // Condition A: Text search (name or email only, not department)
-      const matchesSearch = !searchQuery.trim() || 
+      const matchesSearch = !searchQuery.trim() ||
         user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         user.email?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      // Condition B: Strict department filter
-      const matchesDept = selectedDept === 'All' || user.department_code === selectedDept;
-      
+
+      // Condition B: Department filter (primary OR additional)
+      const matchesDept = selectedDept === 'All' || 
+        user.department_code === selectedDept ||
+        user.additional_departments?.includes(selectedDept);
+
       return matchesSearch && matchesDept;
     });
   }, [users, searchQuery, selectedDept]);
 
   // Get department name
   const getDeptName = (code) => {
-    const dept = DEPARTMENTS.find((d) => d.code === code);
+    const dept = departments.find((d) => d.code === code);
     return dept ? dept.name : code || 'Not Assigned';
   };
 
@@ -104,6 +108,7 @@ export default function UserManagement({ initialFilter = '' }) {
             full_name: formData.full_name,
             role: formData.role,
             department_code: formData.department_code,
+            additional_departments: formData.additional_departments,
           })
           .eq('id', userModal.editData.id);
 
@@ -115,7 +120,8 @@ export default function UserManagement({ initialFilter = '' }) {
           password: TEMP_PASSWORD,
           fullName: formData.full_name,
           role: formData.role,
-          department_code: formData.department_code
+          department_code: formData.department_code,
+          additional_departments: formData.additional_departments
         };
 
         const { data, error } = await supabase.functions.invoke('create-user', {
@@ -124,7 +130,7 @@ export default function UserManagement({ initialFilter = '' }) {
 
         // Check for invocation error
         if (error) throw new Error(error.message || 'Function invocation failed');
-        
+
         // Check for business logic error returned by function
         if (data && data.error) throw new Error(data.error);
 
@@ -146,7 +152,7 @@ export default function UserManagement({ initialFilter = '' }) {
   // Handle delete
   const handleDelete = async () => {
     if (!deleteModal.user) return;
-    
+
     setDeleting(true);
     try {
       const { error } = await supabase
@@ -155,15 +161,15 @@ export default function UserManagement({ initialFilter = '' }) {
         .eq('id', deleteModal.user.id);
 
       if (error) throw error;
-      
+
       setDeleteModal({ isOpen: false, user: null });
       fetchUsers();
     } catch (err) {
       console.error('Delete failed:', err);
-      toast({ 
-        title: 'Delete Failed', 
-        description: 'Failed to delete user. They may have associated data.', 
-        variant: 'error' 
+      toast({
+        title: 'Delete Failed',
+        description: 'Failed to delete user. They may have associated data.',
+        variant: 'error'
       });
     } finally {
       setDeleting(false);
@@ -204,21 +210,20 @@ export default function UserManagement({ initialFilter = '' }) {
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
               />
             </div>
-            
+
             {/* Department Filter Dropdown */}
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-500">Department:</span>
               <select
                 value={selectedDept}
                 onChange={(e) => setSelectedDept(e.target.value)}
-                className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                  selectedDept !== 'All' 
-                    ? 'border-teal-500 bg-teal-50 text-teal-700' 
-                    : 'border-gray-200 text-gray-700'
-                }`}
+                className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${selectedDept !== 'All'
+                  ? 'border-teal-500 bg-teal-50 text-teal-700'
+                  : 'border-gray-200 text-gray-700'
+                  }`}
               >
                 <option value="All">All Departments</option>
-                {DEPARTMENTS.map((dept) => (
+                {departments.map((dept) => (
                   <option key={dept.code} value={dept.code}>
                     {dept.code} - {dept.name}
                   </option>
@@ -285,9 +290,8 @@ export default function UserManagement({ initialFilter = '' }) {
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${
-                          user.role === 'admin' ? 'bg-purple-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
-                        }`}>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'admin' ? 'bg-purple-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
+                          }`}>
                           {getInitials(user.full_name)}
                         </div>
                         <div>
@@ -297,13 +301,12 @@ export default function UserManagement({ initialFilter = '' }) {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        user.role === 'admin'
-                          ? 'bg-purple-100 text-purple-700'
-                          : user.role === 'staff'
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${user.role === 'admin'
+                        ? 'bg-purple-100 text-purple-700'
+                        : user.role === 'staff'
                           ? 'bg-gray-100 text-gray-700'
                           : 'bg-teal-100 text-teal-700'
-                      }`}>
+                        }`}>
                         {user.role === 'admin' ? (
                           <Shield className="w-3 h-3" />
                         ) : (
@@ -357,6 +360,7 @@ export default function UserManagement({ initialFilter = '' }) {
         onClose={() => setUserModal({ isOpen: false, editData: null })}
         onSave={handleSave}
         editData={userModal.editData}
+        departments={departments}
       />
 
       {/* Delete Confirmation */}

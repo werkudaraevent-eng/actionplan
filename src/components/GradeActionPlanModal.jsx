@@ -310,13 +310,20 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                 />
               </div>
               
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>0</span>
-                <span>25</span>
-                <span>50</span>
-                <span>70</span>
-                <span>90</span>
-                <span>100</span>
+              {/* FIX: Use absolute positioning for labels to align with slider values */}
+              <div className="relative w-full h-6 mt-1">
+                {[0, 25, 50, 70, 90, 100].map((mark) => (
+                  <div
+                    key={mark}
+                    className="absolute text-xs text-gray-400 font-medium"
+                    style={{ 
+                      left: `${mark}%`, 
+                      transform: 'translateX(-50%)' 
+                    }}
+                  >
+                    {mark}
+                  </div>
+                ))}
               </div>
             </div>
 

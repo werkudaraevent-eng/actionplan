@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { supabase, DEPARTMENTS } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from './Toast';
 
 const TEMPLATE_HEADERS = [
@@ -20,7 +21,6 @@ const TEMPLATE_HEADERS = [
 ];
 
 const VALID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const VALID_DEPT_CODES = DEPARTMENTS.map(d => d.code);
 
 // Month name mapping (handles various formats)
 const MONTH_MAP = {
@@ -92,6 +92,7 @@ const AVAILABLE_YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 export default function ImportModal({ isOpen, onClose, onImportComplete }) {
   const { toast } = useToast();
+  const { departments } = useDepartments();
   const [step, setStep] = useState(1); // 1: upload, 2: processing, 3: results
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [dragActive, setDragActive] = useState(false);
@@ -184,7 +185,8 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     const indicator = row['Indicator'];
     const pic = row['PIC'];
     
-    if (!deptCode || !VALID_DEPT_CODES.includes(deptCode.toUpperCase())) {
+    const validDeptCodes = departments.map(d => d.code);
+    if (!deptCode || !validDeptCodes.includes(deptCode.toUpperCase())) {
       errors.push(`Invalid Department Code: "${deptCode}"`);
     }
     

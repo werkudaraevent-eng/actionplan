@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { STATUS_OPTIONS, DEPARTMENTS } from '../lib/supabase';
+import { STATUS_OPTIONS } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import HistoryModal from './HistoryModal';
 import ViewDetailModal from './ViewDetailModal';
 
@@ -68,12 +69,6 @@ const isUrl = (string) => {
   } catch (_) {
     return false;
   }
-};
-
-// Helper to get department name from code
-const getDeptName = (code) => {
-  const dept = DEPARTMENTS.find(d => d.code === code);
-  return dept?.name || code;
 };
 
 // LocalStorage keys - increment version to force reset for all users
@@ -432,7 +427,14 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
 
 export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder }) {
   const { isAdmin, isStaff, profile } = useAuth();
+  const { departments } = useDepartments();
   const [updatingId, setUpdatingId] = useState(null);
+  
+  // Helper to get department name from code
+  const getDeptName = (code) => {
+    const dept = departments.find(d => d.code === code);
+    return dept?.name || code;
+  };
   const [historyModal, setHistoryModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [viewPlan, setViewPlan] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
@@ -628,13 +630,35 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               className="group/action cursor-pointer"
               onClick={() => setViewPlan(item)}
             >
-              <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2">
-                {item.action_plan}
-              </span>
-              <span className="hidden group-hover/action:inline-flex items-center gap-1 text-xs text-emerald-600 mt-1">
-                <Eye className="w-3 h-3" />
-                View Details
-              </span>
+              {showDepartmentColumn ? (
+                // When department has its own column, show clean action plan text
+                <div>
+                  <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2">
+                    {item.action_plan}
+                  </span>
+                  <span className="hidden group-hover/action:inline-flex items-center gap-1 text-xs text-emerald-600 mt-1">
+                    <Eye className="w-3 h-3" />
+                    View Details
+                  </span>
+                </div>
+              ) : (
+                // When no department column, show inline department badge
+                <div>
+                  <div className="flex items-start gap-2">
+                    {/* Department Badge */}
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 flex-shrink-0">
+                      {item.department_code}
+                    </span>
+                    <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2 flex-1">
+                      {item.action_plan}
+                    </span>
+                  </div>
+                  <span className="hidden group-hover/action:inline-flex items-center gap-1 text-xs text-emerald-600 mt-1 ml-12">
+                    <Eye className="w-3 h-3" />
+                    View Details
+                  </span>
+                </div>
+              )}
             </div>
           </td>
         );

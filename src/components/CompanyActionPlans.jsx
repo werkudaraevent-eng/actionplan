@@ -3,7 +3,8 @@ import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, 
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
-import { DEPARTMENTS, MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { MONTHS, STATUS_OPTIONS } from '../lib/supabase';
+import { useDepartments } from '../hooks/useDepartments';
 import DashboardCards from './DashboardCards';
 import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
@@ -20,6 +21,7 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
   const { isAdmin } = useAuth();
   const { toast } = useToast();
+  const { departments } = useDepartments();
   // Fetch ALL plans (no department filter)
   const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan, bulkResetGrades } = useActionPlans(null);
 
@@ -474,7 +476,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                   className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
                 >
                   <option value="all">All Departments</option>
-                  {DEPARTMENTS.map((dept) => (
+                  {departments.map((dept) => (
                     <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
                   ))}
                 </select>
@@ -535,7 +537,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                     className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
                   >
                     <option value="all">All Departments</option>
-                    {DEPARTMENTS.map((dept) => (
+                    {departments.map((dept) => (
                       <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
                     ))}
                   </select>

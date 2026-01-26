@@ -7,9 +7,12 @@ import { useDepartmentUsers } from '../hooks/useDepartmentUsers';
 import { useToast } from './Toast';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
-  const { profile, isAdmin, isLeader, departmentCode: userDeptCode } = useAuth();
+  const { profile, isAdmin, isExecutive, isLeader, departmentCode: userDeptCode } = useAuth();
   const { toast } = useToast();
   const { departments } = useDepartments();
+  
+  // Executives have read-only access
+  const isReadOnly = isExecutive;
   
   // Calculate available departments for the user
   const availableDepartments = useMemo(() => {
@@ -32,8 +35,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // SECURITY: Determine if this plan is locked (finalized for Management grading)
   // Admin God Mode: Admins can edit locked plans, others cannot
   const isPlanLocked = editData?.submission_status === 'submitted' || editData?.status === 'Waiting Approval';
-  const isLocked = isPlanLocked && !isAdmin; // Regular users are locked out
-  const isAdminOverride = isPlanLocked && isAdmin; // Admin can override the lock
+  const isLocked = (isPlanLocked && !isAdmin) || isReadOnly; // Regular users are locked out, Executives are always read-only
+  const isAdminOverride = isPlanLocked && isAdmin && !isReadOnly; // Admin can override the lock (but not if Executive)
   
   // Check if plan can be recalled (locked but NOT graded yet)
   const canRecall = isPlanLocked && 
@@ -1023,8 +1026,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               >
                 {(isLocked && !isAdminOverride) ? 'Close' : 'Cancel'}
               </button>
-              {/* Hide Save button when locked (but show for admin override) */}
-              {(!isLocked || isAdminOverride) && (
+              {/* Hide Save button when locked (but show for admin override) OR when read-only (Executive) */}
+              {(!isLocked || isAdminOverride) && !isReadOnly && (
                 <button
                   type="submit"
                   disabled={(() => {

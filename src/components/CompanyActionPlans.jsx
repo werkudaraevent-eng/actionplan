@@ -19,7 +19,8 @@ const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isExecutive } = useAuth();
+  const canEdit = !isExecutive; // Executives have read-only access
   const { toast } = useToast();
   const { departments } = useDepartments();
   // Fetch ALL plans (no department filter)
@@ -120,8 +121,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       .filter(p => {
         // Must be submitted and not yet graded
         if (p.submission_status !== 'submitted' || p.quality_score != null) return false;
-        // Apply department filter if set
-        if (gradingDeptFilter !== 'all' && p.department_code !== gradingDeptFilter) return false;
+        // Apply department filter if set - STRICT CODE COMPARISON
+        if (gradingDeptFilter && gradingDeptFilter !== 'all') {
+          const filterCode = gradingDeptFilter.trim().toUpperCase();
+          const planCode = (p.department_code || '').trim().toUpperCase();
+          
+          if (planCode !== filterCode) return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -145,10 +151,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     const endIdx = MONTH_INDEX[endMonth] ?? 11;
 
     // Otherwise apply normal filters for "all_records" tab
-    return plans.filter((plan) => {
-      // Department filter
-      if (selectedDept !== 'all' && plan.department_code !== selectedDept) {
-        return false;
+    const filtered = plans.filter((plan) => {
+      // Department filter - STRICT CODE COMPARISON
+      if (selectedDept && selectedDept !== 'all' && selectedDept !== 'All' && selectedDept !== 'All Departments') {
+        const filterCode = selectedDept.trim().toUpperCase();
+        const planCode = (plan.department_code || '').trim().toUpperCase();
+        
+        if (planCode !== filterCode) {
+          return false;
+        }
       }
 
       // Month range filter
@@ -193,6 +204,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
       return true;
     });
+
+    return filtered;
   }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, activeTab, needsGradingPlans]);
 
   const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
@@ -707,7 +720,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
                 {selectedDept !== 'all' && (
                   <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-full">
-                    Dept: {selectedDept}
+                    Dept: {departments.find(d => d.code === selectedDept)?.name || selectedDept}
                     <button onClick={() => setSelectedDept('all')} className="hover:text-emerald-900">
                       <X className="w-3 h-3" />
                     </button>
@@ -791,6 +804,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             showDepartmentColumn={true}
             visibleColumns={visibleColumns}
             columnOrder={columnOrder}
+            isReadOnly={isExecutive}
           />
         )}
       </main>

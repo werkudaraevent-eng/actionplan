@@ -22,15 +22,38 @@ export function useDepartments() {
         setLoading(true);
         setError(null);
 
-        const { data, error: fetchError } = await supabase
+        // Primary approach: Fetch without is_active filter first (most reliable)
+        // This prevents errors if is_active column doesn't exist
+        let { data, error: fetchError } = await supabase
           .from('departments')
-          .select('code, name')
+          .select('*')  // Select all to check which columns exist
           .order('name', { ascending: true });
 
-        if (fetchError) throw fetchError;
-        setDepartments(data || []);
+        // DEBUG: Log raw result
+        console.log('useDepartments: Raw fetch result:', data?.length || 0, 'departments', data);
+
+        if (fetchError) {
+          console.error('useDepartments: Error fetching departments:', fetchError);
+          throw fetchError;
+        }
+
+        // Check if is_active column exists and filter if so
+        if (data && data.length > 0 && data[0].hasOwnProperty('is_active')) {
+          console.log('useDepartments: is_active column exists, filtering...');
+          data = data.filter(d => d.is_active === true || d.is_active === undefined);
+          console.log('useDepartments: After is_active filter:', data.length, 'departments');
+        }
+
+        // Map to only return required fields
+        const cleanData = (data || []).map(d => ({
+          code: d.code,
+          name: d.name
+        }));
+
+        console.log('useDepartments: Final result:', cleanData.length, 'departments');
+        setDepartments(cleanData);
       } catch (err) {
-        console.error('Error fetching departments:', err);
+        console.error('useDepartments: Error fetching departments:', err);
         setError(err.message);
         setDepartments([]);
       } finally {

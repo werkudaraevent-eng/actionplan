@@ -7,7 +7,7 @@ import { useDepartments } from '../hooks/useDepartments';
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile, isAdmin, isStaff, isLeader, departmentCode, signOut } = useAuth();
+  const { profile, isAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { departments, loading: deptLoading } = useDepartments();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
 
@@ -58,16 +58,16 @@ export default function Sidebar() {
           <p className="text-teal-300 text-xs uppercase tracking-wider">Logged in as</p>
           <p className="text-white font-medium text-sm truncate">{profile?.full_name}</p>
           <p className="text-teal-400 text-xs truncate">
-            {isAdmin ? 'Administrator' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
+            {isAdmin ? 'Administrator' : isExecutive ? 'Executive (View-Only)' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
           </p>
         </div>
       </div>
 
       {/* Navigation - Scrollable with hidden scrollbar */}
       <nav className="flex-1 p-3 overflow-y-auto scrollbar-hidden">
-        {isAdmin ? (
+        {isAdmin || isExecutive ? (
           <>
-            {/* ADMIN VIEW: Full menu */}
+            {/* ADMIN/EXECUTIVE VIEW: Full menu (read-only for Executive) */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Overview</p>
             <button
               onClick={() => navigate('/dashboard')}
@@ -113,25 +113,30 @@ export default function Sidebar() {
               )}
             </div>
 
-            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
-            <button
-              onClick={() => navigate('/users')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span className="text-sm">Team Management</span>
-            </button>
-            <button
-              onClick={() => navigate('/settings')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span className="text-sm">Admin Settings</span>
-            </button>
+            {/* System menu - only for Admin, not Executive */}
+            {isAdmin && (
+              <>
+                <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
+                <button
+                  onClick={() => navigate('/users')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                    isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span className="text-sm">Team Management</span>
+                </button>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
+                    isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span className="text-sm">Admin Settings</span>
+                </button>
+              </>
+            )}
           </>
         ) : isStaff ? (
           <>

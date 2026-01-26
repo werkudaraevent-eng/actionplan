@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles } from 'lucide-react';
+import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, MessageSquare, Lock } from 'lucide-react';
 
 // Priority badge colors
 const PRIORITY_COLORS = {
@@ -9,11 +9,30 @@ const PRIORITY_COLORS = {
   'L': 'bg-green-100 text-green-700 border-green-200',
 };
 
+// Status badge colors
+const STATUS_COLORS = {
+  'Pending': 'bg-gray-100 text-gray-700',
+  'On Progress': 'bg-yellow-100 text-yellow-700',
+  'Achieved': 'bg-green-100 text-green-700',
+  'Not Achieved': 'bg-red-100 text-red-700',
+};
+
 // Extract priority code from category string (e.g., "UH (Ultra High)" -> "UH")
 const getPriorityCode = (category) => {
   if (!category) return null;
   const code = category.split(/[\s(]/)[0].toUpperCase();
   return ['UH', 'H', 'M', 'L'].includes(code) ? code : null;
+};
+
+// Helper to detect if a string is a valid URL
+const isUrl = (string) => {
+  if (!string) return false;
+  try {
+    new URL(string);
+    return true;
+  } catch (_) {
+    return false;
+  }
 };
 
 export default function ViewDetailModal({ plan, onClose }) {
@@ -170,7 +189,7 @@ export default function ViewDetailModal({ plan, onClose }) {
           </div>
 
           {/* Full Width - KPI/Indicator */}
-          <div className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+          <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 mb-4">
             <div className="flex items-center gap-2 mb-3">
               <Flag className="w-4 h-4 text-blue-600" />
               <h3 className="text-xs font-semibold text-blue-700 uppercase tracking-wider">
@@ -180,6 +199,134 @@ export default function ViewDetailModal({ plan, onClose }) {
             <p className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">
               {plan.indicator || 'No indicator specified.'}
             </p>
+          </div>
+
+          {/* NEW: Execution Status & Results Section */}
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle className="w-5 h-5 text-gray-600" />
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
+                Execution Status & Results
+              </h3>
+            </div>
+            
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-5 border border-gray-200 space-y-4">
+              {/* Row 1: Status & Score */}
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                {/* Status */}
+                <div className="flex-1 min-w-[200px]">
+                  <span className="text-xs text-gray-500 font-medium block mb-2">Current Status</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold ${STATUS_COLORS[plan.status] || 'bg-gray-100 text-gray-700'}`}>
+                      {plan.submission_status === 'submitted' && (
+                        <Lock className="w-3.5 h-3.5" />
+                      )}
+                      {plan.status || 'Pending'}
+                    </span>
+                    {plan.submission_status === 'submitted' && (
+                      <span className="text-xs text-gray-500 italic">
+                        (Submitted for Review)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quality Score */}
+                {plan.quality_score != null && (
+                  <div className="text-right">
+                    <span className="text-xs text-gray-500 font-medium block mb-2">Quality Score</span>
+                    <div className="flex items-center justify-end gap-2">
+                      <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-lg font-bold ${
+                        plan.quality_score >= 80 ? 'bg-green-500 text-white' :
+                        plan.quality_score >= 60 ? 'bg-amber-500 text-white' :
+                        plan.quality_score > 0 ? 'bg-red-500 text-white' :
+                        'bg-gray-400 text-white'
+                      }`}>
+                        <Star className="w-4 h-4" />
+                        {plan.quality_score}
+                      </span>
+                      <span className="text-xs text-gray-500">/ 100</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Row 2: Evidence Field (Free Text) */}
+              {plan.evidence && (
+                <div>
+                  <span className="text-xs text-gray-500 font-medium block mb-2">Evidence Description</span>
+                  <div className="bg-white rounded-lg p-3 border border-gray-200">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      {plan.evidence}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Row 3: Proof of Evidence Link */}
+              {plan.outcome_link && (
+                <div>
+                  <span className="text-xs text-gray-500 font-medium block mb-2">Proof of Evidence</span>
+                  {isUrl(plan.outcome_link) ? (
+                    <a
+                      href={plan.outcome_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium text-sm"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Attached Evidence
+                    </a>
+                  ) : (
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <p className="text-sm text-gray-700">
+                        {plan.outcome_link}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 4: Admin Feedback */}
+              {plan.admin_feedback && (
+                <div>
+                  <span className="text-xs text-gray-500 font-medium block mb-2 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Management Feedback
+                  </span>
+                  <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
+                    <p className="text-sm text-amber-900 italic leading-relaxed">
+                      "{plan.admin_feedback}"
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Row 5: Staff Remarks */}
+              {plan.remark && (
+                <div>
+                  <span className="text-xs text-gray-500 font-medium block mb-2">Staff Remarks</span>
+                  <div className="bg-white rounded-lg p-4 border border-gray-200">
+                    <p className="text-sm text-gray-700 italic leading-relaxed">
+                      "{plan.remark}"
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Empty State - No Execution Data Yet */}
+              {!plan.status && !plan.quality_score && !plan.evidence && !plan.outcome_link && !plan.admin_feedback && !plan.remark && (
+                <div className="text-center py-6">
+                  <CheckCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">
+                    No execution results available yet.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Results will appear here once the action plan is executed and reviewed.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

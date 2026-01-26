@@ -167,6 +167,7 @@ export function AuthProvider({ children }) {
     loading,
     profileError,
     isAdmin: profile?.role === 'admin',
+    isExecutive: profile?.role === 'executive',
     isLeader: profile?.role === 'leader' || profile?.role === 'dept_head', // Support both during migration
     isStaff: profile?.role === 'staff',
     departmentCode: profile?.department_code,

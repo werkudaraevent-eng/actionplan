@@ -262,10 +262,15 @@ export default function AdminDashboard({ onNavigate }) {
   }, [yearFilteredPlans, startMonth, endMonth]);
 
   // Filter by department and category - exact match when specific values are selected
+  // FIX: Use case-insensitive, trimmed comparison to prevent mismatches
   const filteredPlans = useMemo(() => {
-    return dateFilteredPlans.filter((plan) => {
-      // Department filter
-      if (selectedDept !== 'All' && plan.department_code !== selectedDept) return false;
+    const filtered = dateFilteredPlans.filter((plan) => {
+      // Department filter - case-insensitive comparison with trim
+      if (selectedDept !== 'All') {
+        const planDeptCode = (plan.department_code || '').trim().toUpperCase();
+        const filterDeptCode = selectedDept.trim().toUpperCase();
+        if (planDeptCode !== filterDeptCode) return false;
+      }
       // Category/Priority filter - extract code from full category string
       if (selectedCategory !== 'All') {
         const planCategory = (plan.category || '').toUpperCase();
@@ -274,6 +279,19 @@ export default function AdminDashboard({ onNavigate }) {
       }
       return true;
     });
+
+    // DEBUG: Log filtering results when department filter is active
+    if (selectedDept !== 'All') {
+      console.log('[AdminDashboard] Department Filter Debug:', {
+        selectedDept,
+        dateFilteredPlansCount: dateFilteredPlans.length,
+        filteredPlansCount: filtered.length,
+        samplePlanDepts: dateFilteredPlans.slice(0, 5).map(p => p.department_code),
+        uniqueDepts: [...new Set(dateFilteredPlans.map(p => p.department_code))]
+      });
+    }
+
+    return filtered;
   }, [dateFilteredPlans, selectedDept, selectedCategory]);
 
   // Also filter historical stats by department AND month range
@@ -282,8 +300,12 @@ export default function AdminDashboard({ onNavigate }) {
     const endIdx = MONTH_MAP[endMonth] ?? 11;
 
     return historicalStats.filter((h) => {
-      // Filter by department
-      if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
+      // Filter by department - case-insensitive
+      if (selectedDept !== 'All') {
+        const histDeptCode = (h.department_code || '').trim().toUpperCase();
+        const filterDeptCode = selectedDept.trim().toUpperCase();
+        if (histDeptCode !== filterDeptCode) return false;
+      }
       // Filter by month range (h.month is 1-12, convert to 0-11 for comparison)
       const monthIdx = h.month - 1;
       return monthIdx >= startIdx && monthIdx <= endIdx;
@@ -296,8 +318,12 @@ export default function AdminDashboard({ onNavigate }) {
     const endIdx = MONTH_MAP[endMonth] ?? 11;
 
     return comparisonHistorical.filter((h) => {
-      // Filter by department
-      if (selectedDept !== 'All' && h.department_code !== selectedDept) return false;
+      // Filter by department - case-insensitive
+      if (selectedDept !== 'All') {
+        const histDeptCode = (h.department_code || '').trim().toUpperCase();
+        const filterDeptCode = selectedDept.trim().toUpperCase();
+        if (histDeptCode !== filterDeptCode) return false;
+      }
       // Filter by month range (h.month is 1-12, convert to 0-11 for comparison)
       const monthIdx = h.month - 1;
       return monthIdx >= startIdx && monthIdx <= endIdx;
@@ -310,9 +336,13 @@ export default function AdminDashboard({ onNavigate }) {
     if (!comparisonYearValue) return [];
     let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === comparisonYearValue);
 
-    // Also apply department filter to comparison plans
+    // Also apply department filter to comparison plans - case-insensitive
     if (selectedDept !== 'All') {
-      filtered = filtered.filter((plan) => plan.department_code === selectedDept);
+      const filterDeptCode = selectedDept.trim().toUpperCase();
+      filtered = filtered.filter((plan) => {
+        const planDeptCode = (plan.department_code || '').trim().toUpperCase();
+        return planDeptCode === filterDeptCode;
+      });
     }
 
     return filtered;
@@ -386,6 +416,7 @@ export default function AdminDashboard({ onNavigate }) {
   }, [filteredPlans, isYTDMode, currentMonthIndex]);
 
   // Calculate stats with hybrid data support - uses effectivePlans for YTD consistency
+  // FIX: Now includes ALL departments from the departments table, not just those with plans
   const stats = useMemo(() => {
     const total = effectivePlans.length;
     const achieved = effectivePlans.filter((p) => p.status === 'Achieved').length;
@@ -394,69 +425,88 @@ export default function AdminDashboard({ onNavigate }) {
     const notAchieved = effectivePlans.filter((p) => p.status === 'Not Achieved').length;
 
     // Build department stats from real data - include both completion and score
+    // FIX: Normalize department codes to uppercase for consistent matching
     const deptMap = {};
     effectivePlans.forEach((plan) => {
-      if (!deptMap[plan.department_code]) deptMap[plan.department_code] = { total: 0, achieved: 0, scores: [] };
-      deptMap[plan.department_code].total++;
-      if (plan.status === 'Achieved') deptMap[plan.department_code].achieved++;
+      const deptKey = (plan.department_code || '').trim().toUpperCase();
+      if (!deptMap[deptKey]) deptMap[deptKey] = { total: 0, achieved: 0, scores: [] };
+      deptMap[deptKey].total++;
+      if (plan.status === 'Achieved') deptMap[deptKey].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
-        deptMap[plan.department_code].scores.push(plan.quality_score);
+        deptMap[deptKey].scores.push(plan.quality_score);
       }
     });
 
-    // Hybrid: For departments with no real data, use filtered historical stats
-    const byDepartment = [];
-    const processedDepts = new Set();
-
-    // First, add departments with real data
-    Object.entries(deptMap).forEach(([code, s]) => {
-      const completion = s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0;
-      const score = s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0;
-      byDepartment.push({
-        code,
-        name: code,
-        total: s.total,
-        achieved: s.achieved,
-        completion, // Completion rate
-        score,      // Quality score
-        rate: isCompletionView ? completion : score, // Dynamic based on toggle
-        graded: s.scores.length,
-        isHistorical: false,
-      });
-      processedDepts.add(code);
-    });
-
-    // Then, add historical data for departments without real data
-    // Group and average by department_code first
+    // Build historical data map for departments without real data
+    // FIX: Normalize department codes to uppercase for consistent matching
     const historicalByDept = {};
     filteredHistoricalStats.forEach((hist) => {
-      if (!processedDepts.has(hist.department_code)) {
-        if (!historicalByDept[hist.department_code]) {
-          historicalByDept[hist.department_code] = { sum: 0, count: 0 };
-        }
-        historicalByDept[hist.department_code].sum += hist.completion_rate;
-        historicalByDept[hist.department_code].count++;
+      const histKey = (hist.department_code || '').trim().toUpperCase();
+      if (!historicalByDept[histKey]) {
+        historicalByDept[histKey] = { sum: 0, count: 0 };
       }
+      historicalByDept[histKey].sum += hist.completion_rate;
+      historicalByDept[histKey].count++;
     });
 
-    // Add aggregated historical departments
-    Object.entries(historicalByDept).forEach(([code, data]) => {
-      const completion = Number((data.sum / data.count).toFixed(1));
-      byDepartment.push({
-        code,
-        name: code,
-        total: 0,
-        achieved: 0,
-        completion, // Historical completion rate
-        score: 0,   // No score data for historical
-        rate: isCompletionView ? completion : 0, // Dynamic based on toggle
-        graded: 0,
-        isHistorical: true,
-      });
+    // LEFT JOIN APPROACH: Start from ALL departments (source of truth)
+    // This ensures departments with 0 plans are still included in the leaderboard
+    // FIX: Use normalized code for lookups
+    const byDepartment = departments.map((dept) => {
+      const code = dept.code;
+      const normalizedCode = code.trim().toUpperCase();
+      const s = deptMap[normalizedCode];
+      const histData = historicalByDept[normalizedCode];
+
+      if (s) {
+        // Department has real plan data
+        const completion = s.total > 0 ? Number(((s.achieved / s.total) * 100).toFixed(1)) : 0;
+        const score = s.scores.length > 0 ? Number((s.scores.reduce((a, b) => a + b, 0) / s.scores.length).toFixed(1)) : 0;
+        return {
+          code,
+          name: code,
+          total: s.total,
+          achieved: s.achieved,
+          completion,
+          score,
+          rate: isCompletionView ? completion : score,
+          graded: s.scores.length,
+          isHistorical: false,
+        };
+      } else if (histData) {
+        // Department has historical data but no current plans
+        const completion = Number((histData.sum / histData.count).toFixed(1));
+        return {
+          code,
+          name: code,
+          total: 0,
+          achieved: 0,
+          completion,
+          score: 0,
+          rate: isCompletionView ? completion : 0,
+          graded: 0,
+          isHistorical: true,
+        };
+      } else {
+        // Department has NO plans and NO historical data (empty department)
+        return {
+          code,
+          name: code,
+          total: 0,
+          achieved: 0,
+          completion: 0,
+          score: 0,
+          rate: 0,
+          graded: 0,
+          isHistorical: false,
+          isEmpty: true, // Flag to identify empty departments in UI
+        };
+      }
     });
 
     // Sort by rate descending (rate is already dynamic based on isCompletionView)
+    // Empty departments (0 plans) will naturally fall to the bottom
     byDepartment.sort((a, b) => b.rate - a.rate);
 
     // Calculate overdue count (status != 'Achieved' AND month < current month)
@@ -468,7 +518,7 @@ export default function AdminDashboard({ onNavigate }) {
     }).length;
 
     return { total, achieved, inProgress, pending, notAchieved, byDepartment, overdue };
-  }, [effectivePlans, filteredHistoricalStats, isCompletionView, currentMonthIndex]);
+  }, [effectivePlans, filteredHistoricalStats, isCompletionView, currentMonthIndex, departments]);
 
   // Dynamic period label for UI display
   const periodLabel = useMemo(() => {
@@ -649,11 +699,11 @@ export default function AdminDashboard({ onNavigate }) {
     });
 
     // ZERO-FILL FALLBACK: If all values are null, ensure skeleton data for X-axis and target line
-    const hasAnyData = chartData.some(d => 
-      d.main_completion !== null || d.compare_completion !== null || 
+    const hasAnyData = chartData.some(d =>
+      d.main_completion !== null || d.compare_completion !== null ||
       d.main_score !== null || d.compare_score !== null
     );
-    
+
     if (!hasAnyData) {
       // Return skeleton data with 0 values to ensure chart renders with X-axis and target line
       return MONTHS_ORDER.map(month => ({
@@ -962,12 +1012,12 @@ export default function AdminDashboard({ onNavigate }) {
       .slice(0, 15) // Take first 15 logs (already sorted by created_at desc)
       .map(log => {
         const plan = plans.find(p => p.id === log.action_plan_id);
-        
+
         // Determine ownership context for better messaging
         const actorName = log.actor_name || 'System';
         const planOwner = plan?.pic || 'Unknown';
         const isSelfEdit = actorName === planOwner;
-        
+
         return {
           // Include log details - EACH LOG IS A UNIQUE EVENT
           logId: log.id,
@@ -1023,10 +1073,10 @@ export default function AdminDashboard({ onNavigate }) {
   // Shows "Hanung updated Yulia's plan" vs "Hanung updated their own plan"
   const getContextualDescription = (update) => {
     const { actor, planOwner, isSelfEdit, description, changeType } = update;
-    
+
     // Parse the original description to extract the action
     let action = description;
-    
+
     // Try to extract a cleaner action from common patterns
     if (description.includes('Changed status from')) {
       const match = description.match(/Changed status from ['"](.+?)['"] to ['"](.+?)['"]/);
@@ -1055,7 +1105,7 @@ export default function AdminDashboard({ onNavigate }) {
     } else if (description.includes('Updated')) {
       action = 'updated plan';
     }
-    
+
     // Build contextual message
     if (isSelfEdit) {
       return `${action} (own plan)`;
@@ -1715,14 +1765,14 @@ export default function AdminDashboard({ onNavigate }) {
           </div>
 
           {/* LIST: Recent Activity Feed */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+          <div className={`bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col ${weeklyActivityData.recentUpdates.length > 0 ? 'h-[420px]' : 'h-auto min-h-[200px]'}`}>
             <div className="flex items-center gap-2 mb-4">
               <Clock className="w-5 h-5 text-gray-500" />
               <h3 className="text-lg font-semibold text-gray-800">Latest Updates</h3>
             </div>
 
             {/* Timeline Feed - Each log = one distinct event */}
-            <div className="space-y-0 overflow-y-auto max-h-[280px] pr-2 custom-scrollbar">
+            <div className={`space-y-0 pr-2 custom-scrollbar ${weeklyActivityData.recentUpdates.length > 0 ? 'overflow-y-auto flex-1' : 'flex items-center justify-center'}`}>
               {weeklyActivityData.recentUpdates.length > 0 ? (
                 weeklyActivityData.recentUpdates.map((update, index) => (
                   <div key={update.logId} className="relative pl-5 pb-4 last:pb-0">
@@ -1775,9 +1825,9 @@ export default function AdminDashboard({ onNavigate }) {
                   </div>
                 ))
               ) : (
-                <div className="py-8 text-center">
-                  <Clock className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm text-gray-400 italic">No activity recorded this week</p>
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Clock className="w-10 h-10 text-gray-300 mb-2 opacity-50" />
+                  <p className="text-sm text-gray-400 font-medium">No activity recorded this week</p>
                 </div>
               )}
             </div>
@@ -1989,11 +2039,14 @@ export default function AdminDashboard({ onNavigate }) {
             plans={!isHistoricalView ? filteredPlans : []}
             getDeptName={getDeptName}
             failureReasons={failureAnalysis.reasons}
+            selectedPeriod={selectedPeriod}
+            selectedMonths={MONTHS_ORDER.slice(MONTH_MAP[startMonth], MONTH_MAP[endMonth] + 1)}
+            departments={departments}
           />
         </div>
 
         {/* Strategic Performance - Focus Area & Priority Execution */}
-        {!isHistoricalView && filteredPlans.length > 0 && (focusAreaStats.length > 0 || categoryStats.length > 0) && (
+        {!isHistoricalView && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Focus Area Performance - Horizontal Bar Chart */}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -2080,8 +2133,19 @@ export default function AdminDashboard({ onNavigate }) {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg">
-                  <p className="text-gray-400 text-sm">No focus area data available</p>
+                <div className="h-[280px] flex flex-col items-center justify-center bg-gray-50 rounded-lg">
+                  <AlertTriangle className="w-8 h-8 text-gray-300 mb-2" />
+                  <p className="text-gray-500 text-sm font-medium">No focus area data available</p>
+                  {selectedDept !== 'All' && (
+                    <p className="text-gray-400 text-xs mt-1">
+                      Department "{selectedDept}" has no plans in this period
+                    </p>
+                  )}
+                  {filteredPlans.length === 0 && selectedDept === 'All' && (
+                    <p className="text-gray-400 text-xs mt-1">
+                      Try adjusting your date range or filters
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2168,8 +2232,19 @@ export default function AdminDashboard({ onNavigate }) {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg">
-                  <p className="text-gray-400 text-sm">No category data available</p>
+                <div className="h-[280px] flex flex-col items-center justify-center bg-gray-50 rounded-lg">
+                  <AlertTriangle className="w-8 h-8 text-gray-300 mb-2" />
+                  <p className="text-gray-500 text-sm font-medium">No priority data available</p>
+                  {selectedDept !== 'All' && (
+                    <p className="text-gray-400 text-xs mt-1">
+                      Department "{selectedDept}" has no plans in this period
+                    </p>
+                  )}
+                  {filteredPlans.length === 0 && selectedDept === 'All' && (
+                    <p className="text-gray-400 text-xs mt-1">
+                      Try adjusting your date range or filters
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -92,7 +92,8 @@ export function useActionPlans(departmentCode = null) {
         .from('action_plans')
         .select('*')
         .is('deleted_at', null) // Only fetch active (non-deleted) items
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false }) // CRITICAL: Newest first
+        .range(0, 9999); // CRITICAL: Increase limit from default 1000 to 10,000
 
       if (departmentCode) {
         query = query.eq('department_code', departmentCode);
@@ -101,6 +102,9 @@ export function useActionPlans(departmentCode = null) {
       const { data, error: fetchError } = await withTimeout(query, 10000);
 
       if (fetchError) throw fetchError;
+      
+      console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'})`);
+      
       setPlans(data || []);
     } catch (err) {
       console.error('Error fetching plans:', err);
@@ -430,7 +434,8 @@ export function useActionPlans(departmentCode = null) {
       .from('action_plans')
       .select('*')
       .not('deleted_at', 'is', null)
-      .order('deleted_at', { ascending: false });
+      .order('deleted_at', { ascending: false })
+      .range(0, 9999); // CRITICAL: Increase limit to 10,000
 
     if (departmentCode) {
       query = query.eq('department_code', departmentCode);
@@ -438,6 +443,9 @@ export function useActionPlans(departmentCode = null) {
 
     const { data, error } = await query;
     if (error) throw error;
+    
+    console.log(`[useActionPlans] Fetched ${data?.length || 0} deleted plans`);
+    
     return data || [];
   };
 
@@ -1073,11 +1081,14 @@ export function useAggregatedStats() {
           supabase
             .from('action_plans')
             .select('department_code, status')
-            .is('deleted_at', null), // Only count active items
+            .is('deleted_at', null) // Only count active items
+            .range(0, 9999), // CRITICAL: Increase limit to 10,000
           10000
         );
 
         if (error) throw error;
+
+        console.log(`[useAggregatedStats] Fetched ${data?.length || 0} plans for stats`);
 
         const total = data?.length || 0;
         const achieved = data?.filter((p) => p.status === 'Achieved').length || 0;

@@ -307,22 +307,22 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
 }
 
 // ActionCell Component - Uses Radix UI DropdownMenu for proper positioning in sticky columns
-function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, onEdit, onDelete, openHistory }) {
+function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, onEdit, onDelete, openHistory, isReadOnly = false }) {
   // Determine edit permissions
   const isOwnItem = item.pic?.toLowerCase() === profile?.full_name?.toLowerCase();
-  const canEdit = isAdmin || !isStaff || isOwnItem;
+  const canEdit = !isReadOnly && (isAdmin || !isStaff || isOwnItem);
   const isLocked = item.submission_status === 'submitted';
   const isAchieved = item.status?.toLowerCase() === 'achieved';
   const isGraded = item.quality_score != null;
   const needsGrading = isAdmin && item.submission_status === 'submitted' && !isGraded;
 
   // Determine delete permissions
-  const canDelete = isAdmin || (!isStaff && !isLocked && !isAchieved);
+  const canDelete = !isReadOnly && (isAdmin || (!isStaff && !isLocked && !isAchieved));
 
   return (
     <div className="flex items-center justify-center gap-2">
       {/* PRIMARY ACTION: Grading Button (Admin only, when applicable) */}
-      {isAdmin && onGrade && (needsGrading || isGraded) && (
+      {isAdmin && onGrade && (needsGrading || isGraded) && !isReadOnly && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -368,29 +368,31 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
               View History
             </DropdownMenu.Item>
 
-            {/* Edit Details */}
-            <DropdownMenu.Item
-              onSelect={() => {
-                if (canEdit && !(isLocked && isStaff)) {
-                  onEdit(item);
-                }
-              }}
-              disabled={!canEdit || (isLocked && isStaff)}
-              className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canEdit && !(isLocked && isStaff)
-                  ? 'text-gray-700 hover:bg-gray-50'
-                  : 'text-gray-300 cursor-not-allowed'
-                }`}
-            >
-              {canEdit && !(isLocked && isStaff) ? (
-                <Pencil className="w-4 h-4 text-gray-400" />
-              ) : (
-                <Lock className="w-4 h-4 text-gray-300" />
-              )}
-              Edit Details
-            </DropdownMenu.Item>
+            {/* Edit Details - Hidden for read-only users */}
+            {!isReadOnly && (
+              <DropdownMenu.Item
+                onSelect={() => {
+                  if (canEdit && !(isLocked && isStaff)) {
+                    onEdit(item);
+                  }
+                }}
+                disabled={!canEdit || (isLocked && isStaff)}
+                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canEdit && !(isLocked && isStaff)
+                    ? 'text-gray-700 hover:bg-gray-50'
+                    : 'text-gray-300 cursor-not-allowed'
+                  }`}
+              >
+                {canEdit && !(isLocked && isStaff) ? (
+                  <Pencil className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <Lock className="w-4 h-4 text-gray-300" />
+                )}
+                Edit Details
+              </DropdownMenu.Item>
+            )}
 
-            {/* Reset Grade (Admin only, when graded) */}
-            {isAdmin && isGraded && onQuickReset && (
+            {/* Reset Grade (Admin only, when graded) - Hidden for read-only users */}
+            {isAdmin && isGraded && onQuickReset && !isReadOnly && (
               <DropdownMenu.Item
                 onSelect={() => onQuickReset(item)}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-orange-600 hover:bg-orange-50 rounded-md cursor-pointer outline-none transition-colors"
@@ -400,24 +402,26 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
               </DropdownMenu.Item>
             )}
 
-            <DropdownMenu.Separator className="h-px bg-gray-100 my-1" />
+            {!isReadOnly && <DropdownMenu.Separator className="h-px bg-gray-100 my-1" />}
 
-            {/* Delete */}
-            <DropdownMenu.Item
-              onSelect={() => {
-                if (canDelete) {
-                  onDelete(item);
-                }
-              }}
-              disabled={!canDelete}
-              className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canDelete
-                  ? 'text-red-600 hover:bg-red-50'
-                  : 'text-gray-300 cursor-not-allowed'
-                }`}
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete Plan
-            </DropdownMenu.Item>
+            {/* Delete - Hidden for read-only users */}
+            {!isReadOnly && (
+              <DropdownMenu.Item
+                onSelect={() => {
+                  if (canDelete) {
+                    onDelete(item);
+                  }
+                }}
+                disabled={!canDelete}
+                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canDelete
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-gray-300 cursor-not-allowed'
+                  }`}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Plan
+              </DropdownMenu.Item>
+            )}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -425,7 +429,7 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
   );
 }
 
-export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder }) {
+export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false }) {
   const { isAdmin, isStaff, profile } = useAuth();
   const { departments } = useDepartments();
   const [updatingId, setUpdatingId] = useState(null);
@@ -822,7 +826,15 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                 </div>
                               )}
                               <div className="flex items-center gap-1">
-                                {item.submission_status === 'submitted' ? (
+                                {/* Read-only users see static badge */}
+                                {isReadOnly ? (
+                                  <span
+                                    className={`px-3 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
+                                    title="Read-only view"
+                                  >
+                                    {item.status}
+                                  </span>
+                                ) : item.submission_status === 'submitted' ? (
                                   <span
                                     className={`px-3 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 cursor-help ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
                                     title={item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading."}
@@ -897,6 +909,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                         onEdit={onEdit}
                         onDelete={onDelete}
                         openHistory={openHistory}
+                        isReadOnly={isReadOnly}
                       />
                     </td>
                   </tr>

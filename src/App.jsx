@@ -64,11 +64,11 @@ function AccessDeniedScreen({ message, redirectTo = '/' }) {
 
 // Protected Route wrapper with RBAC
 function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
-  const { isAdmin, isStaff, isLeader, departmentCode } = useAuth();
+  const { isAdmin, isExecutive, isStaff, isLeader, departmentCode } = useAuth();
   const location = useLocation();
   
-  // Admin-only routes
-  if (adminOnly && !isAdmin) {
+  // Admin-only routes (Executives also allowed for read-only access)
+  if (adminOnly && !isAdmin && !isExecutive) {
     const redirectTo = isStaff ? '/workspace' : `/dept/${departmentCode}/dashboard`;
     return <AccessDeniedScreen message="This area is restricted to administrators only." redirectTo={redirectTo} />;
   }
@@ -77,6 +77,7 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   if (allowedRoles.length > 0) {
     const hasAccess = allowedRoles.some(role => {
       if (role === 'admin') return isAdmin;
+      if (role === 'executive') return isExecutive;
       if (role === 'leader') return isLeader;
       if (role === 'staff') return isStaff;
       return false;
@@ -90,13 +91,13 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   return children;
 }
 
-// Department route guard - ensures user can only access their own department or additional departments (unless admin)
+// Department route guard - ensures user can only access their own department or additional departments (unless admin/executive)
 function DepartmentRoute({ children }) {
-  const { isAdmin, departmentCode, profile } = useAuth();
+  const { isAdmin, isExecutive, departmentCode, profile } = useAuth();
   const { deptCode } = useParams();
   
-  // Admin can access any department
-  if (isAdmin) {
+  // Admin and Executive can access any department
+  if (isAdmin || isExecutive) {
     return children;
   }
   
@@ -181,9 +182,9 @@ function AdminSettingsWrapper() {
 
 // Default redirect based on role
 function DefaultRedirect() {
-  const { isAdmin, isStaff, departmentCode } = useAuth();
+  const { isAdmin, isExecutive, isStaff, departmentCode } = useAuth();
   
-  if (isAdmin) return <Navigate to="/dashboard" replace />;
+  if (isAdmin || isExecutive) return <Navigate to="/dashboard" replace />;
   if (isStaff) return <Navigate to="/workspace" replace />;
   if (departmentCode) return <Navigate to={`/dept/${departmentCode}/dashboard`} replace />;
   
@@ -192,7 +193,7 @@ function DefaultRedirect() {
 
 // Main App Content with Routes
 function AppRoutes() {
-  const { user, profile, loading, profileError, isAdmin, isStaff, departmentCode, signOut } = useAuth();
+  const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
   const location = useLocation();
 
   // Show loading screen while checking auth
@@ -248,7 +249,7 @@ function AppRoutes() {
           } />
           
           <Route path="/dept/:deptCode/plans" element={
-            <ProtectedRoute allowedRoles={['admin', 'leader']}>
+            <ProtectedRoute allowedRoles={['admin', 'executive', 'leader']}>
               <DepartmentRoute>
                 <DepartmentViewWrapper />
               </DepartmentRoute>

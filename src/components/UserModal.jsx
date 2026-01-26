@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { X, Loader2, User, Shield, Users } from 'lucide-react';
 
 const ROLES = [
-  { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings' },
-  { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team' },
-  { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only' },
+  { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings', color: 'purple' },
+  { value: 'executive', label: 'Executive', icon: Shield, description: 'View-only access to Company Dashboard & All Plans', color: 'indigo' },
+  { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team', color: 'teal' },
+  { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only', color: 'gray' },
 ];
 
 export default function UserModal({ isOpen, onClose, onSave, editData, departments = [] }) {
@@ -58,7 +59,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       setError('Full name is required');
       return;
     }
-    if (formData.role !== 'admin' && !formData.department_code) {
+    if (formData.role !== 'admin' && formData.role !== 'executive' && !formData.department_code) {
       setError('Department is required for Leaders and Staff');
       return;
     }
@@ -139,23 +140,38 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Role
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {ROLES.map((role) => {
                   const Icon = role.icon;
                   const isSelected = formData.role === role.value;
+                  const colorClasses = {
+                    purple: isSelected ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500' : 'border-gray-200 hover:border-gray-300',
+                    indigo: isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500' : 'border-gray-200 hover:border-gray-300',
+                    teal: isSelected ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500' : 'border-gray-200 hover:border-gray-300',
+                    gray: isSelected ? 'border-gray-500 bg-gray-50 ring-2 ring-gray-500' : 'border-gray-200 hover:border-gray-300',
+                  };
+                  const iconColorClasses = {
+                    purple: isSelected ? 'text-purple-600' : 'text-gray-400',
+                    indigo: isSelected ? 'text-indigo-600' : 'text-gray-400',
+                    teal: isSelected ? 'text-teal-600' : 'text-gray-400',
+                    gray: isSelected ? 'text-gray-600' : 'text-gray-400',
+                  };
+                  const textColorClasses = {
+                    purple: isSelected ? 'text-purple-700' : 'text-gray-700',
+                    indigo: isSelected ? 'text-indigo-700' : 'text-gray-700',
+                    teal: isSelected ? 'text-teal-700' : 'text-gray-700',
+                    gray: isSelected ? 'text-gray-700' : 'text-gray-700',
+                  };
                   return (
                     <button
                       key={role.value}
                       type="button"
                       onClick={() => setFormData({ ...formData, role: role.value })}
-                      className={`p-2.5 border rounded-lg text-left transition-all ${isSelected
-                          ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500'
-                          : 'border-gray-200 hover:border-gray-300'
-                        }`}
+                      className={`p-2.5 border rounded-lg text-left transition-all ${colorClasses[role.color]}`}
                     >
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-teal-600' : 'text-gray-400'}`} />
-                        <span className={`text-xs font-medium ${isSelected ? 'text-teal-700' : 'text-gray-700'}`}>
+                        <Icon className={`w-3.5 h-3.5 ${iconColorClasses[role.color]}`} />
+                        <span className={`text-xs font-medium ${textColorClasses[role.color]}`}>
                           {role.label}
                         </span>
                       </div>
@@ -166,8 +182,8 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
               </div>
             </div>
 
-            {/* Department (only for non-admin) */}
-            {formData.role !== 'admin' && (
+            {/* Department (only for non-admin and non-executive) */}
+            {formData.role !== 'admin' && formData.role !== 'executive' && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -232,10 +248,15 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
               </>
             )}
 
-            {/* Info for Admin role */}
+            {/* Info for Admin/Executive role */}
             {formData.role === 'admin' && (
               <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-700">
-                Administrators have access to all departments and system settings.
+                Administrators have full access to all departments and system settings.
+              </div>
+            )}
+            {formData.role === 'executive' && (
+              <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
+                Executives have view-only access to all departments. No editing rights.
               </div>
             )}
 

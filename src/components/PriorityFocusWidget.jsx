@@ -6,8 +6,13 @@ const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5
 export default function PriorityFocusWidget({ plans }) {
   const currentMonth = new Date().getMonth(); // 0-indexed (Jan = 0)
 
+  console.log('[PriorityFocusWidget] Received plans:', plans?.length || 0);
+
   const priorityItems = useMemo(() => {
-    if (!plans || plans.length === 0) return [];
+    if (!plans || plans.length === 0) {
+      console.log('[PriorityFocusWidget] No plans data');
+      return [];
+    }
 
     // Filter for non-achieved items that are overdue or due this month
     const filtered = plans.filter((plan) => {

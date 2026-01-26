@@ -16,6 +16,7 @@ export default function UserManagement({ initialFilter = '' }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All'); // Strict department filter
+  const [selectedRole, setSelectedRole] = useState('All Roles'); // Role filter
 
   // Modal states
   const [userModal, setUserModal] = useState({ isOpen: false, editData: null });
@@ -54,7 +55,7 @@ export default function UserManagement({ initialFilter = '' }) {
     fetchUsers();
   }, []);
 
-  // Filter users by search AND department
+  // Filter users by search AND department AND role
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
       // Condition A: Text search (name or email only, not department)
@@ -67,9 +68,15 @@ export default function UserManagement({ initialFilter = '' }) {
         user.department_code === selectedDept ||
         user.additional_departments?.includes(selectedDept);
 
-      return matchesSearch && matchesDept;
+      // Condition C: Role filter (case-insensitive)
+      const matchesRole = selectedRole === 'All Roles' || 
+        (user.role || '').toLowerCase() === selectedRole.toLowerCase() ||
+        // Handle 'Administrator' mapping to 'admin'
+        (selectedRole === 'Administrator' && (user.role || '').toLowerCase() === 'admin');
+
+      return matchesSearch && matchesDept && matchesRole;
     });
-  }, [users, searchQuery, selectedDept]);
+  }, [users, searchQuery, selectedDept, selectedRole]);
 
   // Get department name
   const getDeptName = (code) => {
@@ -239,12 +246,45 @@ export default function UserManagement({ initialFilter = '' }) {
                 </button>
               )}
             </div>
+
+            {/* Role Filter Dropdown */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">Role:</span>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${selectedRole !== 'All Roles'
+                  ? 'border-teal-500 bg-teal-50 text-teal-700'
+                  : 'border-gray-200 text-gray-700'
+                  }`}
+              >
+                <option value="All Roles">All Roles</option>
+                <option value="Administrator">Administrator</option>
+                <option value="Executive">Executive</option>
+                <option value="Leader">Leader</option>
+                <option value="Staff">Staff</option>
+              </select>
+              {selectedRole !== 'All Roles' && (
+                <button
+                  onClick={() => setSelectedRole('All Roles')}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                  title="Clear filter"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
             {filteredUsers.length} of {users.length} users
             {selectedDept !== 'All' && (
               <span className="ml-2 px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full">
                 Filtered: {selectedDept}
+              </span>
+            )}
+            {selectedRole !== 'All Roles' && (
+              <span className="ml-2 px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full">
+                Role: {selectedRole}
               </span>
             )}
           </p>
@@ -290,7 +330,7 @@ export default function UserManagement({ initialFilter = '' }) {
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'admin' ? 'bg-purple-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'admin' ? 'bg-purple-500' : user.role === 'executive' ? 'bg-indigo-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
                           }`}>
                           {getInitials(user.full_name)}
                         </div>
@@ -303,16 +343,18 @@ export default function UserManagement({ initialFilter = '' }) {
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${user.role === 'admin'
                         ? 'bg-purple-100 text-purple-700'
-                        : user.role === 'staff'
-                          ? 'bg-gray-100 text-gray-700'
-                          : 'bg-teal-100 text-teal-700'
+                        : user.role === 'executive'
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : user.role === 'staff'
+                            ? 'bg-gray-100 text-gray-700'
+                            : 'bg-teal-100 text-teal-700'
                         }`}>
-                        {user.role === 'admin' ? (
+                        {user.role === 'admin' || user.role === 'executive' ? (
                           <Shield className="w-3 h-3" />
                         ) : (
                           <User className="w-3 h-3" />
                         )}
-                        {user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Staff' : 'Leader'}
+                        {user.role === 'admin' ? 'Admin' : user.role === 'executive' ? 'Executive' : user.role === 'staff' ? 'Staff' : 'Leader'}
                       </span>
                     </td>
                     <td className="px-6 py-4">

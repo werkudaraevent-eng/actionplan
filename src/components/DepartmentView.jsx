@@ -20,10 +20,11 @@ const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
-  const { isAdmin, isLeader } = useAuth();
+  const { isAdmin, isExecutive, isLeader } = useAuth();
   const { toast } = useToast();
   const { departments } = useDepartments();
-  const canManagePlans = isAdmin || isLeader; // Leaders can add/edit plans in their department
+  const canManagePlans = (isAdmin || isLeader) && !isExecutive; // Executives cannot manage plans
+  const canEdit = !isExecutive; // Executives have read-only access
   const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
@@ -1056,6 +1057,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           showDepartmentColumn={true}
           visibleColumns={visibleColumns}
           columnOrder={columnOrder}
+          isReadOnly={isExecutive}
         />
       </main>
 

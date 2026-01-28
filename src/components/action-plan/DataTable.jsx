@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { STATUS_OPTIONS } from '../lib/supabase';
-import { useDepartments } from '../hooks/useDepartments';
+import { useAuth } from '../../context/AuthContext';
+import { STATUS_OPTIONS } from '../../lib/supabase';
+import { useDepartments } from '../../hooks/useDepartments';
 import HistoryModal from './HistoryModal';
 import ViewDetailModal from './ViewDetailModal';
 

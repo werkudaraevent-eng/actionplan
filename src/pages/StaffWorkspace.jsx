@@ -4,11 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
-import DataTable, { useColumnVisibility } from './DataTable';
-import ActionPlanModal from './ActionPlanModal';
-import GlobalStatsGrid from './GlobalStatsGrid';
-import UnifiedPageHeader from './UnifiedPageHeader';
-import { useToast } from './Toast';
+import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
+import ActionPlanModal from '../components/action-plan/ActionPlanModal';
+import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import UnifiedPageHeader from '../components/layout/UnifiedPageHeader';
+import { useToast } from '../components/common/Toast';
 
 // Month order for YTD calculations and sorting
 const MONTH_ORDER = {

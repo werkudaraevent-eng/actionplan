@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { supabase } from '../lib/supabase';
-import { useDepartments } from '../hooks/useDepartments';
-import { useToast } from './Toast';
+import { supabase } from '../../lib/supabase';
+import { useDepartments } from '../../hooks/useDepartments';
+import { useToast } from '../common/Toast';
 
 const TEMPLATE_HEADERS = [
   'Department Code',

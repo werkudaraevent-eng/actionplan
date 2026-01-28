@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Trash2, RotateCcw, Loader2, AlertCircle } from 'lucide-react';
-import { useToast } from './Toast';
-import ConfirmDialog from './ConfirmDialog';
+import { useToast } from '../common/Toast';
+import ConfirmDialog from '../common/ConfirmDialog';
 
 export default function RecycleBinModal({ 
   isOpen, 

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS } from '../lib/supabase';
-import { useDepartments } from '../hooks/useDepartments';
-import { useDepartmentUsers } from '../hooks/useDepartmentUsers';
-import { useToast } from './Toast';
+import { useAuth } from '../../context/AuthContext';
+import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS } from '../../lib/supabase';
+import { useDepartments } from '../../hooks/useDepartments';
+import { useDepartmentUsers } from '../../hooks/useDepartmentUsers';
+import { useToast } from '../common/Toast';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isExecutive, isLeader, departmentCode: userDeptCode } = useAuth();

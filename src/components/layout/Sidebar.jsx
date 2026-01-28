@@ -1,8 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { useDepartmentContext } from '../context/DepartmentContext';
-import { useDepartments } from '../hooks/useDepartments';
+import { useAuth } from '../../context/AuthContext';
+import { useDepartmentContext } from '../../context/DepartmentContext';
+import { useDepartments } from '../../hooks/useDepartments';
 
 export default function Sidebar() {
   const navigate = useNavigate();

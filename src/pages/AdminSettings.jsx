@@ -2,9 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
-import ImportModal from './ImportModal';
-import { useToast } from './Toast';
-import ConfirmDialog from './ConfirmDialog';
+import ImportModal from '../components/action-plan/ImportModal';
+import { useToast } from '../components/common/Toast';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },

@@ -3,7 +3,7 @@ import { User, Mail, Building2, Shield, Lock, Eye, EyeOff, Loader2, CheckCircle 
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
-import { useToast } from './Toast';
+import { useToast } from '../components/common/Toast';
 
 export default function UserProfile() {
   const { profile, isAdmin, isStaff, isLeader, departmentCode } = useAuth();

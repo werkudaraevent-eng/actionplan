@@ -7,13 +7,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useActionPlans } from '../hooks/useActionPlans';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
-import PerformanceChart from './PerformanceChart';
-import StrategyComboChart from './StrategyComboChart';
-import BottleneckChart from './BottleneckChart';
-import GlobalStatsGrid from './GlobalStatsGrid';
-import { Switch } from './ui/switch';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import PerformanceChart from '../components/dashboard/PerformanceChart';
+import StrategyComboChart from '../components/dashboard/StrategyComboChart';
+import BottleneckChart from '../components/dashboard/BottleneckChart';
+import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import { Switch } from '../components/ui/switch';
+import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const MONTH_MAP = {
   'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,

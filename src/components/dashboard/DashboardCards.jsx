@@ -1,5 +1,5 @@
 import { Target, CheckCircle2, Clock, XCircle, Star, Calendar, TrendingUp, TrendingDown, PieChart, AlertTriangle } from 'lucide-react';
-import { CardTooltip } from './ui/card-tooltip';
+import { CardTooltip } from '../ui/card-tooltip';
 
 // Month order mapping for YTD calculations
 const MONTH_ORDER = {

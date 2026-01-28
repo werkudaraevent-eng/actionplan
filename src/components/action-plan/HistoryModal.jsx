@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Clock, User, FileText, Loader2, History } from 'lucide-react';
-import { supabase, withTimeout } from '../lib/supabase';
+import { supabase, withTimeout } from '../../lib/supabase';
 
 const CHANGE_TYPE_LABELS = {
   'SUBMITTED_FOR_REVIEW': { label: 'Submitted to Admin', color: 'bg-blue-100 text-blue-700', icon: '📤' },

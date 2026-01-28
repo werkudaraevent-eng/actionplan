@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Building2, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from './Toast';
+import { useToast } from '../components/common/Toast';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
   const { profile } = useAuth();

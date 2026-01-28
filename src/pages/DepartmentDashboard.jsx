@@ -6,12 +6,12 @@ import { useAuth } from '../context/AuthContext';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
-import PerformanceChart from './PerformanceChart';
-import PriorityFocusWidget from './PriorityFocusWidget';
-import GlobalStatsGrid from './GlobalStatsGrid';
-import { Switch } from './ui/switch';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import PerformanceChart from '../components/dashboard/PerformanceChart';
+import PriorityFocusWidget from '../components/dashboard/PriorityFocusWidget';
+import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import { Switch } from '../components/ui/switch';
+import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 // Sort months chronologically
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };

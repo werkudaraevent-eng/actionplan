@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Search, Calendar, Building2, CheckCircle, Flag, X, ChevronDown, Check } from 'lucide-react';
-import { STATUS_OPTIONS } from '../lib/supabase';
-import { ColumnToggle } from './DataTable';
+import { STATUS_OPTIONS } from '../../lib/supabase';
+import { ColumnToggle } from '../action-plan/DataTable';
 
 // Month order for filtering
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

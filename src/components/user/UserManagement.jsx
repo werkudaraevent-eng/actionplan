@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import UserModal from './UserModal';
-import ConfirmationModal from './ConfirmationModal';
+import ConfirmationModal from '../common/ConfirmationModal';
 import CredentialSuccessModal from './CredentialSuccessModal';
-import { useToast } from './Toast';
-import { useDepartments } from '../hooks/useDepartments';
+import { useToast } from '../common/Toast';
+import { useDepartments } from '../../hooks/useDepartments';
 
 const TEMP_PASSWORD = 'Werkudara123!';
 

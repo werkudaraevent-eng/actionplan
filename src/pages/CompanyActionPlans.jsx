@@ -4,13 +4,13 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
-import GlobalStatsGrid from './GlobalStatsGrid';
-import UnifiedPageHeader from './UnifiedPageHeader';
-import DataTable, { useColumnVisibility } from './DataTable';
-import ActionPlanModal from './ActionPlanModal';
-import ConfirmationModal from './ConfirmationModal';
-import GradeActionPlanModal from './GradeActionPlanModal';
-import { useToast } from './Toast';
+import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import UnifiedPageHeader from '../components/layout/UnifiedPageHeader';
+import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
+import ActionPlanModal from '../components/action-plan/ActionPlanModal';
+import ConfirmationModal from '../components/common/ConfirmationModal';
+import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
+import { useToast } from '../components/common/Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
 

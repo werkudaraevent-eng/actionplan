@@ -252,7 +252,7 @@ export function useActionPlans(departmentCode = null) {
     // This prevents stale revision notes from appearing on successfully fixed items
     const isResubmittingAfterRevision = 
       updates.status === 'Achieved' && 
-      (original?.status === 'On Progress' || original?.status === 'Pending' || original?.status === 'Not Achieved') &&
+      (original?.status === 'On Progress' || original?.status === 'Open' || original?.status === 'Not Achieved') &&
       original?.admin_feedback; // Only clear if there was feedback
     
     if (isResubmittingAfterRevision) {
@@ -311,7 +311,7 @@ export function useActionPlans(departmentCode = null) {
             changeType = 'REJECTED';
           }
           // Priority 5: Leader sent back to staff (from Internal Review)
-          else if (oldStatus === 'Internal Review' && (newStatus === 'On Progress' || newStatus === 'Pending')) {
+          else if (oldStatus === 'Internal Review' && (newStatus === 'On Progress' || newStatus === 'Open')) {
             changeType = 'REJECTED';
           }
           // Priority 6: Generic status change
@@ -482,6 +482,7 @@ export function useActionPlans(departmentCode = null) {
 
   // Quick status update with audit logging
   // Also clears leader_feedback when staff resubmits to Internal Review
+  // AUTO-WIPE: Clears gap analysis fields, remark, and outcome_link when status changes FROM "Not Achieved" to something else
   const updateStatus = async (id, status) => {
     // Get previous data for audit log
     const previousPlan = plans.find((p) => p.id === id);
@@ -490,12 +491,25 @@ export function useActionPlans(departmentCode = null) {
     // Determine if we need to clear leader_feedback (staff resubmitting after revision)
     const shouldClearLeaderFeedback = status === 'Internal Review' && previousPlan?.leader_feedback;
     
+    // AUTO-WIPE: Clear all failure-related fields when transitioning FROM "Not Achieved" to any other status
+    const shouldClearFailureData = previousStatus === 'Not Achieved' && status !== 'Not Achieved';
+    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { 
         ...p, 
         status,
-        ...(shouldClearLeaderFeedback && { leader_feedback: null })
+        ...(shouldClearLeaderFeedback && { leader_feedback: null }),
+        ...(shouldClearFailureData && { 
+          // Failure data
+          gap_category: null, 
+          gap_analysis: null, 
+          specify_reason: null,
+          // Notes (clear auto-generated "[Cause: ...]" text)
+          remark: null,
+          // Evidence (clear since task is open again)
+          outcome_link: null
+        })
       } : p))
     );
 
@@ -504,6 +518,20 @@ export function useActionPlans(departmentCode = null) {
       const updatePayload = { status };
       if (shouldClearLeaderFeedback) {
         updatePayload.leader_feedback = null;
+      }
+      
+      // AUTO-WIPE: Include null values to clear ALL failure-related fields in DB
+      if (shouldClearFailureData) {
+        // Failure data
+        updatePayload.gap_category = null;
+        updatePayload.gap_analysis = null;
+        updatePayload.specify_reason = null;
+        // Notes (clear auto-generated "[Cause: ...]" text)
+        updatePayload.remark = null;
+        // Evidence (clear since task is open again)
+        updatePayload.outcome_link = null;
+        
+        console.log('[updateStatus] AUTO-WIPE: Clearing failure data, remark, and outcome_link (status changed from Not Achieved to', status, ')');
       }
       
       const { error } = await supabase
@@ -891,7 +919,7 @@ export function useActionPlans(departmentCode = null) {
     
     const resetData = {
       quality_score: null,
-      status: 'Pending',
+      status: 'Open',
       submission_status: 'draft',
       admin_feedback: null,
       reviewed_by: null,
@@ -969,7 +997,7 @@ export function useActionPlans(departmentCode = null) {
           return { 
             ...p, 
             quality_score: null,
-            status: 'Pending',
+            status: 'Open',
             submission_status: 'draft',
             admin_feedback: null,
             reviewed_by: null,
@@ -987,7 +1015,7 @@ export function useActionPlans(departmentCode = null) {
         .from('action_plans')
         .update({ 
           quality_score: null,
-          status: 'Pending',
+          status: 'Open',
           submission_status: 'draft',
           admin_feedback: null,
           reviewed_by: null,
@@ -1018,7 +1046,7 @@ export function useActionPlans(departmentCode = null) {
             },
             { 
               quality_score: null, 
-              status: 'Pending',
+              status: 'Open',
               submission_status: 'draft',
               outcome_link: null,
               remark: null
@@ -1093,7 +1121,7 @@ export function useAggregatedStats() {
         const total = data?.length || 0;
         const achieved = data?.filter((p) => p.status === 'Achieved').length || 0;
         const inProgress = data?.filter((p) => p.status === 'On Progress').length || 0;
-        const pending = data?.filter((p) => p.status === 'Pending').length || 0;
+        const pending = data?.filter((p) => p.status === 'Open').length || 0;
         const notAchieved = data?.filter((p) => p.status === 'Not Achieved').length || 0;
 
         const deptMap = {};

@@ -103,8 +103,8 @@ export default function PerformanceChart({ data, title, subtitle, xKey = 'name',
       <div className={hideHeader ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-6'}>
         {!hideHeader && (
           <>
-            <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-            {subtitle && <p className="text-sm text-gray-500 mb-4">{subtitle}</p>}
+            <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+            {subtitle && <p className="text-xs font-medium text-gray-500 mt-1 mb-4">{subtitle}</p>}
           </>
         )}
         <div className="h-64 flex items-center justify-center text-gray-400">
@@ -122,8 +122,8 @@ export default function PerformanceChart({ data, title, subtitle, xKey = 'name',
       <div className={hideHeader ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-6'}>
         {!hideHeader && (
           <>
-            <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-            {subtitle && <p className="text-sm text-gray-500 mb-2">{subtitle}</p>}
+            <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+            {subtitle && <p className="text-xs font-medium text-gray-500 mt-1 mb-2">{subtitle}</p>}
           </>
         )}
         
@@ -181,8 +181,8 @@ export default function PerformanceChart({ data, title, subtitle, xKey = 'name',
     <div className={hideHeader ? '' : 'bg-white rounded-xl shadow-sm border border-gray-100 p-6'}>
       {!hideHeader && (
         <>
-          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
-          {subtitle && <p className="text-sm text-gray-500 mb-2">{subtitle}</p>}
+          <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+          {subtitle && <p className="text-xs font-medium text-gray-500 mt-1 mb-2">{subtitle}</p>}
         </>
       )}
       

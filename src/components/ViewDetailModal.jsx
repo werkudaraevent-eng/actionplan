@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, MessageSquare, Lock } from 'lucide-react';
+import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, MessageSquare, Lock, AlertCircle } from 'lucide-react';
 
 // Priority badge colors
 const PRIORITY_COLORS = {
@@ -11,7 +11,7 @@ const PRIORITY_COLORS = {
 
 // Status badge colors
 const STATUS_COLORS = {
-  'Pending': 'bg-gray-100 text-gray-700',
+  'Open': 'bg-gray-100 text-gray-700',
   'On Progress': 'bg-yellow-100 text-yellow-700',
   'Achieved': 'bg-green-100 text-green-700',
   'Not Achieved': 'bg-red-100 text-red-700',
@@ -221,7 +221,7 @@ export default function ViewDetailModal({ plan, onClose }) {
                       {plan.submission_status === 'submitted' && (
                         <Lock className="w-3.5 h-3.5" />
                       )}
-                      {plan.status || 'Pending'}
+                      {plan.status || 'Open'}
                     </span>
                     {plan.submission_status === 'submitted' && (
                       <span className="text-xs text-gray-500 italic">
@@ -231,10 +231,10 @@ export default function ViewDetailModal({ plan, onClose }) {
                   </div>
                 </div>
 
-                {/* Quality Score */}
+                {/* Verification Score */}
                 {plan.quality_score != null && (
                   <div className="text-right">
-                    <span className="text-xs text-gray-500 font-medium block mb-2">Quality Score</span>
+                    <span className="text-xs text-gray-500 font-medium block mb-2">Verification Score</span>
                     <div className="flex items-center justify-end gap-2">
                       <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-lg font-bold ${
                         plan.quality_score >= 80 ? 'bg-green-500 text-white' :
@@ -250,6 +250,35 @@ export default function ViewDetailModal({ plan, onClose }) {
                   </div>
                 )}
               </div>
+
+              {/* Non-Achievement Analysis - Only show when status is "Not Achieved" */}
+              {plan.status === 'Not Achieved' && (
+                <div className="bg-red-50 rounded-lg border border-red-100 p-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-red-900 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    Non-Achievement Analysis
+                  </h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Root Cause Category */}
+                    <div>
+                      <span className="text-xs font-medium text-red-600 uppercase tracking-wide">Root Cause Category</span>
+                      <p className="text-sm font-medium text-gray-900 mt-0.5">
+                        {/* Show specific reason for "Other", otherwise show the category */}
+                        {plan.gap_category === 'Other' && plan.specify_reason
+                          ? `Other: ${plan.specify_reason}`
+                          : (plan.gap_category || '—')}
+                      </p>
+                    </div>
+                    {/* Failure Details */}
+                    <div>
+                      <span className="text-xs font-medium text-red-600 uppercase tracking-wide">Failure Details / Lesson Learned</span>
+                      <div className="mt-1 text-sm text-gray-800 bg-white/50 p-3 rounded border border-red-100 italic">
+                        "{plan.gap_analysis || 'No details provided.'}"
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Row 2: Evidence Field (Free Text) */}
               {plan.evidence && (
@@ -292,7 +321,7 @@ export default function ViewDetailModal({ plan, onClose }) {
                 <div>
                   <span className="text-xs text-gray-500 font-medium block mb-2 flex items-center gap-1.5">
                     <MessageSquare className="w-3.5 h-3.5" />
-                    Management Feedback
+                    Performance Review Note
                   </span>
                   <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
                     <p className="text-sm text-amber-900 italic leading-relaxed">

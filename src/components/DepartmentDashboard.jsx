@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from './PerformanceChart';
 import PriorityFocusWidget from './PriorityFocusWidget';
-import KPICard from './KPICard';
+import GlobalStatsGrid from './GlobalStatsGrid';
 import { Switch } from './ui/switch';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -127,7 +127,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
   const [startMonth, setStartMonth] = useState('Jan');
   const [endMonth, setEndMonth] = useState('Dec');
-  const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
+  const [isCompletionView, setIsCompletionView] = useState(true); // false = Verification Score, true = Completion Rate
 
   // Priority filter and refresh states
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -166,6 +166,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     setSelectedPeriod('FY');
     setStartMonth('Jan');
     setEndMonth('Dec');
+    setSelectedCategory('All'); // Reset priority filter
   };
 
   const handlePeriodChange = (period) => {
@@ -293,7 +294,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const total = yearFilteredPlans.length;
       const achieved = yearFilteredPlans.filter((p) => p.status === 'Achieved').length;
       const inProgress = yearFilteredPlans.filter((p) => p.status === 'On Progress').length;
-      const pending = yearFilteredPlans.filter((p) => p.status === 'Pending').length;
+      const pending = yearFilteredPlans.filter((p) => p.status === 'Open').length;
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
       const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
 
@@ -314,7 +315,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const statsAchieved = statsPlans.filter((p) => p.status === 'Achieved').length;
       const completionRate = statsTotal > 0 ? Number(((statsAchieved / statsTotal) * 100).toFixed(1)) : 0;
 
-      // Quality Score: Average of graded items
+      // Verification Score: Average of graded items
       // Apply same filter logic
       const gradedItems = statsPlans.filter(p =>
         p.submission_status === 'submitted' && p.quality_score != null
@@ -336,7 +337,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       };
     }
 
-    // Fallback to historical stats - assign to COMPLETION RATE (Quality Score didn't exist pre-2026)
+    // Fallback to historical stats - assign to COMPLETION RATE (Verification Score didn't exist pre-2026)
     if (historicalStats.length > 0) {
       const avgRate = Number(
         (historicalStats.reduce((sum, h) => sum + h.completion_rate, 0) / historicalStats.length).toFixed(1)
@@ -349,7 +350,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         notAchieved: 0,
         rate: avgRate,
         completionRate: avgRate, // Historical completion rate (FIXED - was incorrectly assigned to qualityScore)
-        qualityScore: null,      // Quality Score system didn't exist pre-2026
+        qualityScore: null,      // Verification Score system didn't exist pre-2026
         gradedCount: 0,          // No graded items for historical years
         isHistorical: true,
         isYTD: false,
@@ -366,7 +367,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     };
   }, [yearFilteredPlans, historicalStats, selectedYear, startMonth, endMonth, currentMonthIndex]);
 
-  // Previous Year Quality Score (for YoY comparison)
+  // Previous Year Verification Score (for YoY comparison)
   const prevYearQualityScore = useMemo(() => {
     // Calculate from comparison plans if available
     if (comparisonPlans.length > 0) {
@@ -385,7 +386,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     return null;
   }, [comparisonPlans, comparisonHistorical]);
 
-  // Quality Score Target (company standard)
+  // Verification Score Target (company standard)
   const qualityScoreTarget = 80;
 
   // Completion Rate Target (company standard)
@@ -451,11 +452,25 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
   const dateRangeLabel = getDateRangeLabel();
 
+  // YTD-filtered plans for charts (only plans where month <= current month when in YTD mode)
+  const ytdFilteredPlans = useMemo(() => {
+    if (!isYTDMode) return yearFilteredPlans;
+    
+    return yearFilteredPlans.filter(p => {
+      const planMonthIdx = MONTH_ORDER[p.month];
+      return planMonthIdx !== undefined && planMonthIdx <= currentMonthIndex;
+    });
+  }, [yearFilteredPlans, isYTDMode, currentMonthIndex]);
+
   // Chart 1: Performance Breakdown (by Strategy or PIC) - Respects chartMetric toggle
+  // Uses YTD-filtered plans when in YTD mode to ensure fair comparison
   const breakdownChartData = useMemo(() => {
     const dataMap = {};
+    
+    // Use YTD-filtered plans for breakdown chart
+    const plansToUse = isYTDMode ? ytdFilteredPlans : yearFilteredPlans;
 
-    yearFilteredPlans.forEach((plan) => {
+    plansToUse.forEach((plan) => {
       let key;
       if (breakdownMetric === 'goal_strategy') {
         key = plan.goal_strategy?.trim() || 'Uncategorized';
@@ -504,7 +519,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         };
       })
       .sort((a, b) => b.rate - a.rate);
-  }, [yearFilteredPlans, breakdownMetric, chartMetric]);
+  }, [yearFilteredPlans, ytdFilteredPlans, isYTDMode, breakdownMetric, chartMetric]);
 
   // Chart 2: Time Analysis (Monthly or Quarterly) - Respects chartMetric toggle
   const timeChartData = useMemo(() => {
@@ -900,7 +915,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const benchmarkChartData = timeMetric === 'monthly' ? benchmarkMonthlyData : benchmarkQuarterlyData;
 
   // Chart titles based on selected metric - Dynamic based on chartMetric toggle
-  const metricLabel = chartMetric === 'score' ? 'Quality Score' : 'Completion Rate';
+  const metricLabel = chartMetric === 'score' ? 'Verification Score' : 'Completion Rate';
   const breakdownTitle = breakdownMetric === 'goal_strategy'
     ? `${metricLabel} by Strategy`
     : `${metricLabel} by PIC`;
@@ -912,7 +927,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     ? `Monthly ${metricLabel} Trend`
     : `Quarterly ${metricLabel} Trend`;
   const timeSubtitle = chartMetric === 'score'
-    ? (timeMetric === 'monthly' ? 'Average quality score by month' : 'Average quality score by quarter')
+    ? (timeMetric === 'monthly' ? 'Average verification score by month' : 'Average verification score by quarter')
     : (timeMetric === 'monthly' ? 'Achieved plans percentage by month' : 'Achieved plans percentage by quarter');
 
   if (loading) {
@@ -1124,263 +1139,55 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       </header >
 
       <main className="p-6">
-        {/* KPI Cards - Executive View Layout with Uniform Footer Design */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-          {/* 1. Completion Rate - THE HERO METRIC */}
-          <KPICard
-            gradient={stats.isHistorical ? 'from-blue-500 to-blue-600' : 'from-green-500 to-green-600'}
-            icon={CheckCircle2}
-            value={`${stats.completionRate}%`}
-            label={stats.isHistorical ? 'Completion (Historical)' : stats.isYTD ? 'Completion (YTD)' : 'Completion'}
-            labelColor={stats.isHistorical ? 'text-blue-100' : 'text-green-100'}
-            size="compact"
-            footerContent={(() => {
-              const gap = Number((stats.completionRate - completionTarget).toFixed(1));
-              const isPositive = gap >= 0;
-              return (
-                <div className="space-y-2">
-                  {/* Progress Bar */}
-                  <div className="w-full bg-black/10 rounded-full h-1.5 relative">
-                    {/* Target marker at 80% */}
-                    <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
-                      style={{ left: `${completionTarget}%` }}
-                    />
-                    <div
-                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(stats.completionRate, 100)}%` }}
-                    />
-                  </div>
-                  {/* Target vs Gap */}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[8px] uppercase text-white/50">Target: {completionTarget}%</span>
-                    <div className={`flex items-center gap-0.5 font-bold ${isPositive ? 'text-emerald-100' : 'text-rose-100'}`}>
-                      {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                      <span>{isPositive ? '+' : ''}{gap}%</span>
-                      <span className="text-[8px] uppercase text-white/50 ml-0.5">Gap</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-            tooltipContent={
-              stats.isHistorical ? (
-                <div className="space-y-1">
-                  <p className="font-medium border-b border-gray-600 pb-1 mb-1">Historical Completion Rate</p>
-                  <p>Average: <span className="font-bold text-blue-400">{stats.completionRate}%</span></p>
-                  <p className="text-xs text-gray-400">Based on archived monthly data</p>
-                  <p className="text-xs text-gray-400 mt-1">Company Target: {completionTarget}%</p>
-                  <p className="text-xs text-gray-500 mt-1">📊 Aggregate data (no item-level details)</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <p className="font-medium border-b border-gray-600 pb-1 mb-1">
-                    Action Plan Completion {stats.isYTD ? '(YTD)' : ''}
-                  </p>
-                  <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                    <Calendar className="w-3 h-3 text-gray-400" />
-                    <span>{dateRangeLabel}</span>
-                  </div>
-                  <p>
-                    <span className="font-bold text-green-400">{stats.ytdAchieved} of {stats.ytdTotal}</span> plans marked Achieved
-                  </p>
-                  <p className="text-xs text-gray-400">Completion Rate: {stats.completionRate}%</p>
-                  <p className="text-xs text-gray-400">Company Target: {completionTarget}%</p>
-                  <p className="text-xs text-gray-500 mt-1">Formula: {stats.ytdAchieved} ÷ {stats.ytdTotal} × 100</p>
-                </div>
-              )
+        {/* Stats Grid - Unified Component */}
+        <GlobalStatsGrid
+          plans={yearFilteredPlans.filter(p => {
+            // Apply month range filter
+            const monthIdx = MONTH_ORDER[p.month];
+            if (monthIdx === undefined) return false;
+            const startIdx = MONTH_ORDER[startMonth] ?? 0;
+            const endIdx = MONTH_ORDER[endMonth] ?? 11;
+            if (monthIdx < startIdx || monthIdx > endIdx) return false;
+            
+            // Apply YTD cutoff if in YTD mode
+            if (isYTDMode) {
+              const currentMonthIndex = new Date().getMonth();
+              if (monthIdx > currentMonthIndex) return false;
             }
-          />
-
-          {/* 2. Quality Score (or Historical Performance for past years) */}
-          <KPICard
-            gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' :
-              stats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' :
-                stats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
-            icon={Star}
-            value={stats.qualityScore !== null ? `${stats.qualityScore}%` : '—'}
-            label={stats.isHistorical ? 'Historical Performance' : `Quality Score${stats.isYTD ? ' (YTD)' : ''}`}
-            labelColor="text-white/90"
-            size="compact"
-            comparison={!stats.isHistorical && stats.qualityScore !== null ? {
-              prevValue: prevYearQualityScore,
-              target: qualityScoreTarget
-            } : undefined}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">
-                  {stats.isHistorical ? 'Historical Performance Record' : `Performance Quality${stats.isYTD ? ' (YTD)' : ''}`}
-                </p>
-                {!stats.isHistorical && (
-                  <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                    <Calendar className="w-3 h-3 text-gray-400" />
-                    <span>{dateRangeLabel}</span>
-                  </div>
-                )}
-                {stats.qualityScore !== null ? (
-                  stats.isHistorical ? (
-                    <>
-                      <p>Average performance: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
-                      <p className="text-xs text-gray-400">Based on <span className="font-semibold text-white">{stats.gradedCount}</span> months of data</p>
-                      <p className="text-xs text-gray-500 mt-1">📊 Archived aggregate data (no item details)</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>Average score: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
-                      <p className="text-xs text-gray-400">Based on <span className="font-semibold text-white">{stats.gradedCount}</span> graded items</p>
-                      <p className="text-xs text-gray-500 mt-1">Formula: Sum of scores ÷ {stats.gradedCount} graded</p>
-                      {prevYearQualityScore !== null && (
-                        <p className="text-xs text-gray-400 mt-1">
-                          Previous year: <span className="font-semibold text-white">{prevYearQualityScore}%</span>
-                        </p>
-                      )}
-                    </>
-                  )
-                ) : (
-                  <p className="text-xs text-gray-400">No data available</p>
-                )}
-              </div>
-            }
-          />
-
-          {/* 3. Total Plans */}
-          <KPICard
-            gradient="from-teal-500 to-teal-600"
-            icon={Target}
-            value={stats.isHistorical ? '—' : stats.total}
-            label="Total Plans"
-            labelColor="text-teal-100"
-            size="compact"
-            footerContent={!stats.isHistorical && (
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1">
-                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-200" />
-                  <span className="font-bold text-white/90">{stats.achieved + stats.notAchieved}</span>
-                  <span className="text-[8px] uppercase text-white/50">Done</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-2.5 h-2.5 text-amber-200" />
-                  <span className="font-bold text-white/90">{stats.inProgress + stats.pending}</span>
-                  <span className="text-[8px] uppercase text-white/50">Open</span>
-                </div>
-              </div>
-            )}
-            tooltipContent={!stats.isHistorical && (
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Total Action Plans</p>
-                <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                  <Calendar className="w-3 h-3 text-gray-400" />
-                  <span>{dateRangeLabel}</span>
-                </div>
-                <p><span className="font-bold text-teal-400">{stats.total}</span> plans for this period</p>
-                <div className="text-xs text-gray-400 mt-1 space-y-0.5">
-                  <p>• Ongoing: {stats.inProgress + stats.pending} ({stats.inProgress} active, {stats.pending} pending)</p>
-                  <p>• Finalized: {stats.achieved + stats.notAchieved} ({stats.achieved} achieved, {stats.notAchieved} failed)</p>
-                </div>
-              </div>
-            )}
-            onClick={!stats.isHistorical && canNavigate ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: '' }) : undefined}
-          />
-
-          {/* 4. Achieved - Clickable to filter */}
-          <KPICard
-            gradient="from-emerald-500 to-emerald-600"
-            icon={CheckCircle2}
-            value={stats.isHistorical ? '—' : stats.achieved}
-            label="Achieved"
-            labelColor="text-emerald-100"
-            size="compact"
-            footerContent={!stats.isHistorical && stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <PieChart className="w-2.5 h-2.5 text-emerald-200" />
-                <span className="font-bold text-white/90">{Number(((stats.achieved / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={!stats.isHistorical && (
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Achieved Plans</p>
-                <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                  <Calendar className="w-3 h-3 text-gray-400" />
-                  <span>{dateRangeLabel}</span>
-                </div>
-                <p><span className="font-bold text-green-400">{stats.achieved} of {stats.total}</span> plans achieved</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : 0}% of total plans</p>
-                {canNavigate && stats.achieved > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            )}
-            onClick={!stats.isHistorical && canNavigate && stats.achieved > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'Achieved' }) : undefined}
-          />
-
-          {/* 5. In Progress */}
-          <KPICard
-            gradient="from-amber-500 to-amber-600"
-            icon={Clock}
-            value={stats.isHistorical ? '—' : stats.inProgress}
-            label="In Progress"
-            labelColor="text-amber-100"
-            size="compact"
-            footerContent={!stats.isHistorical && stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <PieChart className="w-2.5 h-2.5 text-amber-200" />
-                <span className="font-bold text-white/90">{Number(((stats.inProgress / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={!stats.isHistorical && (
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Work in Progress</p>
-                <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                  <Calendar className="w-3 h-3 text-gray-400" />
-                  <span>{dateRangeLabel}</span>
-                </div>
-                <p><span className="font-bold text-amber-400">{stats.inProgress} of {stats.total}</span> plans currently active</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.inProgress / stats.total) * 100).toFixed(1) : 0}% of total plans</p>
-                {canNavigate && stats.inProgress > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            )}
-            onClick={!stats.isHistorical && canNavigate && stats.inProgress > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'On Progress' }) : undefined}
-          />
-
-          {/* 6. Not Achieved */}
-          <KPICard
-            gradient="from-red-500 to-red-600"
-            icon={AlertCircle}
-            value={stats.isHistorical ? '—' : stats.notAchieved}
-            label="Not Achieved"
-            labelColor="text-red-100"
-            size="compact"
-            footerContent={!stats.isHistorical && stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <AlertTriangle className="w-2.5 h-2.5 text-rose-200" />
-                <span className="font-bold text-white/90">{Number(((stats.notAchieved / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={!stats.isHistorical && (
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Failed Plans</p>
-                <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-800/50 px-2 py-1 rounded text-xs">
-                  <Calendar className="w-3 h-3 text-gray-400" />
-                  <span>{dateRangeLabel}</span>
-                </div>
-                <p><span className="font-bold text-red-400">{stats.notAchieved} of {stats.total}</span> plans not achieved</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.notAchieved / stats.total) * 100).toFixed(1) : 0}% of total plans</p>
-                {failureAnalysis.topBlocker && (
-                  <p className="text-xs text-red-300 mt-1">⚠️ Top Issue: {failureAnalysis.topBlocker.reason}</p>
-                )}
-                {canNavigate && stats.notAchieved > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            )}
-            onClick={!stats.isHistorical && canNavigate && stats.notAchieved > 0 ? () => onNavigate(`dept-${departmentCode}`, { statusFilter: 'Not Achieved' }) : undefined}
-          />
-        </div>
+            
+            return true;
+          })}
+          scope="department"
+          loading={loading}
+          dateContext={(() => {
+            // When YTD mode is active, data is filtered to current month - label must say "YTD"
+            if (isYTDMode) return 'YTD';
+            // Specific period selected
+            if (selectedPeriod === 'Q1') return 'Q1';
+            if (selectedPeriod === 'Q2') return 'Q2';
+            if (selectedPeriod === 'Q3') return 'Q3';
+            if (selectedPeriod === 'Q4') return 'Q4';
+            // Full year (past year) or custom range
+            if (selectedPeriod === 'FY') return `FY ${selectedYear}`;
+            // Custom range
+            if (startMonth === endMonth) return startMonth;
+            return `${startMonth} - ${endMonth}`;
+          })()}
+          periodLabel=""
+          onCardClick={canNavigate ? (cardType) => {
+            const statusMap = {
+              'all': '',
+              'achieved': 'Achieved',
+              'in-progress': 'On Progress',
+              'open': 'Open',
+              'not-achieved': 'Not Achieved',
+              'completion': '',
+              'verification': ''
+            };
+            const statusFilter = statusMap[cardType] || '';
+            onNavigate(`dept-${activeDepartmentCode}`, { statusFilter });
+          } : undefined}
+        />
 
         {/* 2x2 Matrix Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1388,8 +1195,18 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-[400px] flex flex-col">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">{breakdownTitle}</h3>
-                <p className="text-sm text-gray-500">{breakdownSubtitle}</p>
+                <h3 className="text-lg font-bold text-gray-800">{breakdownTitle}</h3>
+                {/* Subtitle: Dynamic date context - clean gray text, no badges */}
+                <p className="text-xs font-medium text-gray-500 mt-1">
+                  {isYTDMode 
+                    ? `Jan - ${MONTHS_ORDER[currentMonthIndex]} ${selectedYear} (Year to Date)`
+                    : selectedPeriod === 'Custom' 
+                      ? `Period: ${startMonth}${startMonth !== endMonth ? ` - ${endMonth}` : ''} ${selectedYear}`
+                      : selectedPeriod !== 'FY'
+                        ? `${selectedPeriod === 'Q1' ? 'Jan - Mar' : selectedPeriod === 'Q2' ? 'Apr - Jun' : selectedPeriod === 'Q3' ? 'Jul - Sep' : 'Oct - Dec'} ${selectedYear} (${selectedPeriod})`
+                        : `Jan - Dec ${selectedYear} (Full Year)`
+                  }
+                </p>
               </div>
               <ChartDropdown
                 value={breakdownMetric}
@@ -1430,8 +1247,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
               <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-gray-800">{timeTitle}</h3>
-                <p className="text-sm text-gray-500 truncate">{timeSubtitle}</p>
+                <h3 className="text-lg font-bold text-gray-800">{timeTitle}</h3>
+                {/* Subtitle: Dynamic date context - clean gray text, no badges */}
+                <p className="text-xs font-medium text-gray-500 mt-1">
+                  {timeMetric === 'monthly' ? 'Jan - Dec' : 'Q1 - Q4'} {selectedYear} (Full Year)
+                </p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <span className="text-xs font-medium text-gray-500 hidden sm:block">Compare:</span>
@@ -1559,9 +1379,9 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-[350px] flex flex-col">
               <div className="flex items-center gap-2 mb-4 flex-shrink-0 border-b border-gray-100 pb-3">
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <h3 className="text-lg font-semibold text-gray-800">Priority Focus</h3>
-                <span className="text-xs text-gray-400">(Due & Overdue)</span>
+                <h3 className="text-lg font-bold text-gray-800">Priority Focus</h3>
               </div>
+              <p className="text-xs font-medium text-gray-500 -mt-2 mb-3">Due & Overdue Items</p>
               <div className="flex-1 overflow-y-auto pr-2">
                 {(() => {
                   const currentMonth = new Date().getMonth();
@@ -1639,10 +1459,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           {/* QUADRANT 4 (Bottom Right): Failure Analysis - Only show for current year with data */}
           {selectedYear === CURRENT_YEAR && yearFilteredPlans.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-[350px] flex flex-col">
-              <div className="flex items-center gap-2 mb-4 flex-shrink-0 border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2 mb-2 flex-shrink-0 border-b border-gray-100 pb-3">
                 <AlertTriangle className="w-5 h-5 text-red-500" />
-                <h3 className="text-lg font-semibold text-gray-800">Failure Analysis</h3>
+                <h3 className="text-lg font-bold text-gray-800">Failure Analysis</h3>
               </div>
+              <p className="text-xs font-medium text-gray-500 mb-3">Root cause breakdown for unachieved plans</p>
 
               {failureAnalysis.totalFailed === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center">

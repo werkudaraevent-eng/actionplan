@@ -218,7 +218,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                             {/* Show score for approvals */}
                             {log.change_type === 'APPROVED' && log.new_value?.quality_score != null && (
                               <div className="mt-2 text-xs text-gray-600">
-                                Quality Score: <span className="font-bold text-green-600">{log.new_value.quality_score}%</span>
+                                Verification Score: <span className="font-bold text-green-600">{log.new_value.quality_score}%</span>
                               </div>
                             )}
                             {/* Show cleared score for grade resets */}

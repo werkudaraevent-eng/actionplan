@@ -95,7 +95,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     pic: '',
     evidence: '',
     report_format: 'Monthly Report',
-    status: 'Pending',
+    status: 'Open',
     outcome_link: '',
     remark: '',
   });
@@ -103,7 +103,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // Use the new hook to fetch department users (includes primary + additional access)
   const { users: departmentUsers, loading: loadingStaff } = useDepartmentUsers(formData.department_code);
   
-  const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB
+  const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB (Admin Settings)
   const [loadingReasons, setLoadingReasons] = useState(false);
   const [areaFocusOptions, setAreaFocusOptions] = useState([]); // Dynamic area focus options
   const [categoryOptions, setCategoryOptions] = useState([]); // Dynamic category options
@@ -111,9 +111,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [actionPlanOptions, setActionPlanOptions] = useState([]); // Dynamic action plan templates
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
   
-  // Failure reason state (for "Not Achieved" status)
+  // Failure reason state (for "Not Achieved" status) - legacy field for backward compatibility
   const [failureReason, setFailureReason] = useState('');
   const [otherReason, setOtherReason] = useState('');
+  
+  // Gap analysis state (for "Not Achieved" status) - new structured fields
+  const [gapCategory, setGapCategory] = useState(''); // Uses failureReasons options (Admin Settings)
+  const [gapAnalysis, setGapAnalysis] = useState('');
   
   // Custom input mode state (for Goal/Strategy and Action Plan)
   const [isCustomGoal, setIsCustomGoal] = useState(false);
@@ -205,24 +209,52 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       // Determine if existing values are custom (not in dropdown options)
       setIsCustomGoal(editData.goal_strategy && !goalOptions.some(o => o.label === editData.goal_strategy));
       setIsCustomAction(editData.action_plan && !actionPlanOptions.some(o => o.label === editData.action_plan));
-      // Parse existing failure reason from remark if present
-      const remarkMatch = editData.remark?.match(/^\[Cause: (.+?)\]\s*/);
-      if (remarkMatch) {
-        const existingReason = remarkMatch[1];
-        // Check if the reason exists in our dynamic list
-        const reasonExists = failureReasons.some(r => r.label === existingReason);
-        if (reasonExists) {
-          setFailureReason(existingReason);
-          setOtherReason('');
-        } else if (existingReason) {
-          // Reason not in list - treat as "Other"
+      
+      // Initialize gap analysis fields from editData
+      // Smart loading: Handle both correct data AND incorrectly saved data
+      if (editData.gap_category) {
+        // Check if gap_category is a valid dropdown option
+        const isValidCategory = failureReasons.some(r => r.label === editData.gap_category);
+        
+        if (isValidCategory) {
+          // Correctly saved data: gap_category is a valid option (e.g., "Budget", "Other")
+          setGapCategory(editData.gap_category);
+          setFailureReason(editData.gap_category);
+          // If "Other" was selected, load the custom text from specify_reason
+          if (editData.gap_category === 'Other' && editData.specify_reason) {
+            setOtherReason(editData.specify_reason);
+          } else {
+            setOtherReason('');
+          }
+        } else {
+          // Incorrectly saved data: gap_category contains custom text (e.g., "Earthquake")
+          // Smart recovery: Set dropdown to "Other" and put the text in otherReason
+          setGapCategory('Other');
           setFailureReason('Other');
-          setOtherReason(existingReason);
+          setOtherReason(editData.gap_category); // The custom text was incorrectly saved here
         }
       } else {
-        setFailureReason('');
-        setOtherReason('');
+        // Parse existing failure reason from remark if present (legacy format)
+        const remarkMatch = editData.remark?.match(/^\[Cause: (.+?)\]\s*/);
+        if (remarkMatch) {
+          const existingReason = remarkMatch[1];
+          const reasonExists = failureReasons.some(r => r.label === existingReason);
+          if (reasonExists) {
+            setGapCategory(existingReason);
+            setFailureReason(existingReason);
+            setOtherReason('');
+          } else if (existingReason) {
+            setGapCategory('Other');
+            setFailureReason('Other');
+            setOtherReason(existingReason);
+          }
+        } else {
+          setGapCategory('');
+          setFailureReason('');
+          setOtherReason('');
+        }
       }
+      setGapAnalysis(editData.gap_analysis || '');
     } else {
       setFormData({
         department_code: departmentCode || '',
@@ -232,7 +264,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         indicator: '',
         pic: '',
         report_format: 'Monthly Report',
-        status: 'Pending',
+        status: 'Open',
         outcome_link: '',
         remark: '',
         area_focus: '',
@@ -243,6 +275,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       setSelectedMonths([]);
       setFailureReason('');
       setOtherReason('');
+      setGapCategory('');
+      setGapAnalysis('');
       setIsCustomGoal(false);
       setIsCustomAction(false);
     }
@@ -285,10 +319,20 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validation: If status is "Not Achieved", require a failure reason
-    if (formData.status === 'Not Achieved' && !failureReason) {
-      toast({ title: 'Missing Information', description: 'Please select a Root Cause / Reason for Failure.', variant: 'warning' });
-      return;
+    // Validation: If status is "Not Achieved", require gap category and gap analysis
+    if (formData.status === 'Not Achieved') {
+      if (!gapCategory) {
+        toast({ title: 'Missing Information', description: 'Please select a Root Cause Category.', variant: 'warning' });
+        return;
+      }
+      if (gapCategory === 'Other' && (!otherReason || otherReason.trim().length < 3)) {
+        toast({ title: 'Missing Information', description: 'Please specify the root cause reason (at least 3 characters).', variant: 'warning' });
+        return;
+      }
+      if (!gapAnalysis || gapAnalysis.trim().length < 10) {
+        toast({ title: 'Missing Information', description: 'Please provide Failure Details (at least 10 characters).', variant: 'warning' });
+        return;
+      }
     }
     
     // Show confirmation if creating multiple plans
@@ -299,20 +343,42 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
 
     setLoading(true);
     try {
-      // Prepare the final form data with failure reason appended to remark
+      // Prepare the final form data
       let finalFormData = { ...formData };
       
-      // SIMPLIFIED WORKFLOW: Staff can mark "Achieved" directly
-      // No more Internal Review interceptor - alignment happens in monthly meetings
-      // Leader will use "Finalize Report" to lock items for Management grading
-      
-      if (formData.status === 'Not Achieved' && failureReason) {
-        const reasonText = failureReason === 'Other' ? otherReason : failureReason;
-        // Remove any existing [Cause: ...] prefix from remark
+      if (formData.status === 'Not Achieved') {
+        // FIX: Keep gap_category as the dropdown value (e.g., "Other"), NOT the custom text
+        // The custom text goes into specify_reason column
+        finalFormData.gap_category = gapCategory; // Always save the dropdown selection
+        finalFormData.gap_analysis = gapAnalysis;
+        // Store the custom text in its own column when "Other" is selected
+        finalFormData.specify_reason = gapCategory === 'Other' ? otherReason : null;
+        
+        // Legacy: Also append to remark for backward compatibility
+        // Use the display value (custom text if "Other", otherwise the category)
+        const displayValue = gapCategory === 'Other' ? otherReason : gapCategory;
         const cleanRemark = (formData.remark || '').replace(/^\[Cause: .+?\]\s*/, '').trim();
-        // Prepend the new cause
-        finalFormData.remark = `[Cause: ${reasonText}]${cleanRemark ? ' ' + cleanRemark : ''}`;
+        finalFormData.remark = `[Cause: ${displayValue}]${cleanRemark ? ' ' + cleanRemark : ''}`;
+      } else {
+        // Clear gap analysis fields if status is not "Not Achieved"
+        finalFormData.gap_category = null;
+        finalFormData.gap_analysis = null;
+        finalFormData.specify_reason = null;
+        
+        // Also clean the legacy [Cause: ...] prefix from remark if present
+        if (formData.remark) {
+          finalFormData.remark = formData.remark.replace(/^\[Cause: .+?\]\s*/, '').trim() || null;
+        }
       }
+      
+      // DEBUG: Log the payload being sent
+      console.log('[ActionPlanModal] FINAL PAYLOAD:', {
+        status: finalFormData.status,
+        gap_category: finalFormData.gap_category,
+        gap_analysis: finalFormData.gap_analysis,
+        specify_reason: finalFormData.specify_reason,
+        remark: finalFormData.remark,
+      });
       
       if (repeatEnabled && selectedMonths.length > 0 && !editData) {
         // Bulk create: main month + selected months
@@ -320,8 +386,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         const payloads = allMonths.map(month => ({
           ...finalFormData,
           month,
-          // Reset status to Pending for all copies
-          status: 'Pending',
+          // Reset status to Open for all copies
+          status: 'Open',
           outcome_link: '',
           remark: '',
         }));
@@ -371,7 +437,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           {/* REVISION REQUESTED ALERT - Shows when Management sent item back for revision */}
           {editData?.admin_feedback && 
            editData?.submission_status !== 'submitted' && 
-           (editData?.status === 'On Progress' || editData?.status === 'Pending') && (
+           (editData?.status === 'On Progress' || editData?.status === 'Open') && (
             <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-4 mb-4">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
@@ -848,64 +914,96 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             )}
           </div>
 
-          {/* Root Cause / Failure Reason - Only show when status is "Not Achieved" and not locked (or admin override) */}
+          {/* Non-Achievement Analysis - Only show when status is "Not Achieved" and not locked (or admin override) */}
           {formData.status === 'Not Achieved' && (!isLocked || isAdminOverride) && (
-            <div className="border border-red-200 rounded-lg p-4 bg-red-50">
-              <label className="block text-sm font-medium text-red-700 mb-2">
-                Root Cause / Reason for Failure <span className="text-red-500">*</span>
-              </label>
-              {loadingReasons ? (
-                <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading options...
-                </div>
-              ) : failureReasons.length === 0 ? (
-                <div className="text-amber-600 text-sm py-2">
-                  ⚠️ No failure reasons configured. Please contact admin to add options in Settings.
-                </div>
-              ) : (
-                <>
-                  <select
-                    value={failureReason}
-                    onChange={(e) => {
-                      setFailureReason(e.target.value);
-                      if (e.target.value !== 'Other') setOtherReason('');
-                    }}
-                    className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
-                    required
-                  >
-                    <option value="">Select a reason...</option>
-                    {failureReasons.map((reason) => (
-                      <option key={reason.id} value={reason.label}>{reason.label}</option>
-                    ))}
-                  </select>
-                  
-                  {/* "Other" text input */}
-                  {failureReason === 'Other' && (
-                    <div className="mt-3">
-                      <label className="block text-xs font-medium text-red-600 mb-1">
-                        Specify Reason <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={otherReason}
-                        onChange={(e) => setOtherReason(e.target.value)}
-                        placeholder="Describe the reason..."
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm ${
-                          otherReason.trim().length < 3 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
-                        }`}
-                        required
-                      />
-                      {otherReason.trim().length < 3 && (
-                        <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 3 characters</p>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+            <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-4 mt-4">
+              <h4 className="text-sm font-semibold text-red-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                Non-Achievement Analysis (Mandatory)
+              </h4>
               
-              <p className="text-xs text-red-600 mt-2">
-                This helps with Root Cause Analysis (RCA) and process improvement.
+              {/* Root Cause Category - Connected to Admin Settings via failureReasons */}
+              <div>
+                <label className="block text-xs font-medium text-red-700 mb-1">
+                  Root Cause Category <span className="text-red-500">*</span>
+                </label>
+                {loadingReasons ? (
+                  <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading options...
+                  </div>
+                ) : failureReasons.length === 0 ? (
+                  <div className="text-amber-600 text-sm py-2">
+                    ⚠️ No root cause categories configured. Please contact admin to add options in Settings.
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={gapCategory}
+                      onChange={(e) => {
+                        setGapCategory(e.target.value);
+                        // Also sync to legacy failureReason for backward compatibility
+                        setFailureReason(e.target.value);
+                        if (e.target.value !== 'Other') setOtherReason('');
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white text-sm ${
+                        !gapCategory ? 'border-amber-400' : 'border-red-300'
+                      }`}
+                      required
+                    >
+                      <option value="">-- Select Root Cause --</option>
+                      {failureReasons.map((reason) => (
+                        <option key={reason.id} value={reason.label}>{reason.label}</option>
+                      ))}
+                    </select>
+                    
+                    {/* "Other" text input */}
+                    {gapCategory === 'Other' && (
+                      <div className="mt-2">
+                        <label className="block text-xs font-medium text-red-600 mb-1">
+                          Specify Reason <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={otherReason}
+                          onChange={(e) => setOtherReason(e.target.value)}
+                          placeholder="Describe the reason..."
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm ${
+                            otherReason.trim().length < 3 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
+                          }`}
+                          required
+                        />
+                        {otherReason.trim().length < 3 && (
+                          <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 3 characters</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              
+              {/* Failure Details / Lesson Learned Textarea */}
+              <div>
+                <label className="block text-xs font-medium text-red-700 mb-1">
+                  Failure Details / Lesson Learned <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={gapAnalysis}
+                  onChange={(e) => setGapAnalysis(e.target.value)}
+                  placeholder="Explain specifically why the target was missed, what factors contributed, and any lessons learned..."
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm placeholder:text-red-300 ${
+                    !gapAnalysis || gapAnalysis.trim().length < 10 ? 'border-amber-400 bg-amber-50' : 'border-red-300'
+                  }`}
+                  rows={3}
+                  required
+                />
+                {(!gapAnalysis || gapAnalysis.trim().length < 10) && (
+                  <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 10 characters of detail</p>
+                )}
+              </div>
+              
+              <p className="text-xs text-red-600">
+                This information helps with Root Cause Analysis (RCA) and process improvement.
               </p>
             </div>
           )}
@@ -1047,10 +1145,12 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     
                     // Additional validation for "Not Achieved"
                     if (formData.status === 'Not Achieved') {
-                      // Failure reason is required
-                      if (!failureReason) return true;
+                      // Root cause category is required
+                      if (!gapCategory) return true;
                       // If "Other" is selected, custom reason is required (min 3 chars)
-                      if (failureReason === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
+                      if (gapCategory === 'Other' && (!otherReason || otherReason.trim().length < 3)) return true;
+                      // Gap analysis / failure details is required (min 10 chars)
+                      if (!gapAnalysis || gapAnalysis.trim().length < 10) return true;
                     }
                     
                     return false;

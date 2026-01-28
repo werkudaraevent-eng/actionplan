@@ -10,7 +10,7 @@ import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from './PerformanceChart';
 import StrategyComboChart from './StrategyComboChart';
 import BottleneckChart from './BottleneckChart';
-import KPICard, { TargetGapTooltip, ContributionTooltip, FailureRateTooltip, BreakdownTooltip } from './KPICard';
+import GlobalStatsGrid from './GlobalStatsGrid';
 import { Switch } from './ui/switch';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -111,7 +111,7 @@ export default function AdminDashboard({ onNavigate }) {
   const [orgMetric, setOrgMetric] = useState('department_code');
   const [stratMetric, setStratMetric] = useState('goal_strategy');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
-  const [isCompletionView, setIsCompletionView] = useState(true); // false = Quality Score, true = Completion Rate
+  const [isCompletionView, setIsCompletionView] = useState(true); // false = Verification Score, true = Completion Rate
 
   // Weekly Activity Chart state
   const [currentDate, setCurrentDate] = useState(new Date()); // Reference date for week selection
@@ -399,6 +399,50 @@ export default function AdminDashboard({ onNavigate }) {
   // Current month index for YTD calculations
   const currentMonthIndex = new Date().getMonth(); // 0 = Jan, 11 = Dec
 
+  // Helper: Generate date context label for chart subtitles
+  // Ensures all charts show consistent date range context
+  const getDateContextLabel = () => {
+    // Case 1: YTD Mode (Full Year + Current Year)
+    if (isYTDMode) {
+      const currentMonthName = MONTHS_ORDER[currentMonthIndex];
+      return `Jan - ${currentMonthName} ${selectedYear} (Year to Date)`;
+    }
+    
+    // Case 2: Full Year (past year or explicit FY selection)
+    if (selectedPeriod === 'FY' && startMonth === 'Jan' && endMonth === 'Dec') {
+      return `Jan - Dec ${selectedYear} (Full Year)`;
+    }
+    
+    // Case 3: Quarter Selection
+    if (selectedPeriod === 'Q1') return `Jan - Mar ${selectedYear} (Q1)`;
+    if (selectedPeriod === 'Q2') return `Apr - Jun ${selectedYear} (Q2)`;
+    if (selectedPeriod === 'Q3') return `Jul - Sep ${selectedYear} (Q3)`;
+    if (selectedPeriod === 'Q4') return `Oct - Dec ${selectedYear} (Q4)`;
+    
+    // Case 4: Custom Range
+    if (startMonth === endMonth) {
+      return `Period: ${startMonth} ${selectedYear}`;
+    }
+    return `${startMonth} - ${endMonth} ${selectedYear}`;
+  };
+
+  // Memoize the date context label to avoid recalculation
+  const dateContextLabel = useMemo(() => getDateContextLabel(), [
+    isYTDMode, selectedPeriod, startMonth, endMonth, selectedYear, currentMonthIndex
+  ]);
+
+  // Short date context for KPI card badges (e.g., "YTD", "FY 2026", "Q1")
+  const statsDateContext = useMemo(() => {
+    if (isYTDMode) return 'YTD';
+    if (selectedPeriod === 'Q1') return 'Q1';
+    if (selectedPeriod === 'Q2') return 'Q2';
+    if (selectedPeriod === 'Q3') return 'Q3';
+    if (selectedPeriod === 'Q4') return 'Q4';
+    if (selectedPeriod === 'FY') return `FY ${selectedYear}`;
+    if (startMonth === endMonth) return startMonth;
+    return `${startMonth} - ${endMonth}`;
+  }, [isYTDMode, selectedPeriod, startMonth, endMonth, selectedYear]);
+
   // EFFECTIVE PLANS: Apply YTD filtering for charts when in YTD mode
   // This ensures all charts show data only up to current month when viewing current year full year
   const effectivePlans = useMemo(() => {
@@ -421,7 +465,7 @@ export default function AdminDashboard({ onNavigate }) {
     const total = effectivePlans.length;
     const achieved = effectivePlans.filter((p) => p.status === 'Achieved').length;
     const inProgress = effectivePlans.filter((p) => p.status === 'On Progress').length;
-    const pending = effectivePlans.filter((p) => p.status === 'Pending').length;
+    const pending = effectivePlans.filter((p) => p.status === 'Open').length;
     const notAchieved = effectivePlans.filter((p) => p.status === 'Not Achieved').length;
 
     // Build department stats from real data - include both completion and score
@@ -540,7 +584,7 @@ export default function AdminDashboard({ onNavigate }) {
     return `Full Year ${selectedYear}`;
   }, [selectedPeriod, selectedYear, startMonth, endMonth, isYTDMode, currentMonthIndex]);
 
-  // Quality Score and Action Plan Completion stats
+  // Verification Score and Action Plan Completion stats
   // Uses effectivePlans which already has YTD filtering applied
   const qualityStats = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -605,7 +649,7 @@ export default function AdminDashboard({ onNavigate }) {
   }, [filteredPlans]);
 
   // YoY Line Chart Data with dynamic comparison and historical fallback
-  // Supports both Completion Rate and Quality Score metrics
+  // Supports both Completion Rate and Verification Score metrics
   const yoyChartData = useMemo(() => {
     // Build current year data from real plans (already filtered by dept search)
     const currentYearMap = {};
@@ -1226,7 +1270,7 @@ export default function AdminDashboard({ onNavigate }) {
   const sortedCategoryStats = useMemo(() => sortChartData(categoryStats, categorySort), [categoryStats, categorySort]);
 
   // Dynamic titles based on isCompletionView toggle
-  const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Quality Score';
+  const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Verification Score';
   const orgTitle = orgMetric === 'department_code' ? `${activeMetricLabel} by Department` : `${activeMetricLabel} by PIC`;
   const stratTitle = stratMetric === 'goal_strategy' ? `${activeMetricLabel} by Strategy` : `${activeMetricLabel} by Report Format`;
 
@@ -1452,205 +1496,27 @@ export default function AdminDashboard({ onNavigate }) {
       </header>
 
       <main className="p-6">
-        {/* KPI Cards - Executive View Layout with Premium Design */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-          {/* 1. Completion Rate - THE HERO METRIC */}
-          <KPICard
-            gradient="from-green-500 to-green-600"
-            icon={CheckCircle2}
-            value={`${qualityStats.completionRate}%`}
-            label={`Completion${qualityStats.isYTD ? ' (YTD)' : ''}`}
-            labelColor="text-green-100"
-            size="compact"
-            footerContent={(() => {
-              const target = 80;
-              const gap = Number((qualityStats.completionRate - target).toFixed(1));
-              const isPositive = gap >= 0;
-              return (
-                <div className="space-y-2">
-                  <div className="w-full bg-black/10 rounded-full h-1.5 relative">
-                    <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
-                      style={{ left: `${target}%` }}
-                    />
-                    <div
-                      className="bg-white/80 h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.min(qualityStats.completionRate, 100)}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[8px] uppercase text-white/50">Target: {target}%</span>
-                    <div className={`flex items-center gap-0.5 font-bold ${isPositive ? 'text-emerald-100' : 'text-rose-100'}`}>
-                      {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                      <span>{isPositive ? '+' : ''}{gap}%</span>
-                      <span className="text-[8px] uppercase text-white/50 ml-0.5">Gap</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">
-                  Action Plan Completion {qualityStats.isYTD ? '(YTD)' : ''}
-                </p>
-                <p><span className="font-bold text-green-400">{qualityStats.achievedCount} of {qualityStats.ytdTotal}</span> plans achieved</p>
-                <p className="text-xs text-gray-400">Company Target: 80%</p>
-                <p className="text-xs text-gray-500 mt-1">Formula: {qualityStats.achievedCount} ÷ {qualityStats.ytdTotal} × 100</p>
-              </div>
-            }
-          />
-
-          {/* 2. Quality Score */}
-          <KPICard
-            gradient={qualityStats.qualityScore === null ? 'from-gray-400 to-gray-500' :
-              qualityStats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' :
-                qualityStats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
-            icon={Star}
-            value={qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : '—'}
-            label={`Quality Score${qualityStats.isYTD ? ' (YTD)' : ''}`}
-            labelColor="text-white/90"
-            size="compact"
-            comparison={qualityStats.qualityScore !== null ? {
-              prevValue: 72, // Mock previous year (replace with real data)
-              target: 80
-            } : undefined}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">
-                  Performance Quality {qualityStats.isYTD ? '(YTD)' : ''}
-                </p>
-                <p>Average: <span className={`font-bold ${qualityStats.qualityScore >= 80 ? 'text-green-400' : qualityStats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>
-                  {qualityStats.qualityScore !== null ? `${qualityStats.qualityScore}%` : 'N/A'}
-                </span></p>
-                <p className="text-xs text-gray-400">Based on {qualityStats.gradedCount} graded items</p>
-                <p className="text-xs text-gray-400 mt-1">Previous year: 72%</p>
-              </div>
-            }
-          />
-
-          {/* 3. Total Plans */}
-          <KPICard
-            gradient="from-teal-500 to-teal-600"
-            icon={Target}
-            value={stats.total}
-            label="Total Plans"
-            labelColor="text-teal-100"
-            size="compact"
-            footerContent={(
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1">
-                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-200" />
-                  <span className="font-bold text-white/90">{stats.achieved + stats.notAchieved}</span>
-                  <span className="text-[8px] uppercase text-white/50">Done</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <TrendingUp className="w-2.5 h-2.5 text-amber-200" />
-                  <span className="font-bold text-white/90">{stats.inProgress + stats.pending}</span>
-                  <span className="text-[8px] uppercase text-white/50">Open</span>
-                </div>
-              </div>
-            )}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Total Action Plans</p>
-                <p><span className="font-bold text-teal-400">{stats.total}</span> plans for this period</p>
-                <div className="text-xs text-gray-400 mt-1 space-y-0.5">
-                  <p>• Ongoing: {stats.inProgress + stats.pending} ({stats.inProgress} active, {stats.pending} pending)</p>
-                  <p>• Finalized: {stats.achieved + stats.notAchieved} ({stats.achieved} achieved, {stats.notAchieved} failed)</p>
-                </div>
-              </div>
-            }
-            onClick={onNavigate && stats.total > 0 ? () => onNavigate('all-plans', { statusFilter: '' }) : undefined}
-          />
-
-          {/* 4. Achieved */}
-          <KPICard
-            gradient="from-emerald-500 to-emerald-600"
-            icon={CheckCircle2}
-            value={stats.achieved}
-            label="Achieved"
-            labelColor="text-emerald-100"
-            size="compact"
-            footerContent={stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <Users className="w-2.5 h-2.5 text-emerald-200" />
-                <span className="font-bold text-white/90">{Number(((stats.achieved / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Achieved Plans</p>
-                <p><span className="font-bold text-green-400">{stats.achieved} of {stats.total}</span> plans achieved</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : 0}% of total</p>
-                {onNavigate && stats.achieved > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            }
-            onClick={onNavigate && stats.achieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Achieved' }) : undefined}
-          />
-
-          {/* 5. In Progress */}
-          <KPICard
-            gradient="from-amber-500 to-amber-600"
-            icon={TrendingUp}
-            value={stats.inProgress}
-            label="In Progress"
-            labelColor="text-amber-100"
-            size="compact"
-            footerContent={stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <Users className="w-2.5 h-2.5 text-amber-200" />
-                <span className="font-bold text-white/90">{Number(((stats.inProgress / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Work in Progress</p>
-                <p><span className="font-bold text-amber-400">{stats.inProgress} of {stats.total}</span> plans active</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.inProgress / stats.total) * 100).toFixed(1) : 0}% of total</p>
-                {onNavigate && stats.inProgress > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            }
-            onClick={onNavigate && stats.inProgress > 0 ? () => onNavigate('all-plans', { statusFilter: 'On Progress' }) : undefined}
-          />
-
-          {/* 6. Not Achieved */}
-          <KPICard
-            gradient={stats.notAchieved > 0 ? 'from-red-500 to-red-600' : 'from-gray-400 to-gray-500'}
-            icon={AlertTriangle}
-            value={stats.notAchieved}
-            label="Not Achieved"
-            labelColor={stats.notAchieved > 0 ? 'text-red-100' : 'text-gray-200'}
-            size="compact"
-            footerContent={stats.total > 0 && (
-              <div className="flex items-center gap-1 text-xs">
-                <AlertTriangle className="w-2.5 h-2.5 text-rose-200" />
-                <span className="font-bold text-white/90">{Number(((stats.notAchieved / stats.total) * 100).toFixed(1))}%</span>
-                <span className="text-[8px] uppercase text-white/50">of Total</span>
-              </div>
-            )}
-            tooltipContent={
-              <div className="space-y-1">
-                <p className="font-medium border-b border-gray-600 pb-1 mb-1">Failed Plans</p>
-                <p><span className="font-bold text-red-400">{stats.notAchieved} of {stats.total}</span> plans not achieved</p>
-                <p className="text-xs text-gray-400">Contribution: {stats.total > 0 ? ((stats.notAchieved / stats.total) * 100).toFixed(1) : 0}% of total</p>
-                {failureAnalysis.topBlocker && (
-                  <p className="text-xs text-red-300 mt-1">⚠️ Top Issue: {failureAnalysis.topBlocker.reason}</p>
-                )}
-                {onNavigate && stats.notAchieved > 0 && (
-                  <p className="text-xs text-teal-400 mt-1">Click to view details →</p>
-                )}
-              </div>
-            }
-            onClick={onNavigate && stats.notAchieved > 0 ? () => onNavigate('all-plans', { statusFilter: 'Not Achieved' }) : undefined}
-          />
-        </div>
+        {/* Stats Grid - Unified Component */}
+        <GlobalStatsGrid
+          plans={effectivePlans}
+          scope="company"
+          loading={loading}
+          periodLabel=""
+          dateContext={statsDateContext}
+          onCardClick={onNavigate ? (cardType) => {
+            const statusMap = {
+              'all': '',
+              'achieved': 'Achieved',
+              'in-progress': 'On Progress',
+              'open': 'Open',
+              'not-achieved': 'Not Achieved',
+              'completion': '',
+              'verification': ''
+            };
+            const statusFilter = statusMap[cardType] || '';
+            onNavigate('all-plans', { statusFilter });
+          } : undefined}
+        />
 
         {/* Weekly Activity Pulse - Real-time department engagement tracking */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -1660,9 +1526,9 @@ export default function AdminDashboard({ onNavigate }) {
               <div>
                 <div className="flex items-center gap-2">
                   <Activity className="w-5 h-5 text-blue-600" />
-                  <h3 className="text-lg font-semibold text-gray-800">Department Activity Pulse</h3>
+                  <h3 className="text-lg font-bold text-gray-800">Department Activity Pulse</h3>
                 </div>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-xs font-medium text-gray-500 mt-1">
                   {formatShortDate(weeklyActivityData.startOfWeek)} - {formatFullDate(weeklyActivityData.endOfWeek)}
                   <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
                     {weeklyActivityData.totalUpdates} updates
@@ -1768,7 +1634,7 @@ export default function AdminDashboard({ onNavigate }) {
           <div className={`bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col ${weeklyActivityData.recentUpdates.length > 0 ? 'h-[420px]' : 'h-auto min-h-[200px]'}`}>
             <div className="flex items-center gap-2 mb-4">
               <Clock className="w-5 h-5 text-gray-500" />
-              <h3 className="text-lg font-semibold text-gray-800">Latest Updates</h3>
+              <h3 className="text-lg font-bold text-gray-800">Latest Updates</h3>
             </div>
 
             {/* Timeline Feed - Each log = one distinct event */}
@@ -1855,27 +1721,24 @@ export default function AdminDashboard({ onNavigate }) {
           {/* YoY Trend Chart - Left Column (Span 2) */}
           <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-[340px] flex flex-col">
             {/* Chart Header */}
-            <div className="flex items-start justify-between mb-3">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-3 gap-3">
+              {/* LEFT: Standardized Title & Subtitle */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">Performance Trend (YoY)</h3>
-                <p className="text-sm text-gray-500">
-                  Monthly {isCompletionView ? 'completion rate' : 'quality score'} comparison
-                  {highlightRange && (
-                    <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                      Viewing: {highlightRange.x1}{highlightRange.x1 !== highlightRange.x2 ? ` – ${highlightRange.x2}` : ''}
-                    </span>
-                  )}
+                <h3 className="text-lg font-bold text-gray-800">Performance Trend (YoY)</h3>
+                <p className="text-xs font-medium text-gray-400 mt-1">
+                  {dateContextLabel}
                 </p>
               </div>
 
-              {/* Comparison Year Dropdown + Legend */}
-              <div className="flex items-center gap-3">
-                <div className="flex items-center">
-                  <span className="text-sm text-gray-500 mr-2">Compare with:</span>
+              {/* RIGHT: Compact Controls & Legend */}
+              <div className="flex items-center gap-3 bg-gray-50/50 px-2.5 py-1.5 rounded-lg border border-gray-100">
+                {/* Compact Compare Input */}
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-medium text-gray-500 whitespace-nowrap">Compare:</label>
                   <select
                     value={comparisonYear}
                     onChange={(e) => setComparisonYear(e.target.value)}
-                    className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-sm text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="h-7 w-20 px-2 text-sm text-gray-700 bg-white border border-gray-200 rounded focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all cursor-pointer"
                   >
                     <option value="none">None</option>
                     <option value="prev_year">{selectedYear - 1}</option>
@@ -1884,23 +1747,25 @@ export default function AdminDashboard({ onNavigate }) {
                     ))}
                   </select>
                 </div>
-                {/* Legend */}
-                <div className="flex items-center gap-3 text-xs border-l border-gray-200 pl-3">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-4 h-0.5 bg-teal-600 rounded"></span>
-                    {selectedYear}
-                  </span>
+                {/* Divider */}
+                <div className="h-4 w-px bg-gray-300 hidden sm:block"></div>
+                {/* Compact Legend */}
+                <div className="flex items-center gap-3 text-xs font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-teal-600"></span>
+                    <span className="text-gray-600">{selectedYear}</span>
+                  </div>
                   {comparisonYear !== 'none' && hasComparisonData && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-4 h-0.5 bg-amber-500 rounded"></span>
-                      {comparisonLabel}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      <span className="text-gray-600">{comparisonLabel}</span>
+                    </div>
                   )}
                   {annualTarget && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-4 h-0.5 bg-red-500 rounded"></span>
-                      Target {annualTarget}%
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                      <span className="text-gray-600">Target</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1913,10 +1778,10 @@ export default function AdminDashboard({ onNavigate }) {
               </div>
             )}
 
-            {/* Quality Score not available for historical years warning */}
+            {/* Verification Score not available for historical years warning */}
             {!isCompletionView && selectedYear < 2026 && (
               <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                ℹ️ Quality Score system was introduced in 2026. No score data available for {selectedYear}.
+                ℹ️ Verification Score system was introduced in 2026. No score data available for {selectedYear}.
               </div>
             )}
 
@@ -2042,6 +1907,7 @@ export default function AdminDashboard({ onNavigate }) {
             selectedPeriod={selectedPeriod}
             selectedMonths={MONTHS_ORDER.slice(MONTH_MAP[startMonth], MONTH_MAP[endMonth] + 1)}
             departments={departments}
+            dateContextLabel={dateContextLabel}
           />
         </div>
 
@@ -2053,11 +1919,11 @@ export default function AdminDashboard({ onNavigate }) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Layers className="w-5 h-5 text-slate-600" />
-                  <h3 className="text-lg font-semibold text-gray-800">Success Rate by Focus Area</h3>
+                  <h3 className="text-lg font-bold text-gray-800">Success Rate by Focus Area</h3>
                 </div>
                 <SortDropdown value={focusAreaSort} onChange={setFocusAreaSort} />
               </div>
-              <p className="text-sm text-gray-500 mb-4">Which strategic areas are we actually delivering on?</p>
+              <p className="text-xs font-medium text-gray-400 mb-4">{dateContextLabel}</p>
               {sortedFocusAreaStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
@@ -2155,11 +2021,11 @@ export default function AdminDashboard({ onNavigate }) {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <PieChartIcon className="w-5 h-5 text-slate-600" />
-                  <h3 className="text-lg font-semibold text-gray-800">Execution by Priority</h3>
+                  <h3 className="text-lg font-bold text-gray-800">Execution by Priority</h3>
                 </div>
                 <SortDropdown value={categorySort} onChange={setCategorySort} />
               </div>
-              <p className="text-sm text-gray-500 mb-4">Are we hitting our "Ultra High" targets?</p>
+              <p className="text-xs font-medium text-gray-400 mb-4">{dateContextLabel}</p>
               {sortedCategoryStats.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer>
@@ -2259,6 +2125,7 @@ export default function AdminDashboard({ onNavigate }) {
               isCompletionView={isCompletionView}
               sortMode={stratChartSort}
               onSortChange={setStratChartSort}
+              dateContextLabel={dateContextLabel}
             />
           </div>
         )}
@@ -2267,9 +2134,9 @@ export default function AdminDashboard({ onNavigate }) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
           <div className="flex items-start justify-between mb-2">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800">{orgTitle}</h3>
-              <p className="text-sm text-gray-500">
-                {sortedOrgChartData.length} items
+              <h3 className="text-lg font-bold text-gray-800">{orgTitle}</h3>
+              <p className="text-xs font-medium text-gray-400 mt-1">
+                {dateContextLabel} — {sortedOrgChartData.length} items
                 {isHistoricalView && orgMetric === 'department_code' && (
                   <span className="ml-2 text-amber-600 italic">(Historical avg.)</span>
                 )}
@@ -2297,10 +2164,10 @@ export default function AdminDashboard({ onNavigate }) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <div className="p-5 border-b border-gray-100 flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-yellow-500" />Department Leaderboard — {selectedYear}
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-yellow-500" />Department Leaderboard
               </h2>
-              <p className="text-gray-500 text-sm">Ranked by {isCompletionView ? 'completion rate' : 'quality score'}</p>
+              <p className="text-xs font-medium text-gray-400 mt-1">{dateContextLabel} — Ranked by {isCompletionView ? 'completion rate' : 'verification score'}</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
               {isCompletionView ? (

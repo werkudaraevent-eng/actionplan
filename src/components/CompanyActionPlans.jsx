@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Calendar, CheckCircle, X, Download, Building2, ClipboardCheck, PartyPopper, ChevronDown, Check, FileSpreadsheet, Flag, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
-import { MONTHS, STATUS_OPTIONS } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
-import DashboardCards from './DashboardCards';
-import DataTable, { useColumnVisibility, ColumnToggle } from './DataTable';
+import GlobalStatsGrid from './GlobalStatsGrid';
+import UnifiedPageHeader from './UnifiedPageHeader';
+import DataTable, { useColumnVisibility } from './DataTable';
 import ActionPlanModal from './ActionPlanModal';
 import ConfirmationModal from './ConfirmationModal';
 import GradeActionPlanModal from './GradeActionPlanModal';
@@ -43,10 +43,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [selectedDept, setSelectedDept] = useState(initialDeptFilter || 'all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
-  const [isStartMonthDropdownOpen, setIsStartMonthDropdownOpen] = useState(false);
-  const [isEndMonthDropdownOpen, setIsEndMonthDropdownOpen] = useState(false);
 
-  // Legacy: Keep selectedMonth for backward compatibility with DashboardCards
+  // Legacy: Keep selectedMonth for backward compatibility
   const selectedMonth = startMonth === endMonth ? startMonth : 'all';
 
   // Delete confirmation modal state
@@ -251,6 +249,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         { key: 'pic', label: 'PIC' },
         { key: 'evidence', label: 'Evidence' },
         { key: 'status', label: 'Status' },
+        { key: 'root_cause', label: 'Root Cause Category' },
+        { key: 'failure_details', label: 'Failure Details' },
         { key: 'score', label: 'Score' },
         { key: 'outcome_link', label: 'Proof of Evidence' },
         { key: 'remark', label: 'Remarks' },
@@ -261,9 +261,24 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         const row = {};
         columns.forEach(col => {
           let value = plan[col.key] ?? '';
-          if (col.key === 'created_at' && value) {
+          
+          // Handle special computed columns
+          if (col.key === 'root_cause') {
+            // Only populate for "Not Achieved" status
+            if (plan.status === 'Not Achieved') {
+              value = plan.gap_category === 'Other' && plan.specify_reason
+                ? `Other: ${plan.specify_reason}`
+                : (plan.gap_category || '-');
+            } else {
+              value = '-';
+            }
+          } else if (col.key === 'failure_details') {
+            // Only populate for "Not Achieved" status
+            value = plan.status === 'Not Achieved' ? (plan.gap_analysis || '-') : '-';
+          } else if (col.key === 'created_at' && value) {
             value = new Date(value).toLocaleDateString();
           }
+          
           row[col.label] = value;
         });
         return row;
@@ -301,6 +316,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           status: formData.status,
           outcome_link: formData.outcome_link,
           remark: formData.remark,
+          // Gap analysis fields for "Not Achieved" status
+          gap_category: formData.gap_category,
+          gap_analysis: formData.gap_analysis,
+          specify_reason: formData.specify_reason,
         });
       }
       setEditData(null);
@@ -401,14 +420,30 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">All Action Plans</h1>
-            <p className="text-gray-500 text-sm">Company-wide Master Tracker — {plans.length} total plans</p>
-          </div>
-          <div className="flex items-center gap-3">
+      {/* Unified Page Header with Filters */}
+      <UnifiedPageHeader
+        title="All Action Plans"
+        subtitle={`Company-wide Master Tracker — ${plans.length} total plans`}
+        withFilters={true}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        startMonth={startMonth}
+        setStartMonth={setStartMonth}
+        endMonth={endMonth}
+        setEndMonth={setEndMonth}
+        selectedStatus={selectedStatus}
+        setSelectedStatus={setSelectedStatus}
+        selectedCategory={selectedCategory}
+        setSelectedCategory={setSelectedCategory}
+        columnVisibility={{ visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns }}
+        onClear={clearAllFilters}
+        withDeptFilter={activeTab === 'all_records'}
+        selectedDept={selectedDept}
+        setSelectedDept={setSelectedDept}
+        departments={departments}
+        searchPlaceholder="Search across all departments..."
+        headerActions={
+          <>
             {/* Bulk Reset All Grades Button - Danger Zone */}
             {gradedCount > 0 && (
               <button
@@ -440,333 +475,103 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
               <FileSpreadsheet className="w-4 h-4" />
               {exporting ? 'Exporting...' : 'Export Excel'}
             </button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+        filterActions={
+          <div className="flex items-center gap-3">
+            {/* Tab Toggle */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setActiveTab('needs_grading')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'needs_grading'
+                  ? 'bg-white shadow text-purple-700'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                Grading
+                {needsGradingCount > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${activeTab === 'needs_grading'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-orange-500 text-white'
+                    }`}>
+                    {needsGradingCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('all_records')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'all_records'
+                  ? 'bg-white shadow text-gray-800'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                All
+                <span className={`px-1.5 py-0.5 rounded-full text-xs ${activeTab === 'all_records' ? 'bg-gray-200 text-gray-700' : 'bg-gray-200 text-gray-500'}`}>
+                  {plans.length}
+                </span>
+              </button>
+            </div>
 
-      <main className="p-6">
-        {/* Tab Navigation - Admin Grading Inbox */}
-        <div className="flex items-center gap-2 mb-6 flex-wrap">
-          <button
-            onClick={() => setActiveTab('needs_grading')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'needs_grading'
-              ? 'bg-purple-600 text-white'
-              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
-          >
-            <ClipboardCheck className="w-4 h-4" />
-            Needs Grading
-            {needsGradingCount > 0 && (
-              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${activeTab === 'needs_grading'
-                ? 'bg-white text-purple-600'
-                : 'bg-orange-500 text-white'
-                }`}>
-                {needsGradingCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('all_records')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${activeTab === 'all_records'
-              ? 'bg-gray-800 text-white'
-              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
-          >
-            All Records
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-gray-200 text-gray-600">
-              {plans.length}
-            </span>
-          </button>
-
-          {/* Department Filter for Grading Tab */}
-          {activeTab === 'needs_grading' && needsGradingCount > 0 && (
-            <div className="flex items-center gap-2 ml-auto">
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2">
+            {/* Department Filter for Grading Tab */}
+            {activeTab === 'needs_grading' && needsGradingCount > 0 && (
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
                 <Building2 className="w-4 h-4 text-purple-500" />
                 <select
                   value={gradingDeptFilter}
                   onChange={(e) => setGradingDeptFilter(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
                 >
-                  <option value="all">All Departments</option>
+                  <option value="all">All Depts</option>
                   {departments.map((dept) => (
-                    <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
+                    <option key={dept.code} value={dept.code}>{dept.code}</option>
                   ))}
                 </select>
               </div>
-              {gradingDeptFilter !== 'all' && (
-                <span className="text-xs text-gray-500">
-                  Showing {needsGradingPlans.length} items
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* KPI Cards - Only show on All Records tab */}
-        {activeTab === 'all_records' && (
-          <DashboardCards
-            data={filteredPlans}
-            selectedMonth={selectedMonth}
-            startMonth={startMonth}
-            endMonth={endMonth}
-            onFilterChange={(status) => setSelectedStatus(status === 'all' ? 'all' : status)}
-            activeFilter={selectedStatus}
-          />
-        )}
-
-        {/* Control Toolbar - Only show on All Records tab */}
-        {activeTab === 'all_records' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-              {/* Search Input */}
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search across all departments..."
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Filter Dropdowns */}
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Department Filter */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <Building2 className="w-4 h-4 text-gray-500" />
-                  <select
-                    value={selectedDept}
-                    onChange={(e) => setSelectedDept(e.target.value)}
-                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                  >
-                    <option value="all">All Departments</option>
-                    {departments.map((dept) => (
-                      <option key={dept.code} value={dept.code}>{dept.code} - {dept.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Column Toggle */}
-                <ColumnToggle
-                  visibleColumns={visibleColumns}
-                  columnOrder={columnOrder}
-                  toggleColumn={toggleColumn}
-                  moveColumn={moveColumn}
-                  reorderColumns={reorderColumns}
-                  resetColumns={resetColumns}
-                />
-
-                {/* Month Range Filter */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <Calendar className="w-4 h-4 text-gray-500" />
-
-                  {/* Start Month Dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => {
-                        setIsStartMonthDropdownOpen(!isStartMonthDropdownOpen);
-                        setIsEndMonthDropdownOpen(false);
-                      }}
-                      className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
-                    >
-                      <span>{startMonth}</span>
-                      <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {isStartMonthDropdownOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsStartMonthDropdownOpen(false)} />
-                        <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
-                          <div className="max-h-48 overflow-y-auto p-1">
-                            {MONTHS_ORDER.map((month) => (
-                              <button
-                                key={month}
-                                onClick={() => {
-                                  setStartMonth(month);
-                                  // Auto-adjust end month if start > end
-                                  if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
-                                    setEndMonth(month);
-                                  }
-                                  setIsStartMonthDropdownOpen(false);
-                                }}
-                                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${startMonth === month
-                                  ? 'bg-teal-50 text-teal-700'
-                                  : 'text-gray-600 hover:bg-gray-50'
-                                  }`}
-                              >
-                                {month}
-                                {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <span className="text-gray-400 text-sm">—</span>
-
-                  {/* End Month Dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => {
-                        setIsEndMonthDropdownOpen(!isEndMonthDropdownOpen);
-                        setIsStartMonthDropdownOpen(false);
-                      }}
-                      className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
-                    >
-                      <span>{endMonth}</span>
-                      <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {isEndMonthDropdownOpen && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsEndMonthDropdownOpen(false)} />
-                        <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
-                          <div className="max-h-48 overflow-y-auto p-1">
-                            {MONTHS_ORDER.map((month) => (
-                              <button
-                                key={month}
-                                onClick={() => {
-                                  setEndMonth(month);
-                                  // Auto-adjust start month if end < start
-                                  if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
-                                    setStartMonth(month);
-                                  }
-                                  setIsEndMonthDropdownOpen(false);
-                                }}
-                                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${endMonth === month
-                                  ? 'bg-teal-50 text-teal-700'
-                                  : 'text-gray-600 hover:bg-gray-50'
-                                  }`}
-                              >
-                                {month}
-                                {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Clear month filter button */}
-                  {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
-                    <button
-                      onClick={clearMonthFilter}
-                      className="ml-1 text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Status Filter */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <CheckCircle className="w-4 h-4 text-gray-500" />
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                  >
-                    <option value="all">All Status</option>
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Category/Priority Filter */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <Flag className="w-4 h-4 text-gray-500" />
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer pr-2"
-                  >
-                    <option value="all">All Priority</option>
-                    <option value="UH">UH - Ultra High</option>
-                    <option value="H">H - High</option>
-                    <option value="M">M - Medium</option>
-                    <option value="L">L - Low</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* Active Filters Summary */}
-            {hasActiveFilters && (
-              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-500">Active filters:</span>
-
-                {searchQuery && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 text-xs rounded-full">
-                    Search: "{searchQuery}"
-                    <button onClick={() => setSearchQuery('')} className="hover:text-teal-900">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {selectedDept !== 'all' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 text-xs rounded-full">
-                    Dept: {departments.find(d => d.code === selectedDept)?.name || selectedDept}
-                    <button onClick={() => setSelectedDept('all')} className="hover:text-emerald-900">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full">
-                    {startMonth === endMonth ? startMonth : `${startMonth} — ${endMonth}`}
-                    <button onClick={clearMonthFilter} className="hover:text-blue-900">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {selectedStatus !== 'all' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
-                    Status: {selectedStatus}
-                    <button onClick={() => setSelectedStatus('all')} className="hover:text-purple-900">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                {selectedCategory !== 'all' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 text-rose-700 text-xs rounded-full">
-                    Priority: {selectedCategory}
-                    <button onClick={() => setSelectedCategory('all')} className="hover:text-rose-900">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-
-                <button
-                  onClick={clearAllFilters}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline ml-2"
-                >
-                  Clear all
-                </button>
-
-                <span className="text-xs text-gray-400 ml-auto">
-                  Showing {filteredPlans.length} of {plans.length} plans
-                </span>
-              </div>
             )}
           </div>
+        }
+      />
+
+      {/* Scrollable Content Area */}
+      <main className="p-6 space-y-6">
+        {/* KPI Cards - Only show on All Records tab */}
+        {activeTab === 'all_records' && (
+          <GlobalStatsGrid
+            plans={filteredPlans}
+            scope="company"
+            loading={loading}
+            dateContext={startMonth === 'Jan' && endMonth === 'Dec' ? `FY ${CURRENT_YEAR}` : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
+            periodLabel={startMonth === 'Jan' && endMonth === 'Dec' ? '' : ` (${startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`})`}
+            activeFilter={selectedStatus !== 'all' ? (() => {
+              // Map status back to card filter key
+              const reverseMap = {
+                'Achieved': 'achieved',
+                'On Progress': 'in-progress',
+                'Open': 'open',
+                'Not Achieved': 'not-achieved'
+              };
+              return reverseMap[selectedStatus] || null;
+            })() : null}
+            onCardClick={(cardType) => {
+              // cardType is null when toggling off, or the filter key when toggling on
+              if (cardType === null) {
+                setSelectedStatus('all');
+                return;
+              }
+              const statusMap = {
+                'all': 'all',
+                'achieved': 'Achieved',
+                'in-progress': 'On Progress',
+                'open': 'Open',
+                'not-achieved': 'Not Achieved',
+                'completion': 'all',
+                'verification': 'all'
+              };
+              const newStatus = statusMap[cardType] || 'all';
+              setSelectedStatus(newStatus);
+            }}
+          />
         )}
 
         {/* Empty State for Needs Grading Tab */}
@@ -863,8 +668,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 You are about to wipe <strong>{gradedCount}</strong> graded items. This will reset them as if they were never submitted:
               </p>
               <ul className="text-red-700 text-sm mt-2 space-y-1 list-disc list-inside">
-                <li>Remove all quality scores</li>
-                <li>Revert all statuses to "Pending"</li>
+                <li>Remove all verification scores</li>
+                <li>Revert all statuses to "Open"</li>
                 <li>Clear all admin feedback</li>
                 <li>Clear all proof of evidence links</li>
                 <li>Clear all staff remarks</li>
@@ -951,8 +756,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 This will reset the item as if it was never submitted:
               </p>
               <ul className="text-orange-700 text-sm mt-2 space-y-1 list-disc list-inside">
-                <li>Remove quality score</li>
-                <li>Revert status to "Pending"</li>
+                <li>Remove verification score</li>
+                <li>Revert status to "Open"</li>
                 <li>Clear admin feedback</li>
                 <li>Clear proof of evidence link</li>
                 <li>Clear staff remarks</li>

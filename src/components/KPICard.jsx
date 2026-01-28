@@ -1,3 +1,5 @@
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
 // Reusable KPI Card with Hover Tooltip
@@ -10,6 +12,8 @@ export default function KPICard({
   tooltipContent,
   size = 'default', // 'default' or 'compact'
   onClick, // Optional click handler for drill-down navigation
+  isActive = false, // Whether this card is currently selected/active
+  badge, // Optional badge text for date context (e.g., "YTD", "Filtered", "Jan - Mar")
   topBlocker, // Optional top blocker badge text (DEPRECATED - use footerContent)
   progressBar, // Optional { value, target } for integrated progress bar
   statusBreakdown, // Optional { achieved, inProgress, pending, notAchieved } for mini breakdown (DEPRECATED)
@@ -18,6 +22,9 @@ export default function KPICard({
 }) {
   const isCompact = size === 'compact';
   const isClickable = !!onClick;
+  const cardRef = useRef(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
   
   // Calculate gaps if comparison data provided
   // Use parseFloat to preserve decimals from value string (e.g., "66.8%")
@@ -28,15 +35,29 @@ export default function KPICard({
   const targetGap = comparison?.target != null && currentValue != null 
     ? Number((currentValue - comparison.target).toFixed(1))
     : null;
+
+  // Calculate tooltip position when showing
+  useEffect(() => {
+    if (showTooltip && cardRef.current && tooltipContent) {
+      const rect = cardRef.current.getBoundingClientRect();
+      setTooltipPos({
+        top: rect.bottom + 8, // 8px below the card
+        left: rect.left + rect.width / 2, // Center horizontally
+      });
+    }
+  }, [showTooltip, tooltipContent]);
   
   return (
     <div 
-      className={`group relative bg-gradient-to-br ${gradient} rounded-xl ${isCompact ? 'p-4' : 'p-5'} text-white hover:z-[60] flex flex-col ${
+      ref={cardRef}
+      className={`group relative bg-gradient-to-br ${gradient} rounded-xl ${isCompact ? 'p-4' : 'p-5'} text-white hover:z-30 flex flex-col ${
         isClickable 
           ? 'cursor-pointer hover:scale-[1.02] hover:shadow-lg transition-all duration-200' 
           : 'cursor-help transition-all duration-200'
-      }`}
+      } ${isActive ? 'ring-4 ring-white/50 ring-offset-2 ring-offset-gray-50 scale-[1.02]' : ''}`}
       onClick={onClick}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
       role={isClickable ? 'button' : undefined}
       tabIndex={isClickable ? 0 : undefined}
       onKeyDown={isClickable ? (e) => e.key === 'Enter' && onClick() : undefined}
@@ -44,7 +65,7 @@ export default function KPICard({
       {/* Main Content */}
       <div className="flex items-center gap-3">
         <div className={`${isCompact ? 'w-10 h-10' : 'w-12 h-12'} bg-white/20 rounded-lg flex items-center justify-center`}>
-          <Icon className={isCompact ? 'w-5 h-5' : 'w-6 h-6'} />
+          {Icon && <Icon className={isCompact ? 'w-5 h-5' : 'w-6 h-6'} />}
         </div>
         <div className="flex-1 min-w-0">
           <p className={`font-bold ${isCompact ? 'text-2xl' : 'text-3xl'}`}>{value}</p>
@@ -134,20 +155,36 @@ export default function KPICard({
         </div>
       )}
       
-      {/* Click hint for clickable cards */}
-      {isClickable && (
+      {/* Date Context Badge - positioned top-right of card */}
+      {/* YTD badges get amber highlight to indicate performance context vs inventory */}
+      {badge && (
+        <span className={`absolute top-2 right-2 text-[10px] font-medium px-2 py-0.5 rounded-full ${
+          badge === 'YTD' 
+            ? 'bg-amber-500/30 text-amber-100 border border-amber-400/40' 
+            : 'bg-white/20 text-white/90'
+        }`}>
+          {badge}
+        </span>
+      )}
+      
+      {/* Click hint for clickable cards - only show if no badge */}
+      {isClickable && !badge && (
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Click</span>
         </div>
       )}
       
-      {/* Tooltip - positioned BELOW the card (z-[50] to stay below sticky header z-[100]) */}
-      {tooltipContent && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[50] min-w-[160px] whitespace-nowrap">
+      {/* Tooltip - rendered via Portal to escape sidebar clipping */}
+      {tooltipContent && showTooltip && createPortal(
+        <div 
+          className="fixed px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl z-[9999] min-w-[160px] whitespace-nowrap pointer-events-none transform -translate-x-1/2"
+          style={{ top: tooltipPos.top, left: tooltipPos.left }}
+        >
           {/* Arrow pointing UP */}
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-8 border-transparent border-b-gray-800" />
           {tooltipContent}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1525,6 +1525,12 @@ function DataManagementTab() {
         'PIC': plan.pic,
         'Evidence': plan.evidence || '',
         'Status': plan.status,
+        'Root Cause Category': plan.status === 'Not Achieved' 
+          ? (plan.gap_category === 'Other' && plan.specify_reason 
+              ? `Other: ${plan.specify_reason}` 
+              : (plan.gap_category || '-'))
+          : '-',
+        'Failure Details': plan.status === 'Not Achieved' ? (plan.gap_analysis || '-') : '-',
         'Score': plan.score || '',
         'Proof of Evidence': plan.outcome_link || '',
         'Remarks': plan.remark || '',
@@ -1549,6 +1555,8 @@ function DataManagementTab() {
         { wch: 15 }, // PIC
         { wch: 25 }, // Evidence
         { wch: 12 }, // Status
+        { wch: 20 }, // Root Cause Category
+        { wch: 35 }, // Failure Details
         { wch: 8 },  // Score
         { wch: 35 }, // Proof of Evidence
         { wch: 30 }, // Remarks

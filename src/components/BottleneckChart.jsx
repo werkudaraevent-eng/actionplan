@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, Trophy, Medal, Award, Building2, FileWarni
 
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
 
-export default function BottleneckChart({ plans, getDeptName, failureReasons = [], selectedPeriod = 'Full Year', selectedMonths = [], departments = [] }) {
+export default function BottleneckChart({ plans, getDeptName, failureReasons = [], selectedPeriod = 'Full Year', selectedMonths = [], departments = [], dateContextLabel }) {
   const [viewMode, setViewMode] = useState('dept'); // 'dept' or 'reason'
   const currentMonth = new Date().getMonth(); // 0-indexed
 
@@ -165,7 +165,7 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
       <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 ${WIDGET_HEIGHT} flex flex-col`}>
         <div className="flex items-center gap-2 mb-4">
           <CheckCircle2 className="w-5 h-5 text-green-500" />
-          <h3 className="text-lg font-semibold text-gray-800">All On Track!</h3>
+          <h3 className="text-lg font-bold text-gray-800">All On Track!</h3>
         </div>
 
         {topPerformers.length > 0 ? (
@@ -210,12 +210,15 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
   return (
     <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 ${WIDGET_HEIGHT} flex flex-col`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-red-500" />
-          <h3 className="text-lg font-semibold text-gray-800">Risk & Bottleneck</h3>
+          <h3 className="text-lg font-bold text-gray-800">Risk & Bottleneck</h3>
         </div>
       </div>
+      {dateContextLabel && (
+        <p className="text-xs font-medium text-gray-500 mb-3">{dateContextLabel}</p>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-3 p-1 bg-gray-100 rounded-lg">

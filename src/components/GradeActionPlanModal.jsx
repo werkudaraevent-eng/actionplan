@@ -271,7 +271,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
               <div className="flex items-center justify-between mb-3">
                 <label className="font-semibold text-gray-800 flex items-center gap-2">
                   <Star className="w-4 h-4 text-yellow-500" />
-                  Quality Score
+                  Verification Score
                 </label>
                 <div className="flex items-center gap-2">
                   <span className={`text-3xl font-bold ${getScoreColor(score)}`}>{score}</span>
@@ -330,7 +330,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
             {/* Feedback */}
             <div>
               <label className="block font-semibold text-gray-800 mb-2">
-                Management Feedback
+                Performance Review Note
                 <span className="text-gray-400 font-normal text-sm ml-2">(Required for revision)</span>
               </label>
               <textarea

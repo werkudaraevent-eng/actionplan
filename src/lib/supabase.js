@@ -37,24 +37,26 @@ export const withTimeout = (promise, ms = 10000) => {
 
 // Department configuration
 export const DEPARTMENTS = [
-  { code: 'BAS', name: 'Business & Administration Services' },
-  { code: 'PD', name: 'Product Development' },
-  { code: 'CFC', name: 'Corporate Finance Controller' },
-  { code: 'SS', name: 'Strategic Sourcing' },
   { code: 'ACC', name: 'Accounting' },
-  { code: 'HR', name: 'Human Resources' },
-  { code: 'BID', name: 'Business & Innovation Development' },
-  { code: 'TEP', name: 'Tour and Event Planning' },
-  { code: 'GA', name: 'General Affairs' },
   { code: 'ACS', name: 'Art & Creative Support' },
+  { code: 'BAS', name: 'Business & Administration Services' },
+  { code: 'BID', name: 'Business & Innovation Development' },
+  { code: 'CFC', name: 'Corporate Finance Controller' },
+  { code: 'CMC', name: 'Corporate Marketing Communication' },
+  { code: 'CT', name: 'Corporate Travel' },
+  { code: 'GA', name: 'General Affairs' },
+  { code: 'HR', name: 'Human Resources' },
+  { code: 'PD', name: 'Product Development' },
   { code: 'SO', name: 'Sales Operation' },
+  { code: 'SS', name: 'Strategic Sourcing' },
+  { code: 'TEP', name: 'Tour and Event Planning' },
 ];
 
 // Simplified workflow: Staff can directly mark Achieved
 // Internal Review and Waiting Approval are legacy/system states
-export const STATUS_OPTIONS = ['Pending', 'On Progress', 'Achieved', 'Not Achieved'];
+export const STATUS_OPTIONS = ['Open', 'On Progress', 'Achieved', 'Not Achieved'];
 
 // Legacy status options (for display purposes only)
-export const ALL_STATUS_OPTIONS = ['Pending', 'On Progress', 'Internal Review', 'Waiting Approval', 'Achieved', 'Not Achieved'];
+export const ALL_STATUS_OPTIONS = ['Open', 'On Progress', 'Internal Review', 'Waiting Approval', 'Achieved', 'Not Achieved'];
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const REPORT_FORMATS = ['Monthly Report', 'Weekly Update', 'Quarterly Review', 'Annual Report'];

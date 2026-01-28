@@ -26,7 +26,7 @@ export default function DashboardCards({
   const total = data.length;
   const achieved = data.filter((item) => item.status === 'Achieved').length;
   const inProgress = data.filter((item) => item.status === 'On Progress').length;
-  const pending = data.filter((item) => item.status === 'Pending').length;
+  const pending = data.filter((item) => item.status === 'Open').length;
   const notAchieved = data.filter((item) => item.status === 'Not Achieved').length;
 
   // Adaptive Completion Rate Logic
@@ -129,7 +129,7 @@ export default function DashboardCards({
   };
   const periodLabel = getPeriodLabel();
 
-  // Dynamic gradient for Quality Score based on performance
+  // Dynamic gradient for Verification Score based on performance
   const getScoreGradient = (score) => {
     if (score === null) return 'from-gray-400 to-gray-500';
     if (score >= 80) return 'from-purple-500 to-purple-600';
@@ -207,11 +207,11 @@ export default function DashboardCards({
         </div>
       </CardTooltip>
 
-      {/* 2. Quality Score */}
+      {/* 2. Verification Score */}
       <CardTooltip
         content={
           <>
-            <p className="font-medium border-b border-gray-600 pb-1 mb-1">Performance Quality{periodLabel}</p>
+            <p className="font-medium border-b border-gray-600 pb-1 mb-1">Verification Score{periodLabel}</p>
             <div className="flex items-center gap-1.5 mb-2 text-gray-300 bg-gray-700/50 px-2 py-1 rounded text-xs">
               <Calendar className="w-3 h-3 text-gray-400" />
               <span>{dateRangeLabel}</span>
@@ -235,7 +235,7 @@ export default function DashboardCards({
             </div>
             <div>
               <p className="text-2xl font-bold">{avgScoreDisplay}</p>
-              <p className="text-xs text-white/80">Quality Score{periodLabel}</p>
+              <p className="text-xs text-white/80">Verification Score{periodLabel}</p>
             </div>
           </div>
           {/* Footer: YoY & Target Gap */}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { STATUS_OPTIONS } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
@@ -8,7 +8,7 @@ import HistoryModal from './HistoryModal';
 import ViewDetailModal from './ViewDetailModal';
 
 const STATUS_COLORS = {
-  'Pending': 'bg-gray-100 text-gray-700',
+  'Open': 'bg-gray-100 text-gray-700',
   'On Progress': 'bg-yellow-100 text-yellow-700',
   'Achieved': 'bg-green-100 text-green-700',
   'Not Achieved': 'bg-red-100 text-red-700',
@@ -577,7 +577,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       pic: <SortableHeader key={colId} columnKey="pic" className="min-w-[120px]">PIC</SortableHeader>,
       evidence: <SortableHeader key={colId} columnKey="evidence" className="min-w-[200px]">EVIDENCE</SortableHeader>,
       status: <SortableHeader key={colId} columnKey="status" className="min-w-[120px]">STATUS</SortableHeader>,
-      score: <SortableHeader key={colId} columnKey="quality_score" className="w-[80px]" align="center">SCORE</SortableHeader>,
+      score: <SortableHeader key={colId} columnKey="quality_score" className="w-[80px]" align="center">VERIFICATION</SortableHeader>,
       outcome: <SortableHeader key={colId} columnKey="outcome_link" className="min-w-[150px]">PROOF OF EVIDENCE</SortableHeader>,
       remark: <SortableHeader key={colId} columnKey="remark" className="min-w-[150px]">REMARK</SortableHeader>,
     };
@@ -852,14 +852,37 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                     {VISIBLE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                                   </select>
                                 )}
-                                {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Pending') && (
+                                {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Open') && (
                                   <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium cursor-help" title={`Revision Requested: ${item.admin_feedback}`}>
                                     <MessageSquare className="w-3 h-3" />
                                     Revision
                                   </span>
                                 )}
                               </div>
-                              {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Pending') && (
+                              
+                              {/* Root Cause Badge - Only show for "Not Achieved" status */}
+                              {item.status === 'Not Achieved' && item.gap_category && (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-800 border border-red-200">
+                                    {item.gap_category}
+                                  </span>
+                                  {/* Tooltip for Failure Details */}
+                                  {item.gap_analysis && (
+                                    <div className="group relative">
+                                      <Info className="w-3.5 h-3.5 text-red-400 cursor-help" />
+                                      {/* Tooltip content */}
+                                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-gray-900 text-white text-xs p-3 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                                        <p className="font-semibold mb-1 text-red-200">Failure Analysis:</p>
+                                        <p className="whitespace-pre-wrap">{item.gap_analysis}</p>
+                                        {/* Triangle pointer */}
+                                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              
+                              {item.admin_feedback && item.submission_status !== 'submitted' && (item.status === 'On Progress' || item.status === 'Open') && (
                                 <div className="flex items-start gap-1.5 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs">
                                   <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-amber-600" />
                                   <div>
@@ -883,7 +906,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                     item.quality_score > 0 ? 'bg-red-500 text-white' :
                                       'bg-gray-400 text-white'
                                   }`}
-                                title={`Quality Score: ${item.quality_score}/100`}
+                                title={`Verification Score: ${item.quality_score}/100`}
                               >
                                 <Star className={`w-3 h-3 ${item.quality_score === 0 ? 'opacity-60' : ''}`} />
                                 {item.quality_score}

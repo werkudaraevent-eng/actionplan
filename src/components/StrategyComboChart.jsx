@@ -20,7 +20,7 @@ function SortDropdown({ value, onChange }) {
   );
 }
 
-export default function StrategyComboChart({ plans, isCompletionView = true, sortMode = 'high-low', onSortChange }) {
+export default function StrategyComboChart({ plans, isCompletionView = true, sortMode = 'high-low', onSortChange, dateContextLabel }) {
   const chartData = useMemo(() => {
     if (!plans || plans.length === 0) return [];
 
@@ -86,7 +86,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
   // Dynamic colors based on toggle
   const activeColor = isCompletionView ? '#10b981' : '#f59e0b'; // Emerald vs Amber
   const activeDataKey = isCompletionView ? 'completion' : 'score';
-  const activeLabel = isCompletionView ? 'Completion Rate' : 'Quality Score';
+  const activeLabel = isCompletionView ? 'Completion Rate' : 'Verification Score';
   
   // Dynamic height: Base 100px + 45px per item (ensures bars are thick enough)
   const dynamicHeight = Math.max(300, chartData.length * 45);
@@ -137,7 +137,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Target className="w-5 h-5 text-teal-600" />
-          <h3 className="text-lg font-semibold text-gray-800">Strategy Performance</h3>
+          <h3 className="text-lg font-bold text-gray-800">Strategy Performance</h3>
         </div>
         <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
           <p className="text-gray-500 text-sm">No strategy data available</p>
@@ -151,7 +151,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <Target className="w-5 h-5 text-teal-600" />
-          <h3 className="text-lg font-semibold text-gray-800">
+          <h3 className="text-lg font-bold text-gray-800">
             Strategy Performance: {activeLabel}
           </h3>
         </div>
@@ -170,11 +170,8 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
           </div>
         </div>
       </div>
-      <p className="text-sm text-gray-500 mb-4">
-        {isCompletionView 
-          ? `Percentage of action plans achieved per strategy (${chartData.length} strategies)`
-          : `Average quality rating of deliverables per strategy (${chartData.length} strategies)`
-        }
+      <p className="text-xs font-medium text-gray-500 mb-4">
+        {dateContextLabel || `${chartData.length} strategies tracked`}
       </p>
 
       {/* Scrollable wrapper for many strategies - Fixed height window */}
@@ -223,7 +220,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
       <p className="text-xs text-gray-400 mt-2 text-center">
         {isCompletionView 
           ? 'Bars show completion rate (achieved ÷ total × 100)'
-          : 'Bars show average quality score of graded items'
+          : 'Bars show average verification score of graded items'
         }
       </p>
     </div>

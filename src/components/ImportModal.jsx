@@ -107,9 +107,9 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     // Create sample data rows (Score column removed - graded later on web)
     const sampleData = [
       TEMPLATE_HEADERS,
-      ['BAS', 'Jan', 'UH', 'Workforce Optimization', 'Improve Operations', 'Implement new system', 'System deployed', 'John Doe', 'Monthly report submitted', 'Pending', '', ''],
+      ['BAS', 'Jan', 'UH', 'Workforce Optimization', 'Improve Operations', 'Implement new system', 'System deployed', 'John Doe', 'Monthly report submitted', 'Open', '', ''],
       ['HR', 'Feb', 'Priority', 'Talent Development', 'Talent Acquisition', 'Hire 5 engineers', '5 hires completed', 'HR Manager', 'Hiring tracker updated', 'Achieved', 'https://drive.google.com/example', 'Completed ahead of schedule'],
-      ['IT', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Pending', '', 'Multi-month project']
+      ['IT', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Open', '', 'Multi-month project']
     ];
     
     // Create workbook and worksheet
@@ -271,7 +271,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 indicator: mappedRow['Indicator']?.toString().trim(),
                 pic: mappedRow['PIC']?.toString().trim(),
                 evidence: mappedRow['Evidence']?.toString().trim() || null,
-                status: 'Pending', // Always start as Pending for new imports
+                status: 'Open', // Always start as Open for new imports
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
                 remark: mappedRow['Remarks']?.toString().trim() || null,
               };

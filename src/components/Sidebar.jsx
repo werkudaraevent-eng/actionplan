@@ -38,7 +38,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col relative z-[999]">
+    <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col relative z-40">
       {/* Header */}
       <div className="p-4 border-b border-teal-700 flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -107,7 +107,7 @@ export default function Sidebar() {
                     <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
                       {dept.code}
                     </span>
-                    <span className="text-sm truncate flex-1">{dept.name.split(' ')[0]}</span>
+                    <span className="text-sm truncate flex-1" title={dept.name}>{dept.name}</span>
                   </button>
                 ))
               )}

@@ -8,6 +8,7 @@ import LoadingScreen from './components/common/LoadingScreen';
 import Sidebar from './components/layout/Sidebar';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
+import ApprovalInbox from './pages/ApprovalInbox';
 import UserManagement from './components/user/UserManagement';
 import CompanyActionPlans from './pages/CompanyActionPlans';
 import DepartmentDashboard from './pages/DepartmentDashboard';
@@ -238,6 +239,12 @@ function AppRoutes() {
           <Route path="/settings" element={
             <ProtectedRoute adminOnly>
               <AdminSettingsWrapper />
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/approvals" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <ApprovalInbox />
             </ProtectedRoute>
           } />
           

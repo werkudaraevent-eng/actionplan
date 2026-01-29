@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info, LockKeyhole, Unlock, X, XCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { STATUS_OPTIONS } from '../../lib/supabase';
+import { STATUS_OPTIONS, supabase } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
+import { isPlanLocked, getLockStatus, getLockStatusMessage, checkLockStatusServerSide } from '../../utils/lockUtils';
+import { useToast } from '../../components/common/Toast';
 import HistoryModal from './HistoryModal';
 import ViewDetailModal from './ViewDetailModal';
 
@@ -307,17 +309,35 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
 }
 
 // ActionCell Component - Uses Radix UI DropdownMenu for proper positioning in sticky columns
-function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, onEdit, onDelete, openHistory, isReadOnly = false }) {
+function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuickReset, onEdit, onDelete, openHistory, onRequestUnlock, isReadOnly = false, isDateLocked = false, lockStatusMessage = '' }) {
   // Determine edit permissions
   const isOwnItem = item.pic?.toLowerCase() === profile?.full_name?.toLowerCase();
-  const canEdit = !isReadOnly && (isAdmin || !isStaff || isOwnItem);
-  const isLocked = item.submission_status === 'submitted';
+  const isSubmissionLocked = item.submission_status === 'submitted';
   const isAchieved = item.status?.toLowerCase() === 'achieved';
   const isGraded = item.quality_score != null;
   const needsGrading = isAdmin && item.submission_status === 'submitted' && !isGraded;
+  
+  // Check unlock status (pending, approved, rejected)
+  const isPendingUnlock = item.unlock_status === 'pending';
+  const isApprovedUnlock = item.unlock_status === 'approved';
+  const isRejectedUnlock = item.unlock_status === 'rejected';
+  
+  // Combined lock check: date-based lock OR submission lock (unless admin)
+  // Admins can always edit regardless of date lock
+  // If unlock is approved, the item is temporarily unlocked
+  const isEffectivelyLocked = !isAdmin && (isDateLocked || isSubmissionLocked) && !isApprovedUnlock;
+  const canEdit = !isReadOnly && !isEffectivelyLocked && (isAdmin || !isStaff || isOwnItem);
 
-  // Determine delete permissions
-  const canDelete = !isReadOnly && (isAdmin || (!isStaff && !isLocked && !isAchieved));
+  // Determine delete permissions - also respect date lock
+  const canDelete = !isReadOnly && !isEffectivelyLocked && (isAdmin || (!isStaff && !isSubmissionLocked && !isAchieved));
+  
+  // Check if user can request unlock:
+  // - Only Leaders (or Admins) can request unlock, NOT staff
+  // - Must be date-locked and not already pending, approved, or rejected
+  const canRequestUnlock = (isLeader || isAdmin) && isDateLocked && !isPendingUnlock && !isApprovedUnlock && !isRejectedUnlock && onRequestUnlock;
+  
+  // Staff sees "Contact your Leader" message when locked
+  const isStaffLocked = isStaff && isDateLocked && !isAdmin && !isApprovedUnlock;
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -356,7 +376,7 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
             align="end"
             sideOffset={5}
             collisionPadding={10}
-            className="z-[9999] min-w-[160px] bg-white rounded-lg shadow-xl border border-gray-100 p-1 animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+            className="z-[9999] min-w-[180px] bg-white rounded-lg shadow-xl border border-gray-100 p-1 animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
             onCloseAutoFocus={(e) => e.preventDefault()}
           >
             {/* View History */}
@@ -372,23 +392,75 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
             {!isReadOnly && (
               <DropdownMenu.Item
                 onSelect={() => {
-                  if (canEdit && !(isLocked && isStaff)) {
+                  if (canEdit) {
                     onEdit(item);
                   }
                 }}
-                disabled={!canEdit || (isLocked && isStaff)}
-                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canEdit && !(isLocked && isStaff)
+                disabled={!canEdit}
+                className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canEdit
                     ? 'text-gray-700 hover:bg-gray-50'
                     : 'text-gray-300 cursor-not-allowed'
                   }`}
+                title={isStaffLocked ? 'Locked. Contact your Leader to request unlock.' : (isDateLocked && !isAdmin && !isApprovedUnlock ? lockStatusMessage : undefined)}
               >
-                {canEdit && !(isLocked && isStaff) ? (
+                {canEdit ? (
                   <Pencil className="w-4 h-4 text-gray-400" />
+                ) : isDateLocked && !isAdmin ? (
+                  <LockKeyhole className="w-4 h-4 text-amber-400" />
                 ) : (
                   <Lock className="w-4 h-4 text-gray-300" />
                 )}
                 Edit Details
+                {isStaffLocked && (
+                  <span className="ml-auto text-[10px] text-gray-400 font-medium">Contact Leader</span>
+                )}
+                {isDateLocked && !isAdmin && !isStaffLocked && !isApprovedUnlock && !isPendingUnlock && (
+                  <span className="ml-auto text-[10px] text-amber-500 font-medium">Locked</span>
+                )}
               </DropdownMenu.Item>
+            )}
+
+            {/* Request Unlock - Show only for Leaders when date-locked and not pending/approved */}
+            {canRequestUnlock && (
+              <DropdownMenu.Item
+                onSelect={() => onRequestUnlock(item)}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 rounded-md cursor-pointer outline-none transition-colors"
+              >
+                <Unlock className="w-4 h-4" />
+                Request Unlock
+              </DropdownMenu.Item>
+            )}
+            
+            {/* Pending Unlock Request indicator - Shows for non-admins when pending */}
+            {!isAdmin && isPendingUnlock && (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-amber-600 bg-amber-50 rounded-md cursor-default">
+                <Clock className="w-4 h-4 animate-pulse" />
+                <span className="font-medium">Awaiting Approval</span>
+              </div>
+            )}
+            
+            {/* Approved Unlock indicator - Shows when unlock is approved */}
+            {isApprovedUnlock && !isAdmin && (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 bg-green-50 rounded-md cursor-default">
+                <Unlock className="w-4 h-4" />
+                <span className="font-medium">Unlocked</span>
+              </div>
+            )}
+            
+            {/* REJECTED Unlock indicator - Shows when unlock was rejected */}
+            {isRejectedUnlock && !isAdmin && (
+              <div className="group relative flex items-center gap-2 px-3 py-2 text-sm text-red-600 bg-red-50 rounded-md cursor-help">
+                <X className="w-4 h-4" />
+                <span className="font-medium">Rejected</span>
+                {/* Tooltip with rejection reason */}
+                {item.unlock_rejection_reason && (
+                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-gray-900 text-white text-xs p-3 rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+                    <p className="font-semibold mb-1 text-red-300">Rejection Reason:</p>
+                    <p className="whitespace-pre-wrap">{item.unlock_rejection_reason}</p>
+                    <div className="absolute top-full left-4 border-4 border-transparent border-t-gray-900"></div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Reset Grade (Admin only, when graded) - Hidden for read-only users */}
@@ -429,10 +501,61 @@ function ActionCell({ item, isAdmin, isStaff, profile, onGrade, onQuickReset, on
   );
 }
 
-export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false }) {
-  const { isAdmin, isStaff, profile } = useAuth();
+export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, onRequestUnlock, onRefresh, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false, showPendingOnly = false }) {
+  const { isAdmin, isStaff, isLeader, profile } = useAuth();
   const { departments } = useDepartments();
+  const { toast } = useToast();
   const [updatingId, setUpdatingId] = useState(null);
+  
+  // Ref to track mouse position for distinguishing click vs drag
+  const mouseDownCoords = useRef({ x: 0, y: 0 });
+  const DRAG_THRESHOLD = 5; // pixels - if mouse moves more than this, it's a drag
+  
+  // Lock settings state
+  const [lockSettings, setLockSettings] = useState({
+    isLockEnabled: false,
+    lockCutoffDay: 6,
+    monthlyOverrides: []
+  });
+  
+  // Reusable function to fetch lock settings (deadline rules)
+  const fetchLockSettings = async () => {
+    try {
+      // Fetch system settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('system_settings')
+        .select('is_lock_enabled, lock_cutoff_day')
+        .eq('id', 1)
+        .single();
+      
+      if (settingsError) {
+        console.error('Error fetching system settings:', settingsError);
+        return;
+      }
+      
+      // Fetch monthly overrides
+      const { data: schedulesData, error: schedulesError } = await supabase
+        .from('monthly_lock_schedules')
+        .select('month_index, year, lock_date');
+      
+      if (schedulesError) {
+        console.error('Error fetching monthly schedules:', schedulesError);
+      }
+      
+      setLockSettings({
+        isLockEnabled: settingsData?.is_lock_enabled ?? false,
+        lockCutoffDay: settingsData?.lock_cutoff_day ?? 6,
+        monthlyOverrides: schedulesData || []
+      });
+    } catch (err) {
+      console.error('Error fetching lock settings:', err);
+    }
+  };
+  
+  // Fetch lock settings on mount
+  useEffect(() => {
+    fetchLockSettings();
+  }, []);
   
   // Helper to get department name from code
   const getDeptName = (code) => {
@@ -489,9 +612,15 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
 
   // Sorted data with useMemo for performance
   const sortedData = useMemo(() => {
-    if (!sortConfig.key) return data;
+    // First, apply pending filter if enabled
+    let filteredData = data;
+    if (showPendingOnly) {
+      filteredData = data.filter(item => item.unlock_status === 'pending');
+    }
+    
+    if (!sortConfig.key) return filteredData;
 
-    return [...data].sort((a, b) => {
+    return [...filteredData].sort((a, b) => {
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
 
@@ -517,7 +646,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
       return 0;
     });
-  }, [data, sortConfig]);
+  }, [data, sortConfig, showPendingOnly]);
 
   // Pagination logic
   const totalPages = itemsPerPage === 'All' ? 1 : Math.ceil(sortedData.length / itemsPerPage);
@@ -630,19 +759,12 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       case 'action_plan':
         return (
           <td key={colId} className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
-            <div
-              className="group/action cursor-pointer"
-              onClick={() => setViewPlan(item)}
-            >
+            <div className="group/action">
               {showDepartmentColumn ? (
                 // When department has its own column, show clean action plan text
                 <div>
                   <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2">
                     {item.action_plan}
-                  </span>
-                  <span className="hidden group-hover/action:inline-flex items-center gap-1 text-xs text-emerald-600 mt-1">
-                    <Eye className="w-3 h-3" />
-                    View Details
                   </span>
                 </div>
               ) : (
@@ -657,10 +779,6 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                       {item.action_plan}
                     </span>
                   </div>
-                  <span className="hidden group-hover/action:inline-flex items-center gap-1 text-xs text-emerald-600 mt-1 ml-12">
-                    <Eye className="w-3 h-3" />
-                    View Details
-                  </span>
                 </div>
               )}
             </div>
@@ -685,7 +803,13 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           <td key={colId} className="px-4 py-3 border-b border-gray-100">
             {item.outcome_link ? (
               isUrl(item.outcome_link) ? (
-                <a href={item.outcome_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm">
+                <a 
+                  href={item.outcome_link} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm"
+                >
                   <ExternalLink className="w-4 h-4" />
                   View
                 </a>
@@ -710,6 +834,45 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   };
 
   const handleStatusChange = async (item, newStatus) => {
+    // Capture old status for potential UI revert
+    const oldStatus = item.status;
+    
+    // SECURITY: Pre-flight lock validation (server-side check)
+    // Prevents stale UI from bypassing lock restrictions
+    if (!isAdmin) {
+      const serverLockStatus = await checkLockStatusServerSide(
+        supabase,
+        item.month,
+        item.year,
+        item.unlock_status,
+        item.approved_until
+      );
+      
+      if (serverLockStatus.isLocked) {
+        // A. Show error toast immediately (with longer duration)
+        toast({
+          title: '⛔ Modification Denied',
+          description: 'This reporting period is LOCKED. Refreshing data...',
+          variant: 'error',
+          duration: 4000 // 4 seconds to ensure user reads it
+        });
+        
+        // B. Clear any loading state
+        setUpdatingId(null);
+        
+        // C. Delay the FULL refresh by 2 seconds so user can read the message
+        // CRITICAL: Refresh BOTH action plans AND lock settings (deadline rules)
+        // This ensures the UI shows correct locked state after admin changes deadlines
+        setTimeout(async () => {
+          await Promise.all([
+            onRefresh ? onRefresh() : Promise.resolve(),  // Refresh action plans
+            fetchLockSettings()                            // Refresh deadline rules
+          ]);
+        }, 2000);
+        return;
+      }
+    }
+    
     if (newStatus === 'Achieved' && !isAdmin) {
       if (onCompletionStatusChange) {
         onCompletionStatusChange(item, newStatus);
@@ -733,6 +896,11 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       await onStatusChange(item.id, newStatus);
     } catch (err) {
       console.error('Failed to update status:', err);
+      toast({
+        title: 'Update Failed',
+        description: 'Failed to update status. Please try again.',
+        variant: 'error'
+      });
     } finally {
       setUpdatingId(null);
     }
@@ -770,8 +938,8 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           <table className="w-full border-separate border-spacing-0">
             <thead>
               <tr className="bg-gray-50 text-gray-600">
-                {/* First column header - sticky left */}
-                <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider sticky left-0 z-10 bg-gray-50 border-b border-r border-gray-200">#</th>
+                {/* First column header - sticky left, z-30 to stay above sticky columns */}
+                <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider sticky left-0 z-30 bg-gray-50 border-b border-r border-gray-200">#</th>
                 {showDepartmentColumn && (
                   <SortableHeader columnKey="department_code">Dept</SortableHeader>
                 )}
@@ -786,8 +954,8 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   }
                   return renderColumnHeader(colId);
                 })}
-                {/* Last column header - sticky right */}
-                <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider sticky right-0 z-10 bg-gray-50 border-b border-l border-gray-200">Actions</th>
+                {/* Last column header - sticky right, z-30 to stay above sticky columns */}
+                <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider sticky right-0 z-30 bg-gray-50 border-b border-l border-gray-200">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -802,10 +970,52 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   </td>
                 </tr>
               ) : (
-                paginatedData.map((item, index) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors group/row">
-                    {/* First column - sticky left, z-0 to stay below headers */}
-                    <td className="px-4 py-3 text-sm text-gray-600 sticky left-0 z-0 bg-white group-hover/row:bg-gray-50 border-b border-r border-gray-100">{indexOfFirstItem + index + 1}</td>
+                paginatedData.map((item, index) => {
+                  // Calculate lock status once per row
+                  const itemLockStatus = getLockStatus(
+                    item.month,
+                    item.year,
+                    item.unlock_status,
+                    item.approved_until,
+                    lockSettings
+                  );
+                  const isDateLocked = itemLockStatus.isLocked;
+                  const lockMessage = getLockStatusMessage(itemLockStatus);
+                  
+                  // Determine if row should have "Ghost Style" (visually distinct locked appearance)
+                  // Apply when date-locked AND not admin AND not approved for unlock
+                  const isGhostRow = isDateLocked && !isAdmin && item.unlock_status !== 'approved';
+                  
+                  // Define row background color for sticky column consistency
+                  const rowBgColor = isGhostRow ? 'bg-gray-100' : 'bg-white';
+                  const rowHoverBgColor = isGhostRow ? 'group-hover/row:bg-gray-200' : 'group-hover/row:bg-gray-50';
+                  
+                  return (
+                  <tr 
+                    key={item.id} 
+                    onMouseDown={(e) => {
+                      mouseDownCoords.current = { x: e.clientX, y: e.clientY };
+                    }}
+                    onClick={(e) => {
+                      // Calculate distance moved since mousedown
+                      const dx = Math.abs(e.clientX - mouseDownCoords.current.x);
+                      const dy = Math.abs(e.clientY - mouseDownCoords.current.y);
+                      // Only trigger view if it was a static click (not a drag)
+                      if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) {
+                        setViewPlan(item);
+                      }
+                    }}
+                    className={`transition-colors group/row cursor-pointer ${rowBgColor} ${
+                      isGhostRow 
+                        ? 'border-l-4 border-l-amber-400 grayscale-[40%] opacity-80 hover:opacity-95 hover:grayscale-[20%] hover:bg-gray-200' 
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {/* First column - sticky left, z-20 (above scrolling content, below headers) */}
+                    {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
+                    <td className={`px-4 py-3 text-sm sticky left-0 z-20 border-b border-r border-gray-100 ${rowBgColor} ${rowHoverBgColor} ${
+                      isGhostRow ? 'text-gray-400' : 'text-gray-600'
+                    }`}>{indexOfFirstItem + index + 1}</td>
                     {showDepartmentColumn && (
                       <td className="px-4 py-3 border-b border-gray-100">
                         <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800" title={getDeptName(item.department_code)}>
@@ -817,8 +1027,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                     {columnOrder.map(colId => {
                       // Status cell - complex with dropdown/badge
                       if (colId === 'status' && visibleColumns.status) {
+                        // Determine if status dropdown should be disabled due to date lock
+                        const isStatusLocked = !isAdmin && (isDateLocked || item.submission_status === 'submitted');
                         return (
-                          <td key={colId} className="px-4 py-3 border-b border-gray-100">
+                          <td key={colId} className="px-4 py-3 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
                             <div className="relative flex flex-col gap-1">
                               {updatingId === item.id && (
                                 <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
@@ -834,12 +1046,12 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                   >
                                     {item.status}
                                   </span>
-                                ) : item.submission_status === 'submitted' ? (
+                                ) : isStatusLocked ? (
                                   <span
                                     className={`px-3 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1 cursor-help ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}
-                                    title={item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading."}
+                                    title={isDateLocked ? lockMessage : (item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading.")}
                                   >
-                                    <Lock className="w-3 h-3" />
+                                    {isDateLocked ? <LockKeyhole className="w-3 h-3 text-amber-500" /> : <Lock className="w-3 h-3" />}
                                     {item.status}
                                   </span>
                                 ) : (
@@ -920,23 +1132,29 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                       // Other columns use the renderer
                       return renderColumnCell(colId, item);
                     })}
-                    {/* Last column - sticky right, z-0 to stay below headers */}
-                    <td className="px-4 py-3 sticky right-0 z-0 bg-white group-hover/row:bg-gray-50 border-b border-l border-gray-100">
+                    {/* Last column - sticky right, z-20 (above scrolling content, below headers) */}
+                    {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
+                    <td className={`px-4 py-3 sticky right-0 z-20 border-b border-l border-gray-100 ${rowBgColor} ${rowHoverBgColor}`} onClick={(e) => e.stopPropagation()}>
                       <ActionCell
                         item={item}
                         isAdmin={isAdmin}
                         isStaff={isStaff}
+                        isLeader={isLeader}
                         profile={profile}
                         onGrade={onGrade}
                         onQuickReset={onQuickReset}
                         onEdit={onEdit}
                         onDelete={onDelete}
+                        onRequestUnlock={onRequestUnlock}
                         openHistory={openHistory}
                         isReadOnly={isReadOnly}
+                        isDateLocked={isDateLocked}
+                        lockStatusMessage={lockMessage}
                       />
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

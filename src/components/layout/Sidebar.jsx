@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useDepartments } from '../../hooks/useDepartments';
+import { supabase } from '../../lib/supabase';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -10,6 +12,37 @@ export default function Sidebar() {
   const { profile, isAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { departments, loading: deptLoading } = useDepartments();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
+  
+  // Pending unlock requests count (Admin only)
+  const [pendingCount, setPendingCount] = useState(0);
+  
+  useEffect(() => {
+    if (!isAdmin || !supabase) return;
+    
+    // Fetch initial count
+    const fetchCount = async () => {
+      const { count, error } = await supabase
+        .from('action_plans')
+        .select('*', { count: 'exact', head: true })
+        .eq('unlock_status', 'pending');
+      
+      if (!error) setPendingCount(count || 0);
+    };
+    
+    fetchCount();
+    
+    // Subscribe to changes
+    const channel = supabase
+      .channel('pending_unlock_count')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'action_plans' },
+        () => fetchCount()
+      )
+      .subscribe();
+    
+    return () => supabase.removeChannel(channel);
+  }, [isAdmin]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -30,6 +63,7 @@ export default function Sidebar() {
     if (path === '/settings') return location.pathname === '/settings';
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/workspace') return location.pathname === '/workspace';
+    if (path === '/approvals') return location.pathname === '/approvals';
     // Department routes
     if (path.startsWith('/dept/')) {
       return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -117,6 +151,20 @@ export default function Sidebar() {
             {isAdmin && (
               <>
                 <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
+                <button
+                  onClick={() => navigate('/approvals')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                    isActive('/approvals') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <Inbox className="w-4 h-4" />
+                  <span className="text-sm flex-1">Approvals</span>
+                  {pendingCount > 0 && (
+                    <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                      {pendingCount > 99 ? '99+' : pendingCount}
+                    </span>
+                  )}
+                </button>
                 <button
                   onClick={() => navigate('/users')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${

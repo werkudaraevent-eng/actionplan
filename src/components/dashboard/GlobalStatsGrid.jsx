@@ -103,11 +103,30 @@ export default function GlobalStatsGrid({
     const assessableCount = assessablePlans.length;
     const completionRate = assessableCount > 0 ? Number(((achieved / assessableCount) * 100).toFixed(1)) : 0;
 
-    // Verification Score: Average of graded items from assessable plans only
-    const gradedPlans = assessablePlans.filter(p => p.quality_score != null && p.quality_score > 0);
-    const totalScore = gradedPlans.reduce((acc, curr) => acc + parseInt(curr.quality_score, 10), 0);
-    const qualityScore = gradedPlans.length > 0 ? Number((totalScore / gradedPlans.length).toFixed(1)) : null;
-    const gradedCount = gradedPlans.length;
+    // Verification Score: Average score of FINALIZED items (Achieved + Not Achieved)
+    // - "Achieved" items: Use their actual quality_score (or 0 if null)
+    // - "Not Achieved" items: Treated as score 0 (failure penalty)
+    // This ensures the score reflects overall performance, not just successful items
+    const finalizedPlans = assessablePlans.filter(p => 
+      p.status === 'Achieved' || p.status === 'Not Achieved'
+    );
+    
+    let qualityScore = null;
+    let gradedCount = 0;
+    
+    if (finalizedPlans.length > 0) {
+      const totalScore = finalizedPlans.reduce((acc, plan) => {
+        // Not Achieved = 0 score (failure penalty)
+        // Achieved = actual score or 0 if not graded yet
+        const scoreValue = plan.status === 'Not Achieved' 
+          ? 0 
+          : (plan.quality_score != null ? parseInt(plan.quality_score, 10) : 0);
+        return acc + scoreValue;
+      }, 0);
+      
+      qualityScore = Number((totalScore / finalizedPlans.length).toFixed(1));
+      gradedCount = finalizedPlans.length;
+    }
 
     return {
       total,
@@ -259,11 +278,12 @@ export default function GlobalStatsGrid({
             {stats.qualityScore !== null ? (
               <>
                 <p>Average: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
-                <p className="text-xs text-gray-400">Based on {stats.gradedCount} graded {scope === 'personal' ? 'tasks' : 'items'}</p>
+                <p className="text-xs text-gray-400">Based on {stats.gradedCount} finalized {scope === 'personal' ? 'tasks' : 'items'}</p>
+                <p className="text-xs text-gray-500 mt-1">(Not Achieved items count as 0%)</p>
                 <p className="text-xs text-gray-400 mt-1">Company Target: {QUALITY_SCORE_TARGET}%</p>
               </>
             ) : (
-              <p className="text-xs text-gray-400">No graded submissions yet</p>
+              <p className="text-xs text-gray-400">No finalized items yet</p>
             )}
           </div>
         }

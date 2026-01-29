@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import UserModal from './UserModal';
 import ConfirmationModal from '../common/ConfirmationModal';
 import CredentialSuccessModal from './CredentialSuccessModal';
@@ -10,6 +11,7 @@ import { useDepartments } from '../../hooks/useDepartments';
 const TEMP_PASSWORD = 'Werkudara123!';
 
 export default function UserManagement({ initialFilter = '' }) {
+  const { isAdmin } = useAuth();
   const { toast } = useToast();
   const { departments, loading: deptLoading } = useDepartments();
   const [users, setUsers] = useState([]);
@@ -403,6 +405,7 @@ export default function UserManagement({ initialFilter = '' }) {
         onSave={handleSave}
         editData={userModal.editData}
         departments={departments}
+        isAdmin={isAdmin}
       />
 
       {/* Delete Confirmation */}

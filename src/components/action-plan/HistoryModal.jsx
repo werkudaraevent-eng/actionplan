@@ -18,6 +18,10 @@ const CHANGE_TYPE_LABELS = {
   'REVISION_REQUESTED': { label: '↩️ Revision Requested', color: 'bg-amber-100 text-amber-700', icon: '↩️' },
   'LEADER_BATCH_SUBMIT': { label: 'Leader Submitted to Admin', color: 'bg-blue-100 text-blue-700', icon: '📤' },
   'GRADE_RESET': { label: 'Assessment Cleared', color: 'bg-orange-100 text-orange-700', icon: '🔄' },
+  // Unlock workflow change types
+  'UNLOCK_REQUESTED': { label: 'Unlock Requested', color: 'bg-amber-100 text-amber-700', icon: '🔓' },
+  'UNLOCK_APPROVED': { label: 'Unlock Approved', color: 'bg-green-100 text-green-700', icon: '✅' },
+  'UNLOCK_REJECTED': { label: 'Unlock Rejected', color: 'bg-red-100 text-red-700', icon: '❌' },
 };
 
 function formatDate(dateString) {
@@ -236,6 +240,51 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
                                 <span className="text-amber-700">"{log.new_value.admin_feedback}"</span>
                               </div>
                             )}
+                          </div>
+                        )}
+                        
+                        {/* Show unlock request details */}
+                        {log.change_type === 'UNLOCK_REQUESTED' && log.new_value && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center gap-2 text-xs mb-2">
+                              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">Locked</span>
+                              <span className="text-gray-400">→</span>
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">Pending Approval</span>
+                            </div>
+                            {log.new_value.unlock_reason && (
+                              <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                                <span className="font-medium text-amber-800">Reason: </span>
+                                <span className="text-amber-700">"{log.new_value.unlock_reason}"</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Show unlock approval details */}
+                        {log.change_type === 'UNLOCK_APPROVED' && log.new_value && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center gap-2 text-xs mb-2">
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">Pending</span>
+                              <span className="text-gray-400">→</span>
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded">Approved</span>
+                            </div>
+                            {log.new_value.approved_until && (
+                              <div className="p-2 bg-green-50 border border-green-200 rounded text-xs">
+                                <span className="font-medium text-green-800">Editable until: </span>
+                                <span className="text-green-700">{new Date(log.new_value.approved_until).toLocaleDateString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Show unlock rejection details */}
+                        {log.change_type === 'UNLOCK_REJECTED' && (
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">Pending</span>
+                              <span className="text-gray-400">→</span>
+                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded">Rejected</span>
+                            </div>
                           </div>
                         )}
                       </div>

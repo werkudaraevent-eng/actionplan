@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, Lock, Calendar, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import ImportModal from '../components/action-plan/ImportModal';
+import BulkUpdateModal from '../components/action-plan/BulkUpdateModal';
 import { useToast } from '../components/common/Toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import MonthlyLockSchedule from '../components/common/MonthlyLockSchedule';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -12,6 +14,7 @@ const TABS = [
   { id: 'historical', label: 'Historical Data', icon: History },
   { id: 'dropdowns', label: 'Dropdown Options', icon: List },
   { id: 'data', label: 'Data Management', icon: Database },
+  { id: 'system', label: 'System', icon: Shield },
 ];
 
 const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
@@ -64,6 +67,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
         {activeTab === 'historical' && <HistoricalTab />}
         {activeTab === 'dropdowns' && <DropdownOptionsTab />}
         {activeTab === 'data' && <DataManagementTab />}
+        {activeTab === 'system' && <SystemSettingsTab />}
       </main>
     </div>
   );
@@ -1490,6 +1494,7 @@ function LoadingState() {
 function DataManagementTab() {
   const { toast } = useToast();
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1574,6 +1579,50 @@ function DataManagementTab() {
     }
   };
 
+  // Export IDs template for bulk update
+  const handleExportForBulkUpdate = () => {
+    try {
+      const exportData = plans.map(plan => ({
+        id: plan.id,
+        action_plan: plan.action_plan || '',
+        department_code: plan.department_code || '',
+        month: plan.month || '',
+        // Empty columns as hints for what can be updated
+        evidence: '',
+        outcome_link: '',
+        remark: '',
+        status: '',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Bulk Update Template');
+
+      ws['!cols'] = [
+        { wch: 40 }, // id (UUID)
+        { wch: 40 }, // action_plan
+        { wch: 12 }, // department_code
+        { wch: 8 },  // month
+        { wch: 30 }, // evidence
+        { wch: 40 }, // outcome_link
+        { wch: 30 }, // remark
+        { wch: 15 }, // status
+      ];
+
+      const timestamp = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `Bulk_Update_Template_${timestamp}.xlsx`);
+      
+      toast({ 
+        title: 'Template Downloaded', 
+        description: 'Fill in the columns you want to update, then upload using Step 2.', 
+        variant: 'success' 
+      });
+    } catch (error) {
+      console.error('Export template failed:', error);
+      toast({ title: 'Export Failed', description: 'Failed to create template.', variant: 'error' });
+    }
+  };
+
   if (loading) return <LoadingState />;
 
   return (
@@ -1641,6 +1690,646 @@ function DataManagementTab() {
         onClose={() => setShowImportModal(false)}
         onImportComplete={fetchPlans}
       />
+
+      {/* Universal Bulk Update Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-purple-200">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-purple-50 rounded-lg">
+            <RefreshCw className="w-6 h-6 text-purple-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-gray-800">🔄 Universal Bulk Update</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Update specific columns (e.g., evidence, outcome_link, remark) for existing action plans using an Excel file.
+            </p>
+            
+            {/* Info Box */}
+            <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+              <p className="text-xs text-purple-700">
+                <strong>How it works:</strong> Your Excel file must have an <code className="bg-purple-100 px-1 rounded">id</code> column (UUID). 
+                Any other column names will be matched to database columns and updated.
+              </p>
+            </div>
+            
+            {/* Two-Step Process */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Step 1: Export Template */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">📄 Step 1: Get Template</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Download a template with IDs and reference columns. Add your update columns.
+                </p>
+                <button
+                  onClick={handleExportForBulkUpdate}
+                  disabled={plans.length === 0}
+                  className="w-full px-4 py-2 border border-purple-400 text-purple-600 font-medium rounded-lg hover:bg-purple-50 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Export IDs Template
+                </button>
+              </div>
+              
+              {/* Step 2: Upload Update File */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2">📤 Step 2: Upload Updates</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Upload your filled Excel file to update matching records.
+                </p>
+                <button
+                  onClick={() => setShowBulkUpdateModal(true)}
+                  className="w-full px-4 py-2 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload Update File
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bulk Update Modal */}
+      <BulkUpdateModal
+        isOpen={showBulkUpdateModal}
+        onClose={() => setShowBulkUpdateModal(false)}
+        onUpdateComplete={fetchPlans}
+      />
+    </div>
+  );
+}
+
+
+// ==================== SYSTEM SETTINGS TAB ====================
+function SystemSettingsTab() {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState({
+    is_lock_enabled: true,
+    lock_cutoff_day: 6
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      
+      if (error) throw error;
+      if (data) {
+        setSettings({
+          is_lock_enabled: data.is_lock_enabled,
+          lock_cutoff_day: data.lock_cutoff_day
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching system settings:', error);
+      toast({ title: 'Error', description: 'Failed to load system settings.', variant: 'error' });
+    }
+    setLoading(false);
+  };
+
+  const handleToggleLock = async () => {
+    setSaving(true);
+    const newValue = !settings.is_lock_enabled;
+    
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({ is_lock_enabled: newValue })
+        .eq('id', 1);
+      
+      if (error) throw error;
+      
+      setSettings(prev => ({ ...prev, is_lock_enabled: newValue }));
+      toast({ 
+        title: 'Settings Updated', 
+        description: `Auto-lock has been ${newValue ? 'enabled' : 'disabled'}.`, 
+        variant: 'success' 
+      });
+    } catch (error) {
+      console.error('Error updating lock setting:', error);
+      toast({ title: 'Error', description: 'Failed to update setting.', variant: 'error' });
+    }
+    setSaving(false);
+  };
+
+  const handleCutoffDayChange = (value) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 1 || num > 28) return;
+    setSettings(prev => ({ ...prev, lock_cutoff_day: num }));
+  };
+
+  const handleSaveCutoffDay = async () => {
+    setSaving(true);
+    
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({ lock_cutoff_day: settings.lock_cutoff_day })
+        .eq('id', 1);
+      
+      if (error) throw error;
+      
+      toast({ 
+        title: 'Settings Updated', 
+        description: `Lock cutoff day set to the ${getOrdinal(settings.lock_cutoff_day)} of each month.`, 
+        variant: 'success' 
+      });
+    } catch (error) {
+      console.error('Error updating cutoff day:', error);
+      toast({ title: 'Error', description: 'Failed to update setting.', variant: 'error' });
+    }
+    setSaving(false);
+  };
+
+  // Helper to get ordinal suffix (1st, 2nd, 3rd, etc.)
+  const getOrdinal = (n) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
+  if (loading) return <LoadingState />;
+
+  return (
+    <div className="space-y-6">
+      {/* Auto-Lock Configuration Card */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-teal-100 rounded-lg">
+              <Lock className="w-5 h-5 text-teal-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Auto-Lock Configuration</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Control when action plans become read-only
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-5 space-y-6">
+          {/* Toggle Section */}
+          <div className="flex items-start justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-gray-800">Enable Auto-Lock</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  settings.is_lock_enabled 
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-gray-200 text-gray-600'
+                }`}>
+                  {settings.is_lock_enabled ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1.5 max-w-md">
+                When enabled, action plans automatically become read-only after the cutoff date. 
+                Users must request unlock approval to make changes.
+              </p>
+            </div>
+            <button
+              onClick={handleToggleLock}
+              disabled={saving}
+              className={`p-1 rounded-lg transition-all ${
+                settings.is_lock_enabled 
+                  ? 'text-teal-600 hover:bg-teal-50' 
+                  : 'text-gray-400 hover:bg-gray-100'
+              }`}
+              title={settings.is_lock_enabled ? 'Click to disable' : 'Click to enable'}
+            >
+              {saving ? (
+                <Loader2 className="w-10 h-10 animate-spin text-gray-400" />
+              ) : settings.is_lock_enabled ? (
+                <ToggleRight className="w-10 h-10" />
+              ) : (
+                <ToggleLeft className="w-10 h-10" />
+              )}
+            </button>
+          </div>
+
+          {/* Cutoff Day Section - Only visible when lock is enabled */}
+          {settings.is_lock_enabled && (
+            <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <label className="font-semibold text-gray-800 block">
+                    Lock Cutoff Day
+                  </label>
+                  <p className="text-sm text-gray-500 mt-1 mb-3">
+                    Action plans lock on this day of the <strong>following month</strong>.
+                  </p>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2">
+                      <span className="text-sm text-gray-500">Day:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="28"
+                        value={settings.lock_cutoff_day}
+                        onChange={(e) => handleCutoffDayChange(e.target.value)}
+                        className="w-16 px-2 py-1 text-center font-semibold text-gray-800 border border-gray-200 rounded focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    <button
+                      onClick={handleSaveCutoffDay}
+                      disabled={saving}
+                      className="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                    >
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save
+                    </button>
+                  </div>
+
+                  {/* Example Box */}
+                  <div className="mt-4 p-3 bg-white rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-700">
+                      <strong>Example:</strong> If set to <span className="font-mono bg-blue-100 px-1 rounded">{settings.lock_cutoff_day}</span>, 
+                      action plans for <strong>January</strong> will lock on <strong>February {settings.lock_cutoff_day}</strong> at 11:59 PM.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Info Box */}
+          <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-800">
+              <p className="font-medium">How Unlock Requests Work</p>
+              <ul className="mt-1.5 space-y-1 text-amber-700">
+                <li>• Users can request to unlock a locked plan by providing a reason</li>
+                <li>• Admins review and approve/reject unlock requests</li>
+                <li>• Approved plans can be edited until the approval expires</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Monthly Lock Schedule - Only visible when lock is enabled */}
+      {settings.is_lock_enabled && (
+        <MonthlyLockSchedule defaultCutoffDay={settings.lock_cutoff_day} />
+      )}
+
+      {/* Developer Zone - UAT/Testing Cleanup Tools */}
+      <DeveloperZone />
+    </div>
+  );
+}
+
+// ==================== DEVELOPER ZONE (UAT CLEANUP) ====================
+function DeveloperZone() {
+  const { toast } = useToast();
+  const [resetting, setResetting] = useState(false);
+  const [hardResetting, setHardResetting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showHardResetConfirm, setShowHardResetConfirm] = useState(false);
+  const [affectedCount, setAffectedCount] = useState(null);
+
+  // Check how many records would be affected
+  const checkAffectedRecords = async () => {
+    try {
+      // Count records with any unlock-related data
+      const { data, error } = await supabase
+        .from('action_plans')
+        .select('id')
+        .not('unlock_status', 'is', null);
+      
+      if (error) throw error;
+      setAffectedCount(data?.length || 0);
+      setShowConfirm(true);
+    } catch (err) {
+      console.error('Error checking affected records:', err);
+      toast({ title: 'Error', description: 'Failed to check affected records.', variant: 'error' });
+    }
+  };
+
+  // Reset all lock/unlock statuses
+  const handleResetLocks = async () => {
+    setResetting(true);
+    
+    try {
+      // Step 1: Reset all unlock-related columns to null
+      const { error: resetError } = await supabase
+        .from('action_plans')
+        .update({
+          unlock_status: null,
+          unlock_reason: null,
+          unlock_requested_at: null,
+          unlock_requested_by: null,
+          unlock_approved_at: null,
+          unlock_approved_by: null,
+          unlock_rejection_reason: null,
+          approved_until: null
+        })
+        .not('id', 'is', null); // Update all records
+
+      if (resetError) throw resetError;
+
+      // Step 2: Revert "Not Achieved" plans with system rejection remarks back to "Open"
+      // Only target plans that have the system rejection remark pattern
+      const { error: statusError } = await supabase
+        .from('action_plans')
+        .update({
+          status: 'Open',
+          remark: null
+        })
+        .eq('status', 'Not Achieved')
+        .like('remark', '%[System] Unlock Request Rejected%');
+
+      if (statusError) throw statusError;
+
+      toast({ 
+        title: 'Reset Complete', 
+        description: 'All lock/unlock statuses have been cleared. Rejected plans reverted to "Open".', 
+        variant: 'success' 
+      });
+      
+      setShowConfirm(false);
+      setAffectedCount(null);
+    } catch (err) {
+      console.error('Reset failed:', err);
+      toast({ title: 'Reset Failed', description: err.message || 'Unknown error occurred.', variant: 'error' });
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  // HARD RESET: Call RPC function to sanitize ALL simulation data
+  const handleHardReset = async () => {
+    setHardResetting(true);
+    
+    try {
+      const { error } = await supabase.rpc('reset_simulation_data');
+      
+      if (error) throw error;
+      
+      setShowHardResetConfirm(false);
+      toast({ 
+        title: '✅ System Sanitized!', 
+        description: 'All action plans are now "Open" and clean.', 
+        variant: 'success' 
+      });
+      
+      // Reload after a brief delay so user sees the toast
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      console.error('Hard reset failed:', err);
+      toast({ 
+        title: 'Reset Failed', 
+        description: err.message || 'Unknown error occurred.', 
+        variant: 'error' 
+      });
+    } finally {
+      setHardResetting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
+      {/* Header */}
+      <div className="p-5 border-b border-red-100 bg-gradient-to-r from-red-50 to-white">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-red-100 rounded-lg">
+            <AlertTriangle className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">⚠️ Developer Zone</h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              UAT/Testing cleanup tools - Use with caution
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-5 space-y-4">
+        {/* Soft Reset - Lock/Unlock Only */}
+        <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200">
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <h4 className="font-semibold text-gray-800">Reset Lock/Unlock Statuses</h4>
+              <p className="text-sm text-gray-600 mt-1 mb-3">
+                Clears all unlock request data and reverts rejected plans back to "Open" status. 
+                Use this to clean up messy test data during UAT.
+              </p>
+              
+              <div className="text-xs text-gray-500 space-y-1 mb-4">
+                <p><strong>This will reset:</strong></p>
+                <ul className="list-disc list-inside ml-2 space-y-0.5">
+                  <li><code className="bg-gray-100 px-1 rounded">unlock_status</code> → null</li>
+                  <li><code className="bg-gray-100 px-1 rounded">unlock_reason</code> → null</li>
+                  <li><code className="bg-gray-100 px-1 rounded">unlock_requested_at</code> → null</li>
+                  <li><code className="bg-gray-100 px-1 rounded">unlock_rejection_reason</code> → null</li>
+                  <li>Plans with "[System] Rejected" remarks → status: "Open", remark: null</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={checkAffectedRecords}
+                disabled={resetting || hardResetting}
+                className="flex items-center gap-2 px-4 py-2 border-2 border-amber-500 text-amber-600 font-semibold rounded-lg hover:bg-amber-50 disabled:opacity-50 transition-colors"
+              >
+                {resetting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4" />
+                )}
+                Reset Lock/Unlock Statuses
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* HARD RESET - God Mode */}
+        <div className="p-4 bg-red-50 rounded-xl border-2 border-red-300">
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h4 className="font-bold text-red-700">🔥 God Mode: Full System Sanitize</h4>
+              </div>
+              <p className="text-sm text-red-600 mt-1 mb-3">
+                Nuclear option. Calls the <code className="bg-red-100 px-1 rounded">reset_simulation_data</code> RPC function to wipe ALL trial data back to a clean state.
+              </p>
+              
+              <div className="text-xs text-red-500 space-y-1 mb-4">
+                <p><strong>This will reset ALL action plans:</strong></p>
+                <ul className="list-disc list-inside ml-2 space-y-0.5">
+                  <li><code className="bg-red-100 px-1 rounded">status</code> → 'Open'</li>
+                  <li><code className="bg-red-100 px-1 rounded">remark</code> → NULL</li>
+                  <li><code className="bg-red-100 px-1 rounded">unlock_status</code> → NULL</li>
+                  <li><code className="bg-red-100 px-1 rounded">unlock_reason</code> → NULL</li>
+                  <li><code className="bg-red-100 px-1 rounded">unlock_rejection_reason</code> → NULL</li>
+                  <li>All unlock request timestamps → NULL</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => setShowHardResetConfirm(true)}
+                disabled={resetting || hardResetting}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {hardResetting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sanitizing...
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    🔥 HARD RESET - Sanitize All Data
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Confirmation Modal for Soft Reset */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Confirm Reset</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone</p>
+              </div>
+            </div>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-amber-800">
+                This will reset unlock status, reasons, and revert rejected plans to "Open" for <strong>ALL</strong> action plans.
+              </p>
+              {affectedCount !== null && (
+                <p className="text-sm text-amber-700 mt-2">
+                  <strong>{affectedCount}</strong> record(s) have unlock-related data that will be cleared.
+                </p>
+              )}
+            </div>
+            
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to continue?
+            </p>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowConfirm(false);
+                  setAffectedCount(null);
+                }}
+                disabled={resetting}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetLocks}
+                disabled={resetting}
+                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {resetting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Resetting...
+                  </>
+                ) : (
+                  'Yes, Reset All'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Hard Reset (God Mode) */}
+      {showHardResetConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            {/* Modal Header - Red gradient */}
+            <div className="bg-gradient-to-r from-red-600 to-red-500 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <Shield className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">🔥 God Mode Activated</h3>
+                  <p className="text-red-100 text-sm">Full System Sanitize</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-red-800 font-medium mb-2">
+                  ⚠️ DANGER: This will reset ALL Action Plans
+                </p>
+                <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+                  <li>Status → 'Open'</li>
+                  <li>Remarks → Cleared</li>
+                  <li>Unlock requests → Cleared</li>
+                  <li>Rejection reasons → Cleared</li>
+                </ul>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-2">
+                Data content (goals, indicators, PICs) will remain intact. Only statuses and workflow data will be wiped.
+              </p>
+              
+              <p className="text-sm font-semibold text-gray-800">
+                Are you absolutely sure?
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowHardResetConfirm(false)}
+                disabled={hardResetting}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleHardReset}
+                disabled={hardResetting}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                {hardResetting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sanitizing...
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    Yes, Sanitize All
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

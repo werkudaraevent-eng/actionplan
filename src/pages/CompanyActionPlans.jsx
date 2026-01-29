@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, RotateCcw, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -24,7 +24,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const { toast } = useToast();
   const { departments } = useDepartments();
   // Fetch ALL plans (no department filter)
-  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan, bulkResetGrades } = useActionPlans(null);
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan } = useActionPlans(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
@@ -53,11 +53,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   // Grade modal state
   const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
-
-  // Bulk reset state
-  const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
-  const [resettingAll, setResettingAll] = useState(false);
-  const [resetConfirmationText, setResetConfirmationText] = useState('');
 
   // Soft refresh state
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -88,26 +83,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       p.submission_status === 'submitted' && p.quality_score == null
     ).length;
   }, [plans]);
-
-  // Count graded items (for bulk reset feature)
-  const gradedCount = useMemo(() => {
-    return plans.filter(p => p.quality_score != null).length;
-  }, [plans]);
-
-  // Bulk reset handler
-  const handleBulkReset = async () => {
-    setResettingAll(true);
-    try {
-      const count = await bulkResetGrades();
-      toast({ title: 'Bulk Reset Complete', description: `Successfully reset ${count} graded items.`, variant: 'success' });
-      setShowBulkResetConfirm(false);
-    } catch (error) {
-      console.error('Bulk reset failed:', error);
-      toast({ title: 'Reset Failed', description: error.message || 'Failed to reset grades.', variant: 'error' });
-    } finally {
-      setResettingAll(false);
-    }
-  };
 
   // Department filter for grading tab
   const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
@@ -444,20 +419,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         searchPlaceholder="Search across all departments..."
         headerActions={
           <>
-            {/* Bulk Reset All Grades Button - Danger Zone */}
-            {gradedCount > 0 && (
-              <button
-                onClick={() => setShowBulkResetConfirm(true)}
-                disabled={resettingAll}
-                className="flex items-center gap-2 px-4 py-2.5 border border-red-300 text-red-600 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Reset All Grades
-                <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs font-bold rounded">
-                  {gradedCount}
-                </span>
-              </button>
-            )}
             {/* Soft Refresh Button */}
             <button
               onClick={handleRefresh}
@@ -606,6 +567,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             onCompletionStatusChange={handleCompletionStatusChange}
             onGrade={handleOpenGradeModal}
             onQuickReset={handleQuickReset}
+            onRefresh={refetch}
             showDepartmentColumn={true}
             visibleColumns={visibleColumns}
             columnOrder={columnOrder}
@@ -645,85 +607,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         onGrade={handleGrade}
         plan={gradeModal.plan}
       />
-
-      {/* Bulk Reset Confirmation Modal */}
-      {showBulkResetConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">Complete Wipe All?</h3>
-                <p className="text-sm text-gray-500">This is a destructive action</p>
-              </div>
-            </div>
-
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-              <p className="text-red-800 text-sm font-medium mb-2">
-                ⚠️ DANGER: COMPLETE WIPE
-              </p>
-              <p className="text-red-700 text-sm">
-                You are about to wipe <strong>{gradedCount}</strong> graded items. This will reset them as if they were never submitted:
-              </p>
-              <ul className="text-red-700 text-sm mt-2 space-y-1 list-disc list-inside">
-                <li>Remove all verification scores</li>
-                <li>Revert all statuses to "Open"</li>
-                <li>Clear all admin feedback</li>
-                <li>Clear all proof of evidence links</li>
-                <li>Clear all staff remarks</li>
-              </ul>
-              <p className="text-red-800 text-sm font-medium mt-3">
-                This action cannot be undone!
-              </p>
-            </div>
-
-            {/* Type-to-Confirm Safety */}
-            <div className="mb-4">
-              <label className="text-sm text-gray-700 block mb-2">
-                To confirm, type <span className="font-bold text-red-600 select-none">RESET</span> below:
-              </label>
-              <input
-                type="text"
-                value={resetConfirmationText}
-                onChange={(e) => setResetConfirmationText(e.target.value)}
-                placeholder="Type RESET to confirm"
-                autoComplete="off"
-                className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowBulkResetConfirm(false);
-                  setResetConfirmationText('');
-                }}
-                disabled={resettingAll}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  handleBulkReset();
-                  setResetConfirmationText('');
-                }}
-                disabled={resettingAll || resetConfirmationText !== 'RESET'}
-                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {resettingAll ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-4 h-4" />
-                )}
-                {resettingAll ? 'Wiping...' : 'Complete Wipe All'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Quick Reset Confirmation Modal (Individual Item) */}
       {quickResetItem && (

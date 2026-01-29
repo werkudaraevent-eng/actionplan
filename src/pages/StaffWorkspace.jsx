@@ -28,7 +28,7 @@ export default function StaffWorkspace() {
   // Use currentDept if available, fallback to departmentCode (primary department)
   const activeDept = currentDept || departmentCode;
   
-  const { plans, loading, updatePlan, updateStatus } = useActionPlans(activeDept);
+  const { plans, loading, updatePlan, updateStatus, refetch } = useActionPlans(activeDept);
   const { departments } = useDepartments();
   const { toast } = useToast();
   
@@ -328,6 +328,7 @@ export default function StaffWorkspace() {
               onDelete={handleDelete}
               onStatusChange={handleStatusChange}
               onCompletionStatusChange={handleCompletionStatusChange}
+              onRefresh={refetch}
               showDepartmentColumn={true}
               visibleColumns={visibleColumns}
               columnOrder={columnOrder}

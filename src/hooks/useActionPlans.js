@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
+import { checkLockStatusServerSide } from '../utils/lockUtils';
 
 // Helper to create audit log entry
 async function createAuditLog(actionPlanId, userId, changeType, previousValue, newValue, description) {
@@ -244,9 +245,29 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Update plan with detailed audit logging
-  const updatePlan = async (id, updates, previousData = null) => {
+  const updatePlan = async (id, updates, previousData = null, skipLockCheck = false) => {
     // Get previous data from state if not provided
     const original = previousData || plans.find((p) => p.id === id);
+    
+    // PRE-FLIGHT LOCK CHECK: Verify the plan is still editable before saving
+    // This prevents stale state issues where admin updated deadlines after user loaded the page
+    // Skip check for admin operations or when explicitly bypassed
+    if (!skipLockCheck && original?.month && original?.year) {
+      const lockStatus = await checkLockStatusServerSide(
+        supabase,
+        original.month,
+        original.year || new Date().getFullYear(),
+        original.unlock_status,
+        original.approved_until
+      );
+      
+      if (lockStatus.isLocked) {
+        const error = new Error('PERIOD_LOCKED');
+        error.code = 'PERIOD_LOCKED';
+        error.message = `⛔ Action Denied: The deadline for ${original.month} has passed or was updated by Admin. Please refresh the page.`;
+        throw error;
+      }
+    }
     
     // SMART FEEDBACK CLEARING: When re-submitting after revision, clear old feedback
     // This prevents stale revision notes from appearing on successfully fixed items
@@ -1063,6 +1084,130 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
+  // Approve unlock request (Admin only)
+  // Sets unlock_status to 'approved' and optionally sets an expiry date
+  const approveUnlockRequest = async (id, approvalDurationDays = 7) => {
+    const original = plans.find((p) => p.id === id);
+    if (!original) throw new Error('Plan not found');
+    
+    const { id: userId, name: userName } = await getCurrentUser();
+    const approvedAt = new Date().toISOString();
+    const approvedUntil = new Date(Date.now() + approvalDurationDays * 24 * 60 * 60 * 1000).toISOString();
+    
+    const updateData = {
+      unlock_status: 'approved',
+      unlock_approved_by: userId,
+      unlock_approved_at: approvedAt,
+      approved_until: approvedUntil
+    };
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updateData, updated_at: new Date().toISOString() } : p))
+    );
+
+    try {
+      const { data, error } = await supabase
+        .from('action_plans')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      setPlans((prev) =>
+        prev.map((p) => (p.id === id ? data : p))
+      );
+
+      // Audit log for unlock approval
+      if (userId) {
+        await createAuditLog(
+          id,
+          userId,
+          'UNLOCK_APPROVED',
+          { 
+            unlock_status: original.unlock_status,
+            unlock_reason: original.unlock_reason
+          },
+          { 
+            unlock_status: 'approved',
+            approved_until: approvedUntil
+          },
+          `Unlock approved by ${userName}. Plan editable until ${new Date(approvedUntil).toLocaleDateString()}. Original reason: "${original.unlock_reason || 'Not specified'}"`
+        );
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Approve unlock failed:', err);
+      throw err;
+    }
+  };
+
+  // Reject unlock request (Admin only)
+  const rejectUnlockRequest = async (id, rejectionReason = '') => {
+    const original = plans.find((p) => p.id === id);
+    if (!original) throw new Error('Plan not found');
+    
+    const { id: userId, name: userName } = await getCurrentUser();
+    
+    const updateData = {
+      unlock_status: 'rejected',
+      unlock_approved_by: userId,
+      unlock_approved_at: new Date().toISOString(),
+      approved_until: null
+    };
+    
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updateData, updated_at: new Date().toISOString() } : p))
+    );
+
+    try {
+      const { data, error } = await supabase
+        .from('action_plans')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      setPlans((prev) =>
+        prev.map((p) => (p.id === id ? data : p))
+      );
+
+      // Audit log for unlock rejection
+      if (userId) {
+        await createAuditLog(
+          id,
+          userId,
+          'UNLOCK_REJECTED',
+          { 
+            unlock_status: original.unlock_status,
+            unlock_reason: original.unlock_reason
+          },
+          { 
+            unlock_status: 'rejected'
+          },
+          `Unlock rejected by ${userName}. ${rejectionReason ? `Reason: "${rejectionReason}"` : 'No reason provided.'} Original request: "${original.unlock_reason || 'Not specified'}"`
+        );
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Reject unlock failed:', err);
+      throw err;
+    }
+  };
+
   return {
     plans,
     setPlans,
@@ -1083,6 +1228,8 @@ export function useActionPlans(departmentCode = null) {
     gradePlan,
     resetPlan,
     bulkResetGrades,
+    approveUnlockRequest,
+    rejectUnlockRequest,
   };
 }
 

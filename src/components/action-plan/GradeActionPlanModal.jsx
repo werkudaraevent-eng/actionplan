@@ -1,6 +1,24 @@
 import { useState, useEffect } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+
+// Helper function for priority badge styling
+const getPriorityStyle = (priority) => {
+  const p = (priority || '').toLowerCase();
+  if (p.includes('ultra') || p.includes('uh')) {
+    return { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200', icon: true };
+  }
+  if (p.includes('high') || p === 'h') {
+    return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', icon: false };
+  }
+  if (p.includes('medium') || p === 'm') {
+    return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', icon: false };
+  }
+  if (p.includes('low') || p === 'l') {
+    return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200', icon: false };
+  }
+  return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200', icon: false };
+};
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
   const { profile } = useAuth();
@@ -197,6 +215,41 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                   Submitting will overwrite the existing score and feedback.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Strategic Context Section */}
+          {(plan.category || plan.area_focus || plan.goal_strategy) && (
+            <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+              {/* Row 1: Priority & Focus Area Badges */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Priority Badge */}
+                {plan.category && (() => {
+                  const style = getPriorityStyle(plan.category);
+                  return (
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${style.bg} ${style.text} ${style.border}`}>
+                      {style.icon && <Flame className="w-3 h-3" />}
+                      {plan.category}
+                    </span>
+                  );
+                })()}
+                
+                {/* Focus Area Badge */}
+                {plan.area_focus && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-700 border border-gray-300">
+                    <Target className="w-3 h-3" />
+                    {plan.area_focus}
+                  </span>
+                )}
+              </div>
+              
+              {/* Row 2: Strategic Goal */}
+              {plan.goal_strategy && (
+                <div>
+                  <h4 className="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-1">Strategic Goal</h4>
+                  <p className="text-sm text-gray-800 font-medium leading-snug">{plan.goal_strategy}</p>
+                </div>
+              )}
             </div>
           )}
           

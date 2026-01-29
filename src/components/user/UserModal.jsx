@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Loader2, User, Shield, Users } from 'lucide-react';
+import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 const ROLES = [
   { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings', color: 'purple' },
@@ -8,7 +9,7 @@ const ROLES = [
   { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only', color: 'gray' },
 ];
 
-export default function UserModal({ isOpen, onClose, onSave, editData, departments = [] }) {
+export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], isAdmin = false }) {
   const [formData, setFormData] = useState({
     email: '',
     full_name: '',
@@ -18,6 +19,13 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  
+  // Security section state
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [securityMessage, setSecurityMessage] = useState({ type: '', text: '' });
 
   const isEdit = !!editData;
 
@@ -43,6 +51,10 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
         });
       }
       setError('');
+      // Reset security section
+      setNewPassword('');
+      setShowPassword(false);
+      setSecurityMessage({ type: '', text: '' });
     }
   }, [isOpen, editData]);
 
@@ -71,6 +83,100 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       setError(err.message || 'Failed to save user');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Send password reset email
+  const handleSendResetEmail = async () => {
+    if (!formData.email) return;
+    
+    setSendingReset(true);
+    setSecurityMessage({ type: '', text: '' });
+    
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      
+      if (error) throw error;
+      
+      setSecurityMessage({ 
+        type: 'success', 
+        text: `Reset email sent to ${formData.email}` 
+      });
+    } catch (err) {
+      setSecurityMessage({ 
+        type: 'error', 
+        text: err.message || 'Failed to send reset email' 
+      });
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
+  // Manual password update via Edge Function
+  const handleManualPasswordUpdate = async () => {
+    if (!newPassword.trim() || newPassword.length < 6) {
+      setSecurityMessage({ 
+        type: 'error', 
+        text: 'Password must be at least 6 characters' 
+      });
+      return;
+    }
+    
+    setUpdatingPassword(true);
+    setSecurityMessage({ type: '', text: '' });
+    
+    try {
+      // Get current session for auth header
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated. Please log in again.');
+      
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) throw new Error('Supabase URL not configured');
+      
+      // Call edge function to update password
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/update-user-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            userId: editData.id,
+            newPassword: newPassword.trim(),
+          }),
+        }
+      );
+      
+      // Try to parse response
+      let result;
+      try {
+        result = await response.json();
+      } catch {
+        result = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      if (!response.ok) {
+        throw new Error(result.error || `Failed with status ${response.status}`);
+      }
+      
+      setSecurityMessage({ 
+        type: 'success', 
+        text: 'Password updated. Please inform the user of their new password.' 
+      });
+      setNewPassword('');
+      setShowPassword(false);
+    } catch (err) {
+      console.error('Password update error:', err);
+      setSecurityMessage({ 
+        type: 'error', 
+        text: err.message || 'Failed to update password' 
+      });
+    } finally {
+      setUpdatingPassword(false);
     }
   };
 
@@ -258,6 +364,104 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
               <div className="px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
                 Executives have view-only access to all departments. No editing rights.
               </div>
+            )}
+
+            {/* Security & Access Section - Only for Edit mode and Admin users */}
+            {isEdit && isAdmin && (
+              <>
+                <hr className="border-gray-200 my-2" />
+                
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Key className="w-4 h-4 text-gray-500" />
+                    <h3 className="text-sm font-semibold text-gray-700">Security & Access</h3>
+                  </div>
+                  
+                  {/* Security Message */}
+                  {securityMessage.text && (
+                    <div className={`px-3 py-2 rounded-lg text-xs mb-3 ${
+                      securityMessage.type === 'success' 
+                        ? 'bg-green-50 border border-green-200 text-green-700' 
+                        : 'bg-red-50 border border-red-200 text-red-700'
+                    }`}>
+                      {securityMessage.text}
+                    </div>
+                  )}
+                  
+                  {/* Option A: Send Reset Email */}
+                  <div className="mb-4">
+                    <button
+                      type="button"
+                      onClick={handleSendResetEmail}
+                      disabled={sendingReset || !formData.email}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {sendingReset ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Mail className="w-4 h-4" />
+                      )}
+                      {sendingReset ? 'Sending...' : 'Send Password Reset Email'}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1.5 text-center">
+                      Sends a system email to the user to reset their own password
+                    </p>
+                  </div>
+                  
+                  {/* Divider */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                    <span className="text-xs text-gray-400 font-medium">OR</span>
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                  </div>
+                  
+                  {/* Option B: Manual Password Update */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Set New Password (Manual)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Enter new password..."
+                        className="w-full px-3 py-2.5 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    
+                    {newPassword.trim() && (
+                      <button
+                        type="button"
+                        onClick={handleManualPasswordUpdate}
+                        disabled={updatingPassword || newPassword.length < 6}
+                        className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {updatingPassword ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Key className="w-4 h-4" />
+                        )}
+                        {updatingPassword ? 'Updating...' : 'Update Password'}
+                      </button>
+                    )}
+                    
+                    <div className="flex items-start gap-2 mt-2 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700">
+                        Emergency use only. You must inform the user of their new password.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Info for Add mode */}

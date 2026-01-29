@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, Send, FileSpreadsheet } from 'lucide-react';
+import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, Send, FileSpreadsheet, LockKeyhole, Unlock, X, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -11,7 +11,28 @@ import ActionPlanModal from '../components/action-plan/ActionPlanModal';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 import RecycleBinModal from '../components/action-plan/RecycleBinModal';
 import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
+import LockedMonthsSummary from '../components/common/LockedMonthsSummary';
+import ReportStatusMenu from '../components/action-plan/ReportStatusMenu';
 import { useToast } from '../components/common/Toast';
+import { supabase } from '../lib/supabase';
+import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../utils/lockUtils';
+
+// Helper to create audit log entry for unlock requests
+async function createUnlockAuditLog(actionPlanId, userId, changeType, previousValue, newValue, description) {
+  try {
+    await supabase.from('audit_logs').insert({
+      action_plan_id: actionPlanId,
+      user_id: userId,
+      change_type: changeType,
+      previous_value: previousValue,
+      new_value: newValue,
+      description: description,
+    });
+  } catch (err) {
+    console.error('Failed to create unlock audit log:', err);
+    // Don't throw - audit logging should not block the main operation
+  }
+}
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -25,7 +46,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const { departments } = useDepartments();
   const canManagePlans = (isAdmin || isLeader) && !isExecutive; // Executives cannot manage plans
   const canEdit = !isExecutive; // Executives have read-only access
-  const { plans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan } = useActionPlans(departmentCode);
+  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -40,6 +61,9 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
+  
+  // Smart filter for pending unlock requests
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
   
   // Legacy: Keep selectedMonth for backward compatibility with submit/recall logic
   const selectedMonth = startMonth === endMonth ? startMonth : 'all';
@@ -86,6 +110,109 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   
   // Grade modal state (Admin only)
   const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
+  
+  // Lock settings state for date-based locking
+  const [lockSettings, setLockSettings] = useState({
+    isLockEnabled: false,
+    lockCutoffDay: 6,
+    monthlyOverrides: []
+  });
+  
+  // Bulk unlock modal state
+  const [bulkUnlockModal, setBulkUnlockModal] = useState({
+    isOpen: false,
+    month: '',
+    year: CURRENT_YEAR,
+    lockedCount: 0
+  });
+  const [bulkUnlockReason, setBulkUnlockReason] = useState('');
+  const [bulkUnlocking, setBulkUnlocking] = useState(false);
+  
+  // Fetch lock settings on mount
+  useEffect(() => {
+    const fetchLockSettings = async () => {
+      try {
+        const { data: settingsData } = await supabase
+          .from('system_settings')
+          .select('is_lock_enabled, lock_cutoff_day')
+          .eq('id', 1)
+          .single();
+        
+        const { data: schedulesData } = await supabase
+          .from('monthly_lock_schedules')
+          .select('month_index, year, lock_date');
+        
+        setLockSettings({
+          isLockEnabled: settingsData?.is_lock_enabled ?? false,
+          lockCutoffDay: settingsData?.lock_cutoff_day ?? 6,
+          monthlyOverrides: schedulesData || []
+        });
+      } catch (err) {
+        console.error('Error fetching lock settings:', err);
+      }
+    };
+    
+    fetchLockSettings();
+  }, []);
+
+  // REALTIME: Subscribe to lock settings changes (prevents stale state bug)
+  // When admin updates deadlines, users see changes immediately without refresh
+  useEffect(() => {
+    // Channel for system_settings changes (global lock toggle, cutoff day)
+    const settingsChannel = supabase
+      .channel('system_settings_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'system_settings' },
+        async (payload) => {
+          console.log('[Realtime] system_settings changed:', payload);
+          // Re-fetch settings on any change
+          const { data } = await supabase
+            .from('system_settings')
+            .select('is_lock_enabled, lock_cutoff_day')
+            .eq('id', 1)
+            .single();
+          
+          if (data) {
+            setLockSettings(prev => ({
+              ...prev,
+              isLockEnabled: data.is_lock_enabled ?? false,
+              lockCutoffDay: data.lock_cutoff_day ?? 6
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    // Channel for monthly_lock_schedules changes (per-month deadline overrides)
+    const schedulesChannel = supabase
+      .channel('monthly_schedules_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'monthly_lock_schedules' },
+        async (payload) => {
+          console.log('[Realtime] monthly_lock_schedules changed:', payload);
+          // Re-fetch all schedules on any change
+          const { data } = await supabase
+            .from('monthly_lock_schedules')
+            .select('month_index, year, lock_date');
+          
+          if (data) {
+            setLockSettings(prev => ({
+              ...prev,
+              monthlyOverrides: data
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      supabase.removeChannel(settingsChannel);
+      supabase.removeChannel(schedulesChannel);
+    };
+  }, []);
 
   const currentDept = departments.find((d) => d.code === departmentCode);
 
@@ -149,6 +276,34 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month)
     );
   }, [plans]);
+
+  // Calculate lock status for the selected month (for bulk unlock banner)
+  const monthLockStatus = useMemo(() => {
+    if (selectedMonth === 'all' || !lockSettings.isLockEnabled) {
+      return { isLocked: false, lockedItems: [], pendingCount: 0 };
+    }
+    
+    // Check if the selected month is locked
+    const isMonthLocked = isPlanLocked(selectedMonth, CURRENT_YEAR, null, null, lockSettings);
+    
+    if (!isMonthLocked) {
+      return { isLocked: false, lockedItems: [], pendingCount: 0 };
+    }
+    
+    // Get all locked items for this month (not already approved or pending)
+    const monthPlans = plans.filter(p => p.month === selectedMonth);
+    const lockedItems = monthPlans.filter(p => 
+      p.unlock_status !== 'approved' && p.unlock_status !== 'pending'
+    );
+    const pendingCount = monthPlans.filter(p => p.unlock_status === 'pending').length;
+    
+    return { 
+      isLocked: true, 
+      lockedItems, 
+      pendingCount,
+      totalCount: monthPlans.length
+    };
+  }, [selectedMonth, plans, lockSettings]);
 
   // Get incomplete items (not Achieved or Not Achieved) for selected month
   const getIncompleteItems = useMemo(() => {
@@ -223,7 +378,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   }, [basePlans, selectedStatus, selectedCategory]);
 
   // Check if any filters are active
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || showPendingOnly;
 
   const clearAllFilters = () => {
     setSearchQuery('');
@@ -231,11 +386,115 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setEndMonth('Dec');
     setSelectedStatus('all');
     setSelectedCategory('all');
+    setShowPendingOnly(false);
   };
   
   const clearMonthFilter = () => {
     setStartMonth('Jan');
     setEndMonth('Dec');
+  };
+
+  // Jump to a specific month (used by LockedMonthsSummary)
+  const jumpToMonth = (month) => {
+    setStartMonth(month);
+    setEndMonth(month);
+    // Clear other filters to show all items for that month
+    setSelectedStatus('all');
+    setSelectedCategory('all');
+    setShowPendingOnly(false);
+  };
+
+  // Smart filter handler: Jump to month AND filter to show only pending unlock requests
+  const handleViewPending = (month) => {
+    setStartMonth(month);
+    setEndMonth(month);
+    setSelectedStatus('all');
+    setSelectedCategory('all');
+    setShowPendingOnly(true); // Enable pending-only filter
+  };
+
+  // Handle unlock request from LockContextModal (called directly without filtering first)
+  const handleDirectUnlockRequest = async (month, reason) => {
+    if (!reason?.trim()) {
+      toast({ title: 'Reason Required', description: 'Please provide a reason for the unlock request.', variant: 'warning' });
+      return;
+    }
+
+    try {
+      // Get all locked items for the specified month
+      const monthPlans = plans.filter(p => p.month === month);
+      const lockedItems = monthPlans.filter(p => 
+        p.unlock_status !== 'approved' && p.unlock_status !== 'pending' &&
+        isPlanLocked(month, CURRENT_YEAR, p.unlock_status, p.approved_until, lockSettings)
+      );
+      
+      if (lockedItems.length === 0) {
+        toast({ title: 'No Items', description: 'No locked items found to unlock.', variant: 'info' });
+        return;
+      }
+
+      const lockedIds = lockedItems.map(p => p.id);
+
+      // Get current user ID for audit logging
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+      const requestedAt = new Date().toISOString();
+
+      // Update all locked items with pending status and reason
+      const { error } = await supabase
+        .from('action_plans')
+        .update({
+          unlock_status: 'pending',
+          unlock_reason: reason.trim(),
+          unlock_requested_at: requestedAt,
+          unlock_requested_by: userId
+        })
+        .in('id', lockedIds);
+
+      if (error) throw error;
+
+      // OPTIMISTIC UI UPDATE: Immediately update local state
+      setPlans(prev => prev.map(plan => 
+        lockedIds.includes(plan.id) 
+          ? { 
+              ...plan, 
+              unlock_status: 'pending',
+              unlock_reason: reason.trim(),
+              unlock_requested_at: requestedAt,
+              unlock_requested_by: userId
+            }
+          : plan
+      ));
+
+      // Create audit logs for each item
+      if (userId) {
+        for (const item of lockedItems) {
+          await createUnlockAuditLog(
+            item.id,
+            userId,
+            'UNLOCK_REQUESTED',
+            { unlock_status: null },
+            { 
+              unlock_status: 'pending', 
+              unlock_reason: reason.trim(),
+              unlock_requested_at: requestedAt
+            },
+            `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${reason.trim()}"`
+          );
+        }
+      }
+
+      toast({ 
+        title: 'Unlock Requested', 
+        description: `Unlock request submitted for ${lockedIds.length} item(s). Awaiting admin approval.`, 
+        variant: 'success' 
+      });
+      
+    } catch (error) {
+      console.error('Unlock request failed:', error);
+      toast({ title: 'Request Failed', description: 'Failed to submit unlock request. Please try again.', variant: 'error' });
+      throw error; // Re-throw so modal knows it failed
+    }
   };
 
   // Pre-flight validation for finalize button
@@ -427,6 +686,71 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Recall handler for ReportStatusMenu (takes month as parameter)
+  const handleRecallFromMenu = async (month) => {
+    if (!month) return;
+    
+    // Calculate month status for the target month
+    const monthPlans = plans.filter(p => p.month === month);
+    const submittedItems = monthPlans.filter(p => p.submission_status === 'submitted');
+    const gradedCount = submittedItems.filter(p => p.quality_score != null).length;
+    const ungradedCount = submittedItems.length - gradedCount;
+    
+    if (ungradedCount === 0) {
+      setModalConfig({
+        isOpen: true,
+        type: 'info',
+        title: 'Nothing to Recall',
+        message: gradedCount > 0 
+          ? `All ${gradedCount} submitted items for ${month} have been graded and cannot be recalled.`
+          : `No submitted items found for ${month}.`,
+        onConfirm: null
+      });
+      return;
+    }
+    
+    const isPartialRecall = gradedCount > 0;
+    
+    setModalConfig({
+      isOpen: true,
+      type: 'confirm',
+      actionType: 'recall',
+      title: isPartialRecall 
+        ? `Recall Ungraded Items for ${month}?`
+        : `Recall ${month} Report?`,
+      message: isPartialRecall
+        ? `You are about to recall ${ungradedCount} ungraded item(s) from the Management Grading Queue. The ${gradedCount} already graded item(s) will remain locked.`
+        : `Are you sure you want to recall the ${month} report? This will pull back ${ungradedCount} item(s) from the Management Grading Queue and allow editing again.`,
+      onConfirm: async () => {
+        closeModal();
+        setSubmitting(true);
+        try {
+          const count = await recallMonthReport(month);
+          setRecallSuccess({ 
+            isOpen: true, 
+            type: 'bulk', 
+            month, 
+            count, 
+            planTitle: '',
+            isPartial: isPartialRecall,
+            gradedCount
+          });
+        } catch (error) {
+          console.error('Recall failed:', error);
+          setModalConfig({
+            isOpen: true,
+            type: 'warning',
+            title: 'Recall Failed',
+            message: 'An error occurred while recalling the report. Please try again.',
+            onConfirm: null
+          });
+        } finally {
+          setSubmitting(false);
+        }
+      }
+    });
   };
 
   // Export Excel handler
@@ -663,6 +987,114 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     });
   };
 
+  // Open bulk unlock modal
+  const handleOpenBulkUnlock = () => {
+    setBulkUnlockModal({
+      isOpen: true,
+      month: selectedMonth,
+      year: CURRENT_YEAR,
+      lockedCount: monthLockStatus.lockedItems.length
+    });
+    setBulkUnlockReason('');
+  };
+
+  // Handle bulk unlock submission
+  const handleBulkUnlock = async () => {
+    if (!bulkUnlockReason.trim()) {
+      toast({ title: 'Reason Required', description: 'Please provide a reason for the unlock request.', variant: 'warning' });
+      return;
+    }
+
+    setBulkUnlocking(true);
+    try {
+      // Get all locked item IDs for this month
+      const lockedIds = monthLockStatus.lockedItems.map(p => p.id);
+      
+      if (lockedIds.length === 0) {
+        toast({ title: 'No Items', description: 'No locked items found to unlock.', variant: 'info' });
+        setBulkUnlocking(false);
+        return;
+      }
+
+      // Get current user ID for audit logging
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id;
+      const requestedAt = new Date().toISOString();
+
+      // Update all locked items with pending status and reason
+      const { error } = await supabase
+        .from('action_plans')
+        .update({
+          unlock_status: 'pending',
+          unlock_reason: bulkUnlockReason.trim(),
+          unlock_requested_at: requestedAt,
+          unlock_requested_by: userId
+        })
+        .in('id', lockedIds);
+
+      if (error) throw error;
+
+      // OPTIMISTIC UI UPDATE: Immediately update local state
+      setPlans(prev => prev.map(plan => 
+        lockedIds.includes(plan.id) 
+          ? { 
+              ...plan, 
+              unlock_status: 'pending',
+              unlock_reason: bulkUnlockReason.trim(),
+              unlock_requested_at: requestedAt,
+              unlock_requested_by: userId
+            }
+          : plan
+      ));
+
+      // Create audit logs for each item in the bulk unlock request
+      if (userId) {
+        for (const item of monthLockStatus.lockedItems) {
+          await createUnlockAuditLog(
+            item.id,
+            userId,
+            'UNLOCK_REQUESTED',
+            { unlock_status: null },
+            { 
+              unlock_status: 'pending', 
+              unlock_reason: bulkUnlockReason.trim(),
+              unlock_requested_at: requestedAt
+            },
+            `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${bulkUnlockReason.trim()}"`
+          );
+        }
+      }
+
+      toast({ 
+        title: 'Unlock Requested', 
+        description: `Unlock request submitted for ${lockedIds.length} item(s). Awaiting admin approval.`, 
+        variant: 'success' 
+      });
+      
+      setBulkUnlockModal({ isOpen: false, month: '', year: CURRENT_YEAR, lockedCount: 0 });
+      setBulkUnlockReason('');
+      
+    } catch (error) {
+      console.error('Bulk unlock failed:', error);
+      toast({ title: 'Request Failed', description: 'Failed to submit unlock request. Please try again.', variant: 'error' });
+    } finally {
+      setBulkUnlocking(false);
+    }
+  };
+
+  // Handle single item unlock request (from DataTable)
+  const handleRequestUnlock = async (item) => {
+    // For single item, open a simple prompt or use the bulk modal with single item
+    setBulkUnlockModal({
+      isOpen: true,
+      month: item.month,
+      year: item.year || CURRENT_YEAR,
+      lockedCount: 1,
+      singleItem: item // Track that this is a single item request
+    });
+    setBulkUnlockReason('');
+  };
+
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Unified Page Header with Filters */}
@@ -706,93 +1138,13 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
             {/* Leader Submit/Recall Report Button - ONLY visible for Leaders (not Admins) */}
             {isLeader && (
-              <>
-                {/* SMART BUTTON LOGIC - Handles all scenarios including partial re-submission */}
-                {selectedMonth === 'all' ? (
-                  /* No month selected - prompt to select */
-                  <button
-                    onClick={handleFinalizeClick}
-                    disabled={submitting}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors bg-purple-100 text-purple-600 hover:bg-purple-200 border border-purple-300"
-                    title="Select a month to submit report"
-                  >
-                    <Send className="w-4 h-4" />
-                    Submit Report
-                  </button>
-                ) : monthStatus.draftCount > 0 ? (
-                  /* Case A & B: Has drafts to submit (initial or re-submit after partial grading) */
-                  <button
-                    onClick={handleFinalizeClick}
-                    disabled={submitting}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors bg-purple-600 text-white hover:bg-purple-700"
-                    title={monthStatus.gradedCount > 0 
-                      ? `Submit ${monthStatus.draftCount} revised item(s) - ${monthStatus.gradedCount} already graded`
-                      : `Submit ${monthStatus.draftCount} items for Management grading`}
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
-                    {submitting 
-                      ? 'Submitting...' 
-                      : monthStatus.gradedCount > 0
-                        ? `Submit Changes (${monthStatus.draftCount})`
-                        : `Submit ${selectedMonth} (${monthStatus.draftCount})`}
-                  </button>
-                ) : monthStatus.canRecall ? (
-                  /* Case C: Can recall - has ungraded submitted items (supports partial recall) */
-                  <button
-                    onClick={handleRecallClick}
-                    disabled={submitting}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors bg-amber-500 text-white hover:bg-amber-600"
-                    title={monthStatus.gradedCount > 0
-                      ? `Recall ${monthStatus.ungradedCount} ungraded items (${monthStatus.gradedCount} graded items will stay locked)`
-                      : `Recall ${monthStatus.ungradedCount} items from Management Grading Queue`}
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Undo2 className="w-4 h-4" />
-                    )}
-                    {submitting 
-                      ? 'Recalling...' 
-                      : monthStatus.gradedCount > 0
-                        ? `Recall Ungraded (${monthStatus.ungradedCount})`
-                        : `Recall ${selectedMonth} (${monthStatus.ungradedCount})`}
-                  </button>
-                ) : monthStatus.gradedCount > 0 && monthStatus.gradedCount === monthStatus.totalCount ? (
-                  /* Case D: Fully graded - month complete */
-                  <button
-                    disabled
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-200 text-gray-500 cursor-not-allowed"
-                    title={`All ${monthStatus.gradedCount} items graded by Management`}
-                  >
-                    <Lock className="w-4 h-4" />
-                    {selectedMonth} Complete ✓
-                  </button>
-                ) : monthStatus.totalCount === 0 ? (
-                  /* No items for this month */
-                  <button
-                    onClick={handleFinalizeClick}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-200 text-gray-400"
-                    title="No items to submit"
-                  >
-                    <Send className="w-4 h-4" />
-                    Submit {selectedMonth}
-                  </button>
-                ) : (
-                  /* Fallback: All submitted, waiting for grading */
-                  <button
-                    disabled
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-green-100 text-green-700 border border-green-300"
-                    title={`${monthStatus.submittedCount} items submitted, awaiting grading`}
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    {selectedMonth} Submitted ✓
-                  </button>
-                )}
-              </>
+              <ReportStatusMenu
+                plans={plans}
+                onSubmit={proceedWithFinalize}
+                onRecall={handleRecallFromMenu}
+                submitting={submitting}
+                disabled={false}
+              />
             )}
             
             {canManagePlans && (
@@ -813,6 +1165,80 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Scrollable Content Area */}
       <main className="p-6 space-y-6">
+        {/* Global Locked Months Summary - Shows all locked/pending months at a glance */}
+        <LockedMonthsSummary
+          departmentCode={departmentCode}
+          year={CURRENT_YEAR}
+          onMonthClick={jumpToMonth}
+          onRequestUnlock={handleDirectUnlockRequest}
+          onViewPending={handleViewPending}
+          isLeader={isLeader && !isAdmin}
+          currentViewedMonth={selectedMonth !== 'all' ? selectedMonth : null}
+        />
+
+        {/* Bulk Unlock Banner - Shows when month is locked and user is Leader */}
+        {isLeader && !isAdmin && monthLockStatus.isLocked && monthLockStatus.lockedItems.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <LockKeyhole className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-medium text-amber-800">
+                  🔒 This period ({selectedMonth} {CURRENT_YEAR}) is locked
+                </p>
+                <p className="text-sm text-amber-600">
+                  {monthLockStatus.lockedItems.length} item(s) cannot be edited. 
+                  {monthLockStatus.pendingCount > 0 && ` ${monthLockStatus.pendingCount} unlock request(s) pending.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleOpenBulkUnlock}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+            >
+              <Unlock className="w-4 h-4" />
+              Request Unlock for All Items
+            </button>
+          </div>
+        )}
+
+        {/* Pending Unlock Banner - Shows when there are pending requests */}
+        {isLeader && !isAdmin && monthLockStatus.pendingCount > 0 && monthLockStatus.lockedItems.length === 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            </div>
+            <div>
+              <p className="font-medium text-blue-800">
+                Unlock Request Pending
+              </p>
+              <p className="text-sm text-blue-600">
+                {monthLockStatus.pendingCount} item(s) awaiting admin approval for {selectedMonth} {CURRENT_YEAR}.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Active Pending Filter Indicator - Shows when filtering to pending-only */}
+        {showPendingOnly && (
+          <div className="bg-blue-100 border border-blue-300 rounded-xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-blue-600" />
+              <p className="text-sm font-medium text-blue-800">
+                Showing only items with pending unlock requests
+              </p>
+            </div>
+            <button
+              onClick={() => setShowPendingOnly(false)}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-700 hover:text-blue-900 hover:bg-blue-200 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+              Clear Filter
+            </button>
+          </div>
+        )}
+
         {/* KPI Cards */}
         <GlobalStatsGrid 
           plans={tablePlans} 
@@ -859,10 +1285,13 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onStatusChange={handleStatusChange}
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={isAdmin ? handleOpenGradeModal : undefined}
+          onRequestUnlock={isLeader ? handleRequestUnlock : undefined}
+          onRefresh={refetch}
           showDepartmentColumn={true}
           visibleColumns={visibleColumns}
           columnOrder={columnOrder}
           isReadOnly={isExecutive}
+          showPendingOnly={showPendingOnly}
         />
       </main>
 
@@ -1219,6 +1648,147 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         onGrade={handleGrade}
         plan={gradeModal.plan}
       />
+
+      {/* Bulk Unlock Request Modal */}
+      {bulkUnlockModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                <Unlock className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Request Unlock</h3>
+                <p className="text-sm text-gray-500">
+                  {bulkUnlockModal.singleItem 
+                    ? 'Request unlock for this item'
+                    : `${bulkUnlockModal.month} ${bulkUnlockModal.year} • ${bulkUnlockModal.lockedCount} item(s)`
+                  }
+                </p>
+              </div>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reason for Unlock Request <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={bulkUnlockReason}
+                onChange={(e) => setBulkUnlockReason(e.target.value)}
+                placeholder="e.g., Missed deadline due to holidays, need to update evidence..."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none"
+              />
+            </div>
+            
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Your request will be sent to an Admin for approval. 
+                You will be notified once the request is processed.
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setBulkUnlockModal({ isOpen: false, month: '', year: CURRENT_YEAR, lockedCount: 0 });
+                  setBulkUnlockReason('');
+                }}
+                disabled={bulkUnlocking}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (bulkUnlockModal.singleItem) {
+                    // Single item unlock
+                    if (!bulkUnlockReason.trim()) {
+                      toast({ title: 'Reason Required', description: 'Please provide a reason.', variant: 'warning' });
+                      return;
+                    }
+                    setBulkUnlocking(true);
+                    try {
+                      // Get current user ID for audit logging
+                      const { data: { user } } = await supabase.auth.getUser();
+                      const userId = user?.id;
+                      const requestedAt = new Date().toISOString();
+                      const item = bulkUnlockModal.singleItem;
+
+                      const { error } = await supabase
+                        .from('action_plans')
+                        .update({
+                          unlock_status: 'pending',
+                          unlock_reason: bulkUnlockReason.trim(),
+                          unlock_requested_at: requestedAt,
+                          unlock_requested_by: userId
+                        })
+                        .eq('id', item.id);
+                      
+                      if (error) throw error;
+                      
+                      // OPTIMISTIC UI UPDATE: Immediately update local state for single item
+                      setPlans(prev => prev.map(plan => 
+                        plan.id === item.id 
+                          ? { 
+                              ...plan, 
+                              unlock_status: 'pending',
+                              unlock_reason: bulkUnlockReason.trim(),
+                              unlock_requested_at: requestedAt,
+                              unlock_requested_by: userId
+                            }
+                          : plan
+                      ));
+                      
+                      // Create audit log for single item unlock request
+                      if (userId) {
+                        await createUnlockAuditLog(
+                          item.id,
+                          userId,
+                          'UNLOCK_REQUESTED',
+                          { unlock_status: null },
+                          { 
+                            unlock_status: 'pending', 
+                            unlock_reason: bulkUnlockReason.trim(),
+                            unlock_requested_at: requestedAt
+                          },
+                          `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${bulkUnlockReason.trim()}"`
+                        );
+                      }
+                      
+                      toast({ title: 'Request Submitted', description: 'Unlock request sent to admin.', variant: 'success' });
+                      setBulkUnlockModal({ isOpen: false, month: '', year: CURRENT_YEAR, lockedCount: 0 });
+                      setBulkUnlockReason('');
+                    } catch (err) {
+                      console.error('Single unlock failed:', err);
+                      toast({ title: 'Request Failed', description: 'Please try again.', variant: 'error' });
+                    } finally {
+                      setBulkUnlocking(false);
+                    }
+                  } else {
+                    // Bulk unlock
+                    handleBulkUnlock();
+                  }
+                }}
+                disabled={bulkUnlocking || !bulkUnlockReason.trim()}
+                className="flex-1 px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {bulkUnlocking ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Submit Request
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

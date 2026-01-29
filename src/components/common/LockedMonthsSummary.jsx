@@ -55,7 +55,7 @@ export default function LockedMonthsSummary({
         
         const { data: schedulesData } = await supabase
           .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date');
+          .select('month_index, year, lock_date, is_force_open');
         
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,

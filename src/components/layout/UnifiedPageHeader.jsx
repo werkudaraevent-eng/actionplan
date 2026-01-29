@@ -10,7 +10,7 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 // Category options
 const CATEGORY_OPTIONS = [
   { value: 'all', label: 'All Priorities' },
-  { value: 'UH', label: 'UH (Urgent High)' },
+  { value: 'UH', label: 'UH (Ultra High)' },
   { value: 'H', label: 'H (High)' },
   { value: 'M', label: 'M (Medium)' },
   { value: 'L', label: 'L (Low)' },

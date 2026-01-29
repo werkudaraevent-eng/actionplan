@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DepartmentProvider } from './context/DepartmentContext';
 import { ToastProvider } from './components/common/Toast';
 import LoginPage from './pages/LoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import UpdatePasswordPage from './pages/UpdatePasswordPage';
 import LoadingScreen from './components/common/LoadingScreen';
 import Sidebar from './components/layout/Sidebar';
 import AdminDashboard from './pages/AdminDashboard';
@@ -199,6 +201,15 @@ function AppRoutes() {
 
   // Show loading screen while checking auth
   if (loading) return <LoadingScreen />;
+
+  // Allow reset-password and update-password pages without authentication
+  if (location.pathname === '/reset-password') {
+    return <ResetPasswordPage />;
+  }
+  
+  if (location.pathname === '/update-password') {
+    return <UpdatePasswordPage />;
+  }
 
   // Show login if not authenticated
   if (!user) return <LoginPage />;

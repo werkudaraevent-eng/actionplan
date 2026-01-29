@@ -140,7 +140,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         
         const { data: schedulesData } = await supabase
           .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date');
+          .select('month_index, year, lock_date, is_force_open');
         
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
@@ -195,7 +195,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           // Re-fetch all schedules on any change
           const { data } = await supabase
             .from('monthly_lock_schedules')
-            .select('month_index, year, lock_date');
+            .select('month_index, year, lock_date, is_force_open');
           
           if (data) {
             setLockSettings(prev => ({

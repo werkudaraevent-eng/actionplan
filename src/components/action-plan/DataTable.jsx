@@ -536,7 +536,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       // Fetch monthly overrides
       const { data: schedulesData, error: schedulesError } = await supabase
         .from('monthly_lock_schedules')
-        .select('month_index, year, lock_date');
+        .select('month_index, year, lock_date, is_force_open');
       
       if (schedulesError) {
         console.error('Error fetching monthly schedules:', schedulesError);

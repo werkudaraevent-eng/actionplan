@@ -74,21 +74,39 @@ export function findMonthlyOverride(monthIndex, year, monthlyOverrides = []) {
 }
 
 /**
+ * Check if a month is force-open (auto-lock disabled for that month)
+ * @param {number} monthIndex - Plan month index (0-11)
+ * @param {number} year - Plan year
+ * @param {Array} monthlyOverrides - Array of override objects
+ * @returns {boolean} True if month is force-open
+ */
+export function isMonthForceOpen(monthIndex, year, monthlyOverrides = []) {
+  const override = findMonthlyOverride(monthIndex, year, monthlyOverrides);
+  return override?.is_force_open === true;
+}
+
+/**
  * Calculate the lock deadline for a given plan month/year
  * Checks for monthly override first, then falls back to default cutoff day
+ * Returns null if month is force-open (auto-lock disabled)
  * @param {string} planMonth - Month name (e.g., "January")
  * @param {number} planYear - Year (e.g., 2026)
  * @param {number} cutoffDay - Day of month for cutoff (default: 6)
  * @param {Array} monthlyOverrides - Array of monthly override objects
- * @returns {Date|null} Lock deadline date or null if invalid input
+ * @returns {Date|null} Lock deadline date or null if invalid input or force-open
  */
 export function getLockDeadline(planMonth, planYear, cutoffDay = DEFAULT_LOCK_SETTINGS.lockCutoffDay, monthlyOverrides = []) {
   const monthIndex = parseMonthName(planMonth);
   if (monthIndex === -1 || !planYear) return null;
   
-  // Check for monthly override first
+  // Check if month is force-open (auto-lock disabled)
+  if (isMonthForceOpen(monthIndex, planYear, monthlyOverrides)) {
+    return null;
+  }
+  
+  // Check for monthly override with custom lock_date
   const override = findMonthlyOverride(monthIndex, planYear, monthlyOverrides);
-  if (override && override.lock_date) {
+  if (override && override.lock_date && !override.is_force_open) {
     return new Date(override.lock_date);
   }
   
@@ -124,6 +142,13 @@ export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedU
     return false;
   }
   
+  // Check if this specific month is force-open
+  const monthIndex = parseMonthName(planMonth);
+  const monthlyOverrides = settings?.monthlyOverrides || [];
+  if (isMonthForceOpen(monthIndex, planYear, monthlyOverrides)) {
+    return false;
+  }
+  
   // If admin approved and approval hasn't expired, plan is unlocked
   if (unlockStatus === 'approved') {
     if (approvedUntil) {
@@ -139,9 +164,8 @@ export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedU
   
   // Calculate deadline using configurable cutoff day and monthly overrides
   const cutoffDay = settings?.lockCutoffDay || DEFAULT_LOCK_SETTINGS.lockCutoffDay;
-  const monthlyOverrides = settings?.monthlyOverrides || [];
   const deadline = getLockDeadline(planMonth, planYear, cutoffDay, monthlyOverrides);
-  if (!deadline) return false; // Invalid input, don't lock
+  if (!deadline) return false; // Invalid input or force-open, don't lock
   
   const now = new Date();
   return now > deadline;
@@ -165,7 +189,9 @@ export function getLockStatus(planMonth, planYear, unlockStatus = null, approved
   
   // Check if this month has an override
   const monthIndex = parseMonthName(planMonth);
-  const hasOverride = findMonthlyOverride(monthIndex, planYear, monthlyOverrides) !== null;
+  const override = findMonthlyOverride(monthIndex, planYear, monthlyOverrides);
+  const hasOverride = override !== null;
+  const isForceOpen = override?.is_force_open === true;
   
   // Calculate days until/since lock
   let daysUntilLock = null;
@@ -177,6 +203,7 @@ export function getLockStatus(planMonth, planYear, unlockStatus = null, approved
   return {
     isLocked,
     isLockEnabled: settings?.isLockEnabled ?? true,
+    isForceOpen,
     deadline,
     cutoffDay,
     hasOverride,
@@ -212,6 +239,11 @@ export function getLockStatusMessage(lockStatus) {
   // If lock feature is disabled
   if (!lockStatus.isLockEnabled) {
     return 'Lock feature disabled';
+  }
+  
+  // If month is force-open
+  if (lockStatus.isForceOpen) {
+    return 'Always open (lock disabled for this month)';
   }
   
   if (!lockStatus.isLocked) {
@@ -285,7 +317,7 @@ export async function checkLockStatusServerSide(supabase, planMonth, planYear, u
         .single(),
       supabase
         .from('monthly_lock_schedules')
-        .select('month_index, year, lock_date')
+        .select('month_index, year, lock_date, is_force_open')
     ]);
 
     const settings = {
@@ -297,10 +329,13 @@ export async function checkLockStatusServerSide(supabase, planMonth, planYear, u
     // Calculate lock status with fresh settings
     const isLocked = isPlanLocked(planMonth, planYear, unlockStatus, approvedUntil, settings);
     const deadline = getLockDeadline(planMonth, planYear, settings.lockCutoffDay, settings.monthlyOverrides);
+    const monthIndex = parseMonthName(planMonth);
+    const isForceOpen = isMonthForceOpen(monthIndex, planYear, settings.monthlyOverrides);
 
     return {
       isLocked,
       isLockEnabled: settings.isLockEnabled,
+      isForceOpen,
       deadline,
       settings
     };
@@ -310,6 +345,7 @@ export async function checkLockStatusServerSide(supabase, planMonth, planYear, u
     return {
       isLocked: false,
       isLockEnabled: false,
+      isForceOpen: false,
       deadline: null,
       settings: DEFAULT_LOCK_SETTINGS,
       error: err.message

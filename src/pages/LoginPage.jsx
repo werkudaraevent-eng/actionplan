@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Building2, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
+import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/common/Toast';
+import { supabase } from '../lib/supabase';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -9,6 +10,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+  const [recoverySuccess, setRecoverySuccess] = useState(false);
   const { signIn } = useAuth();
   const { toast } = useToast();
 
@@ -68,15 +71,71 @@ export default function LoginPage() {
     }
   };
 
+  // Handle password reset request
+  const handleResetRequest = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/update-password`,
+      });
+
+      if (resetError) throw resetError;
+
+      setRecoverySuccess(true);
+      toast({
+        title: 'Email Sent',
+        description: 'Check your inbox for the password reset link.',
+        variant: 'success'
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to send reset email. Please try again.');
+      toast({
+        title: 'Error',
+        description: err.message || 'Failed to send reset email.',
+        variant: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Switch to recovery mode
+  const enterRecoveryMode = () => {
+    setIsRecoveryMode(true);
+    setError('');
+    setRecoverySuccess(false);
+  };
+
+  // Switch back to login mode
+  const exitRecoveryMode = () => {
+    setIsRecoveryMode(false);
+    setError('');
+    setRecoverySuccess(false);
+    setPassword('');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Building2 className="w-8 h-8 text-teal-600" />
+            {isRecoveryMode ? (
+              <KeyRound className="w-8 h-8 text-teal-600" />
+            ) : (
+              <Building2 className="w-8 h-8 text-teal-600" />
+            )}
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">Werkudara Group</h1>
-          <p className="text-gray-500 mt-2">Department Action Plan Tracking System</p>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {isRecoveryMode ? 'Reset Password' : 'Werkudara Group'}
+          </h1>
+          <p className="text-gray-500 mt-2">
+            {isRecoveryMode 
+              ? 'Enter your email to receive a reset link' 
+              : 'Department Action Plan Tracking System'}
+          </p>
         </div>
 
         {error && (
@@ -86,58 +145,143 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className={`space-y-5 ${shake ? 'animate-shake' : ''}`}>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Email Address
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
-                placeholder="you@werkudara.com"
-                required
-                disabled={loading}
-              />
+        {/* Recovery Success Message */}
+        {recoverySuccess && isRecoveryMode && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-green-700 text-sm font-medium">Reset link sent!</p>
+              <p className="text-green-600 text-sm mt-1">Check your email inbox for the password reset link.</p>
             </div>
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
-                placeholder="••••••••"
-                required
-                disabled={loading}
-              />
+        {/* Login Form */}
+        {!isRecoveryMode && (
+          <form onSubmit={handleSubmit} className={`space-y-5 ${shake ? 'animate-shake' : ''}`}>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
+                  placeholder="you@werkudara.com"
+                  required
+                  disabled={loading}
+                />
+              </div>
             </div>
-          </div>
 
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={enterRecoveryMode}
+                  className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
+                  placeholder="••••••••"
+                  required
+                  disabled={loading}
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* Recovery Form */}
+        {isRecoveryMode && !recoverySuccess && (
+          <form onSubmit={handleResetRequest} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  placeholder="you@werkudara.com"
+                  required
+                  disabled={loading}
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="w-5 h-5" />
+                  Send Recovery Link
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={exitRecoveryMode}
+              className="w-full py-2.5 text-gray-600 hover:text-gray-800 font-medium flex items-center justify-center gap-2 transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Login
+            </button>
+          </form>
+        )}
+
+        {/* Back to Login after success */}
+        {isRecoveryMode && recoverySuccess && (
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            type="button"
+            onClick={exitRecoveryMode}
+            className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              'Sign In'
-            )}
+            <ArrowLeft className="w-4 h-4" />
+            Back to Login
           </button>
-        </form>
+        )}
 
         <div className="mt-6 pt-6 border-t border-gray-100">
           <p className="text-center text-sm text-gray-500">

@@ -38,6 +38,8 @@ export default defineConfig({
         ]
       },
       workbox: {
+        // Increase limit to 4MB to handle jspdf bundle
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         // Cache static assets aggressively
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         runtimeCaching: [
@@ -90,4 +92,23 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    // Split heavy chunks to optimize bundle size
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            // Split PDF libraries into separate chunk
+            if (id.includes('jspdf') || id.includes('html2canvas')) {
+              return 'pdf-libs';
+            }
+            // Put other vendor libs in 'vendor'
+            return 'vendor';
+          }
+        }
+      }
+    },
+    // Increase warning limit to 1MB
+    chunkSizeWarningLimit: 1000
+  }
 })

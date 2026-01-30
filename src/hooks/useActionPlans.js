@@ -731,8 +731,12 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Unlock a finalized item (Leader/Admin only)
+  // Also clears auto-grade for "Not Achieved" items so they can be re-evaluated
   const unlockItem = async (id) => {
     const previousPlan = plans.find((p) => p.id === id);
+    
+    // Check if this is an auto-graded "Not Achieved" item
+    const isAutoGradedNotAchieved = previousPlan?.quality_score === 0 && previousPlan?.status === 'Not Achieved';
     
     // Optimistic update
     setPlans((prev) =>
@@ -740,18 +744,30 @@ export function useActionPlans(departmentCode = null) {
         ...p, 
         submission_status: 'draft',
         submitted_at: null,
-        submitted_by: null
+        submitted_by: null,
+        // Clear auto-grade for Not Achieved items
+        ...(isAutoGradedNotAchieved && {
+          quality_score: null,
+          admin_feedback: null
+        })
       } : p))
     );
 
     try {
+      const updateData = { 
+        submission_status: 'draft',
+        submitted_at: null,
+        submitted_by: null,
+        // Clear auto-grade for Not Achieved items
+        ...(isAutoGradedNotAchieved && {
+          quality_score: null,
+          admin_feedback: null
+        })
+      };
+      
       const { error } = await supabase
         .from('action_plans')
-        .update({ 
-          submission_status: 'draft',
-          submitted_at: null,
-          submitted_by: null
-        })
+        .update(updateData)
         .eq('id', id);
 
       if (error) {
@@ -762,13 +778,24 @@ export function useActionPlans(departmentCode = null) {
       // Audit log (using STATUS_UPDATE as change_type for DB constraint compatibility)
       const userId = await getCurrentUserId();
       if (userId) {
+        const previousValue = { submission_status: 'submitted' };
+        const newValue = { submission_status: 'draft' };
+        
+        // Include score info in audit if auto-grade was cleared
+        if (isAutoGradedNotAchieved) {
+          previousValue.quality_score = 0;
+          newValue.quality_score = null;
+        }
+        
         await createAuditLog(
           id,
           userId,
           'STATUS_UPDATE',
-          { submission_status: 'submitted' },
-          { submission_status: 'draft' },
-          `Item unlocked for editing`
+          previousValue,
+          newValue,
+          isAutoGradedNotAchieved 
+            ? `Item unlocked for editing (auto-grade cleared for re-evaluation)`
+            : `Item unlocked for editing`
         );
       }
     } catch (err) {
@@ -778,26 +805,34 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Bulk recall: Unlock all finalized items for a month (only if none are graded)
+  // Also handles auto-graded "Not Achieved" items (score 0)
   const recallMonthReport = async (month) => {
     const { id: userId, name: userName } = await getCurrentUser();
     
-    // Find all submitted items for this month that are NOT graded yet
+    // Find all submitted items for this month that are NOT manually graded
+    // Include: ungraded items (quality_score == null) AND auto-graded Not Achieved (quality_score === 0)
     const itemsToRecall = plans.filter(
       p => p.month === month && 
            p.submission_status === 'submitted' && 
-           p.quality_score == null // Only recall ungraded items
+           (p.quality_score == null || (p.quality_score === 0 && p.status === 'Not Achieved'))
     );
     
     if (itemsToRecall.length === 0) {
       throw new Error('No items to recall for this month');
     }
 
-    const itemIds = itemsToRecall.map(p => p.id);
+    // Separate items by type for proper handling
+    const ungradedItems = itemsToRecall.filter(p => p.quality_score == null);
+    const autoGradedItems = itemsToRecall.filter(p => p.quality_score === 0 && p.status === 'Not Achieved');
+    
+    const ungradedIds = ungradedItems.map(p => p.id);
+    const autoGradedIds = autoGradedItems.map(p => p.id);
+    const allIds = itemsToRecall.map(p => p.id);
     
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => {
-        if (itemIds.includes(p.id)) {
+        if (ungradedIds.includes(p.id)) {
           return { 
             ...p, 
             submission_status: 'draft',
@@ -805,28 +840,66 @@ export function useActionPlans(departmentCode = null) {
             submitted_by: null
           };
         }
+        if (autoGradedIds.includes(p.id)) {
+          return { 
+            ...p, 
+            submission_status: 'draft',
+            submitted_at: null,
+            submitted_by: null,
+            quality_score: null,
+            admin_feedback: null
+          };
+        }
         return p;
       })
     );
 
     try {
-      const { error } = await supabase
-        .from('action_plans')
-        .update({ 
-          submission_status: 'draft',
-          submitted_at: null,
-          submitted_by: null
-        })
-        .in('id', itemIds);
-
-      if (error) {
-        await fetchPlans();
-        throw error;
+      const updatePromises = [];
+      
+      // Batch 1: Ungraded items - just reset submission status
+      if (ungradedIds.length > 0) {
+        updatePromises.push(
+          supabase
+            .from('action_plans')
+            .update({ 
+              submission_status: 'draft',
+              submitted_at: null,
+              submitted_by: null
+            })
+            .in('id', ungradedIds)
+        );
+      }
+      
+      // Batch 2: Auto-graded Not Achieved items - also clear the auto-grade
+      if (autoGradedIds.length > 0) {
+        updatePromises.push(
+          supabase
+            .from('action_plans')
+            .update({ 
+              submission_status: 'draft',
+              submitted_at: null,
+              submitted_by: null,
+              quality_score: null,
+              admin_feedback: null
+            })
+            .in('id', autoGradedIds)
+        );
+      }
+      
+      const results = await Promise.all(updatePromises);
+      
+      // Check for errors
+      for (const result of results) {
+        if (result.error) {
+          await fetchPlans();
+          throw result.error;
+        }
       }
 
       // Create audit logs for each recalled item
       if (userId) {
-        for (const item of itemsToRecall) {
+        for (const item of ungradedItems) {
           await createAuditLog(
             item.id,
             userId,
@@ -834,6 +907,17 @@ export function useActionPlans(departmentCode = null) {
             { submission_status: 'submitted' },
             { submission_status: 'draft' },
             `Report recalled for ${month} by ${userName} - item unlocked for editing`
+          );
+        }
+        
+        for (const item of autoGradedItems) {
+          await createAuditLog(
+            item.id,
+            userId,
+            'STATUS_UPDATE',
+            { submission_status: 'submitted', quality_score: 0 },
+            { submission_status: 'draft', quality_score: null },
+            `Report recalled for ${month} by ${userName} - auto-grade cleared for re-evaluation`
           );
         }
       }

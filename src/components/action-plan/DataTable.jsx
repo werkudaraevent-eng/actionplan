@@ -611,6 +611,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   };
 
   // Sorted data with useMemo for performance
+  // Implements multi-level sorting: Primary (user-selected) + Secondary (automatic tie-breaker)
   const sortedData = useMemo(() => {
     // First, apply pending filter if enabled
     let filteredData = data;
@@ -621,29 +622,51 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     if (!sortConfig.key) return filteredData;
 
     return [...filteredData].sort((a, b) => {
+      // --- 1. PRIMARY SORT (User Selected) ---
       let aVal = a[sortConfig.key];
       let bVal = b[sortConfig.key];
+      let comparison = 0;
 
       // Special handling for month - sort chronologically
       if (sortConfig.key === 'month') {
         aVal = MONTH_ORDER[aVal] ?? 99;
         bVal = MONTH_ORDER[bVal] ?? 99;
-        return sortConfig.direction === 'ascending' ? aVal - bVal : bVal - aVal;
       }
-
       // Special handling for score - numeric sort
-      if (sortConfig.key === 'quality_score') {
+      else if (sortConfig.key === 'quality_score') {
         aVal = aVal ?? -1; // null scores go to bottom
         bVal = bVal ?? -1;
-        return sortConfig.direction === 'ascending' ? aVal - bVal : bVal - aVal;
+      }
+      // String comparison for other columns
+      else {
+        aVal = aVal?.toString().toLowerCase() || '';
+        bVal = bVal?.toString().toLowerCase() || '';
       }
 
-      // String comparison for other columns
-      aVal = aVal?.toString().toLowerCase() || '';
-      bVal = bVal?.toString().toLowerCase() || '';
+      if (aVal < bVal) comparison = -1;
+      if (aVal > bVal) comparison = 1;
 
-      if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
+      // Apply direction (Asc/Desc)
+      if (sortConfig.direction === 'descending') comparison *= -1;
+
+      // If primary sort distinguishes them, return result
+      if (comparison !== 0) return comparison;
+
+      // --- 2. SECONDARY SORT (Automatic Tie-Breaker) ---
+      // If primary sort is NOT 'month', use 'month' as tie-breaker (chronological)
+      if (sortConfig.key !== 'month') {
+        const monthA = MONTH_ORDER[a.month] ?? 99;
+        const monthB = MONTH_ORDER[b.month] ?? 99;
+        if (monthA !== monthB) return monthA - monthB;
+      }
+
+      // If primary sort IS 'month', use 'department_code' as tie-breaker
+      if (sortConfig.key === 'month') {
+        const deptA = (a.department_code || '').toLowerCase();
+        const deptB = (b.department_code || '').toLowerCase();
+        return deptA.localeCompare(deptB);
+      }
+
       return 0;
     });
   }, [data, sortConfig, showPendingOnly]);
@@ -663,29 +686,41 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     if (newPage >= 1 && newPage <= totalPages) setCurrentPage(newPage);
   };
 
-  // Sort indicator component - inline flex for perfect alignment
+  // Sort indicator component - shows direction arrows with clear visual feedback
   const SortIndicator = ({ columnKey }) => {
-    if (sortConfig.key !== columnKey) {
-      return <ChevronUp className="w-3.5 h-3.5 opacity-0 group-hover:opacity-50 flex-shrink-0 text-gray-400" />;
+    const isActive = sortConfig.key === columnKey;
+    
+    if (!isActive) {
+      // Inactive: show faint up/down arrows on hover to indicate sortability
+      return (
+        <div className="flex flex-col -space-y-1 opacity-0 group-hover:opacity-60 transition-opacity">
+          <ChevronUp className="w-3 h-3 text-gray-400" />
+          <ChevronDown className="w-3 h-3 text-gray-400" />
+        </div>
+      );
     }
+    
+    // Active: show single arrow with teal color
     return sortConfig.direction === 'ascending'
-      ? <ChevronUp className="w-3.5 h-3.5 flex-shrink-0 text-gray-600" />
-      : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0 text-gray-600" />;
+      ? <ChevronUp className="w-4 h-4 text-teal-600 flex-shrink-0" />
+      : <ChevronDown className="w-4 h-4 text-teal-600 flex-shrink-0" />;
   };
 
   // Sortable header component - Dynamic styling based on active sort state
-  // CRITICAL: Always includes border-b for border-separate table compatibility
-  // Uses gray background for clean, unified header look
+  // Active columns get teal text and background highlight
   const SortableHeader = ({ columnKey, children, className = '', align = 'left' }) => {
     const isActive = sortConfig.key === columnKey;
     return (
       <th
-        className={`px-4 py-4 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-200 select-none group bg-gray-50 border-b border-gray-200 text-gray-600 ${isActive ? 'bg-gray-100' : 'hover:bg-gray-100'
-          } ${className}`}
+        className={`px-4 py-4 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200 select-none group border-b border-gray-200 ${
+          isActive 
+            ? 'bg-teal-50 text-teal-700' 
+            : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-700'
+        } ${className}`}
         onClick={() => requestSort(columnKey)}
       >
         <div className={`flex items-center gap-2 whitespace-nowrap ${align === 'center' ? 'justify-center' : ''}`}>
-          {children}
+          <span className={isActive ? 'font-bold' : ''}>{children}</span>
           <SortIndicator columnKey={columnKey} />
         </div>
       </th>
@@ -755,44 +790,56 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           </td>
         );
       case 'goal_strategy':
-        return <td key={colId} className={cellClass}>{item.goal_strategy}</td>;
+        return (
+          <td key={colId} className={cellClass}>
+            <div className="max-w-[280px] line-clamp-2" title={item.goal_strategy}>
+              {item.goal_strategy || <span className="text-gray-400">—</span>}
+            </div>
+          </td>
+        );
       case 'action_plan':
         return (
           <td key={colId} className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
-            <div className="group/action">
+            <div className="group/action max-w-[300px]">
               {showDepartmentColumn ? (
                 // When department has its own column, show clean action plan text
-                <div>
-                  <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2">
+                <div className="line-clamp-2" title={item.action_plan}>
+                  <span className="group-hover/action:text-emerald-600 transition-colors">
                     {item.action_plan}
                   </span>
                 </div>
               ) : (
                 // When no department column, show inline department badge
-                <div>
-                  <div className="flex items-start gap-2">
-                    {/* Department Badge */}
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 flex-shrink-0">
-                      {item.department_code}
-                    </span>
-                    <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2 flex-1">
-                      {item.action_plan}
-                    </span>
-                  </div>
+                <div className="flex items-start gap-2">
+                  {/* Department Badge */}
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 flex-shrink-0">
+                    {item.department_code}
+                  </span>
+                  <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2 flex-1" title={item.action_plan}>
+                    {item.action_plan}
+                  </span>
                 </div>
               )}
             </div>
           </td>
         );
       case 'indicator':
-        return <td key={colId} className={cellClass}>{item.indicator}</td>;
+        return (
+          <td key={colId} className={cellClass}>
+            <div className="max-w-[250px] line-clamp-2" title={item.indicator}>
+              {item.indicator || <span className="text-gray-400">—</span>}
+            </div>
+          </td>
+        );
       case 'pic':
         return <td key={colId} className={cellClass}>{item.pic}</td>;
       case 'evidence':
         return (
           <td key={colId} className="px-4 py-3 border-b border-gray-100">
             {item.evidence ? (
-              <span className="text-sm text-gray-700 max-w-[200px] truncate block" title={item.evidence}>{item.evidence}</span>
+              <div className="max-w-[220px] line-clamp-2 text-sm text-gray-700" title={item.evidence}>
+                {item.evidence}
+              </div>
             ) : (
               <span className="text-gray-400 text-sm">—</span>
             )}
@@ -823,8 +870,14 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         );
       case 'remark':
         return (
-          <td key={colId} className="px-4 py-3 text-sm text-gray-700 max-w-[150px] truncate border-b border-gray-100" title={item.remark}>
-            {item.remark || <span className="text-gray-400">—</span>}
+          <td key={colId} className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
+            {item.remark ? (
+              <div className="max-w-[180px] line-clamp-2" title={item.remark}>
+                {item.remark}
+              </div>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
           </td>
         );
       // Status and Score are handled separately due to their complexity

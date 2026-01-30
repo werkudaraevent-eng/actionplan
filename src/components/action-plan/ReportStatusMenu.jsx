@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, ChevronDown, Send, Undo2, CheckCircle2, Clock, Lock, Loader2 } from 'lucide-react';
+import { FileText, ChevronDown, Send, Undo2, CheckCircle2, Clock, Lock, Loader2, AlertTriangle, Unlock } from 'lucide-react';
+import { isPlanLocked } from '../../utils/lockUtils';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const CURRENT_YEAR = new Date().getFullYear();
 
 /**
  * ReportStatusMenu - Always-visible dropdown for managing monthly report submissions
@@ -11,15 +13,19 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  * - plans: Array of action plans for the department
  * - onSubmit: (month) => void - Called when user wants to submit a month
  * - onRecall: (month) => void - Called when user wants to recall a month
+ * - onRequestUnlock: (month) => void - Called when user wants to request unlock for a locked month
  * - submitting: boolean - Loading state
  * - disabled: boolean - Disable all actions
+ * - lockSettings: Object - Lock settings from system_settings (for checking if month is locked)
  */
 export default function ReportStatusMenu({ 
   plans = [], 
   onSubmit, 
-  onRecall, 
+  onRecall,
+  onRequestUnlock,
   submitting = false,
-  disabled = false 
+  disabled = false,
+  lockSettings = null
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [actionMonth, setActionMonth] = useState(null); // Track which month action is in progress
@@ -33,8 +39,13 @@ export default function ReportStatusMenu({
       const monthPlans = plans.filter(p => p.month === month);
       const totalCount = monthPlans.length;
       
+      // Check if this month is locked (date-based lock)
+      const isMonthLocked = lockSettings?.isLockEnabled 
+        ? isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings)
+        : false;
+      
       if (totalCount === 0) {
-        return { month, status: 'empty', totalCount: 0, draftCount: 0, submittedCount: 0, gradedCount: 0, ungradedCount: 0 };
+        return { month, status: 'empty', totalCount: 0, draftCount: 0, submittedCount: 0, gradedCount: 0, ungradedCount: 0, isLocked: isMonthLocked };
       }
       
       // Draft items (can be submitted)
@@ -73,6 +84,9 @@ export default function ReportStatusMenu({
         status = 'submitted'; // Can recall ungraded items
       }
       
+      // CRITICAL: If month is locked, user cannot submit (must request unlock first)
+      const canSubmit = draftCount > 0 && incompleteCount === 0 && !isMonthLocked;
+      
       return { 
         month, 
         status, 
@@ -82,18 +96,21 @@ export default function ReportStatusMenu({
         gradedCount, 
         ungradedCount,
         incompleteCount,
-        canSubmit: draftCount > 0 && incompleteCount === 0,
+        isLocked: isMonthLocked,
+        canSubmit,
         canRecall: ungradedCount > 0 && draftCount === 0
       };
     });
-  }, [plans]);
+  }, [plans, lockSettings]);
 
   // Count summary for button label
   const summary = useMemo(() => {
     const submitted = monthStatuses.filter(m => m.status === 'submitted' || m.status === 'complete').length;
-    const ready = monthStatuses.filter(m => m.status === 'ready').length;
+    const ready = monthStatuses.filter(m => m.status === 'ready' && !m.isLocked).length;
     const inProgress = monthStatuses.filter(m => m.status === 'in-progress').length;
-    return { submitted, ready, inProgress };
+    // Locked months that need attention (have draft items but are locked)
+    const lockedNeedAttention = monthStatuses.filter(m => m.isLocked && m.draftCount > 0).length;
+    return { submitted, ready, inProgress, lockedNeedAttention };
   }, [monthStatuses]);
 
   // Click outside handler
@@ -149,6 +166,13 @@ export default function ReportStatusMenu({
     onRecall(month);
   };
 
+  const handleRequestUnlock = (month) => {
+    setIsOpen(false); // Close dropdown immediately
+    if (onRequestUnlock) {
+      onRequestUnlock(month);
+    }
+  };
+
   // Reset action month when submitting completes
   useEffect(() => {
     if (!submitting) {
@@ -157,6 +181,16 @@ export default function ReportStatusMenu({
   }, [submitting]);
 
   const getStatusBadge = (monthData) => {
+    // Show lock indicator for locked months with draft items
+    if (monthData.isLocked && monthData.draftCount > 0) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+          <Lock className="w-3 h-3" />
+          Locked
+        </span>
+      );
+    }
+    
     switch (monthData.status) {
       case 'complete':
         return (
@@ -224,6 +258,21 @@ export default function ReportStatusMenu({
       );
     }
     
+    // Month is locked but has items ready to submit - show clickable unlock request button
+    if (monthData.isLocked && monthData.draftCount > 0 && monthData.incompleteCount === 0) {
+      return (
+        <button
+          onClick={() => handleRequestUnlock(monthData.month)}
+          disabled={submitting || disabled}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Click to request permission to submit late"
+        >
+          <Unlock className="w-3 h-3" />
+          Request
+        </button>
+      );
+    }
+    
     if (monthData.canSubmit) {
       return (
         <button
@@ -237,6 +286,21 @@ export default function ReportStatusMenu({
             <Send className="w-3 h-3" />
           )}
           Submit
+        </button>
+      );
+    }
+    
+    // Month is locked but has incomplete items - show clickable unlock request button
+    if (monthData.isLocked && monthData.status === 'in-progress') {
+      return (
+        <button
+          onClick={() => handleRequestUnlock(monthData.month)}
+          disabled={submitting || disabled}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Click to request permission to edit locked items"
+        >
+          <Unlock className="w-3 h-3" />
+          Request
         </button>
       );
     }
@@ -274,10 +338,19 @@ export default function ReportStatusMenu({
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className="flex items-center gap-2 px-4 py-2.5 border border-purple-300 text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          summary.lockedNeedAttention > 0 
+            ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100' 
+            : 'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
+        }`}
       >
         <FileText className="w-4 h-4" />
         <span className="font-medium">Monthly Reports</span>
+        {summary.lockedNeedAttention > 0 && (
+          <span className="ml-1 px-1.5 py-0.5 text-xs font-bold bg-amber-500 text-white rounded-full" title="Locked months need attention">
+            {summary.lockedNeedAttention}
+          </span>
+        )}
         {summary.ready > 0 && (
           <span className="ml-1 px-1.5 py-0.5 text-xs font-bold bg-purple-600 text-white rounded-full">
             {summary.ready}
@@ -342,9 +415,15 @@ export default function ReportStatusMenu({
 
           {/* Footer */}
           <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-200">
-            <p className="text-xs text-gray-500">
-              💡 Submit when all items are Achieved/Not Achieved
-            </p>
+            {summary.lockedNeedAttention > 0 ? (
+              <p className="text-xs text-amber-600">
+                ⚠️ {summary.lockedNeedAttention} month(s) locked. Click "Request" to ask for unlock.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">
+                💡 Submit when all items are Achieved/Not Achieved
+              </p>
+            )}
           </div>
         </div>,
         document.body

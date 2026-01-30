@@ -11,6 +11,7 @@ import Sidebar from './components/layout/Sidebar';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
 import ApprovalInbox from './pages/ApprovalInbox';
+import GlobalAuditLog from './pages/GlobalAuditLog';
 import UserManagement from './components/user/UserManagement';
 import CompanyActionPlans from './pages/CompanyActionPlans';
 import DepartmentDashboard from './pages/DepartmentDashboard';
@@ -256,6 +257,12 @@ function AppRoutes() {
           <Route path="/approvals" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <ApprovalInbox />
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/audit-log" element={
+            <ProtectedRoute adminOnly>
+              <GlobalAuditLog />
             </ProtectedRoute>
           } />
           

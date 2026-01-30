@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, Send, FileSpreadsheet, LockKeyhole, Unlock, X, Clock } from 'lucide-react';
+import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, Undo2, Send, FileSpreadsheet, FileText, LockKeyhole, Unlock, X, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
@@ -11,6 +13,7 @@ import ActionPlanModal from '../components/action-plan/ActionPlanModal';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 import RecycleBinModal from '../components/action-plan/RecycleBinModal';
 import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
+import ExportConfigModal from '../components/action-plan/ExportConfigModal';
 import LockedMonthsSummary from '../components/common/LockedMonthsSummary';
 import ReportStatusMenu from '../components/action-plan/ReportStatusMenu';
 import { useToast } from '../components/common/Toast';
@@ -61,6 +64,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   
   // Smart filter for pending unlock requests
   const [showPendingOnly, setShowPendingOnly] = useState(false);
@@ -217,12 +222,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const currentDept = departments.find((d) => d.code === departmentCode);
 
   // Month status for smart button logic - supports partial recall
+  // Now includes auto-graded "Not Achieved" items as recallable
   const monthStatus = useMemo(() => {
     if (selectedMonth === 'all') {
       return { 
         canRecall: false, 
         gradedCount: 0, 
         ungradedCount: 0, 
+        autoGradedCount: 0,
+        recallableCount: 0,
         draftCount: 0,
         submittedCount: 0,
         totalCount: 0
@@ -241,18 +249,37 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     const submittedItems = monthPlans.filter(p => p.submission_status === 'submitted');
     const submittedCount = submittedItems.length;
     
-    // Graded items (locked forever)
-    const gradedCount = submittedItems.filter(p => p.quality_score != null).length;
+    // Manually graded items (locked forever - cannot be recalled)
+    // Excludes auto-graded "Not Achieved" items (score 0)
+    const manuallyGradedCount = submittedItems.filter(
+      p => p.quality_score != null && !(p.quality_score === 0 && p.status === 'Not Achieved')
+    ).length;
     
-    // Ungraded submitted items (can be recalled) - THIS IS THE KEY COUNT
-    const ungradedCount = submittedCount - gradedCount;
+    // Auto-graded "Not Achieved" items (can be recalled)
+    const autoGradedCount = submittedItems.filter(
+      p => p.quality_score === 0 && p.status === 'Not Achieved'
+    ).length;
     
-    // Can recall if there are ANY ungraded submitted items AND no drafts waiting
+    // Ungraded submitted items (can be recalled)
+    const ungradedCount = submittedItems.filter(p => p.quality_score == null).length;
+    
+    // Total recallable = ungraded + auto-graded Not Achieved
+    const recallableCount = ungradedCount + autoGradedCount;
+    
+    // Can recall if there are ANY recallable items AND no drafts waiting
     // (If there are drafts, show submit button instead - submit takes priority)
-    // Now supports PARTIAL RECALL even when some items are graded
-    const canRecall = ungradedCount > 0 && draftCount === 0;
+    const canRecall = recallableCount > 0 && draftCount === 0;
     
-    return { canRecall, gradedCount, ungradedCount, draftCount, submittedCount, totalCount };
+    return { 
+      canRecall, 
+      gradedCount: manuallyGradedCount, 
+      ungradedCount, 
+      autoGradedCount,
+      recallableCount,
+      draftCount, 
+      submittedCount, 
+      totalCount 
+    };
   }, [plans, selectedMonth]);
 
   // Calculate months that have draft items (for month selector modal)
@@ -283,19 +310,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       return { isLocked: false, lockedItems: [], pendingCount: 0 };
     }
     
+    // Get all plans for this month
+    const monthPlans = plans.filter(p => p.month === selectedMonth);
+    
+    // Always calculate pending count (regardless of lock status)
+    const pendingCount = monthPlans.filter(p => p.unlock_status === 'pending').length;
+    
     // Check if the selected month is locked
     const isMonthLocked = isPlanLocked(selectedMonth, CURRENT_YEAR, null, null, lockSettings);
     
     if (!isMonthLocked) {
-      return { isLocked: false, lockedItems: [], pendingCount: 0 };
+      return { isLocked: false, lockedItems: [], pendingCount };
     }
     
     // Get all locked items for this month (not already approved or pending)
-    const monthPlans = plans.filter(p => p.month === selectedMonth);
     const lockedItems = monthPlans.filter(p => 
       p.unlock_status !== 'approved' && p.unlock_status !== 'pending'
     );
-    const pendingCount = monthPlans.filter(p => p.unlock_status === 'pending').length;
     
     return { 
       isLocked: true, 
@@ -304,6 +335,47 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       totalCount: monthPlans.length
     };
   }, [selectedMonth, plans, lockSettings]);
+
+  // Calculate locked months that need attention (ready to submit but locked)
+  const lockedMonthsNeedingAttention = useMemo(() => {
+    if (!lockSettings?.isLockEnabled) return [];
+    
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const lockedMonths = [];
+    
+    MONTHS.forEach(month => {
+      const monthPlans = plans.filter(p => p.month === month);
+      if (monthPlans.length === 0) return;
+      
+      // Check if month is locked
+      const isMonthLocked = isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings);
+      if (!isMonthLocked) return;
+      
+      // Check if there are draft items
+      const draftCount = monthPlans.filter(
+        p => !p.submission_status || p.submission_status === 'draft'
+      ).length;
+      if (draftCount === 0) return;
+      
+      // Check if all drafts are complete (Achieved or Not Achieved)
+      const incompleteCount = monthPlans.filter(
+        p => (!p.submission_status || p.submission_status === 'draft') &&
+             p.status !== 'Achieved' && 
+             p.status !== 'Not Achieved'
+      ).length;
+      
+      // Only add if ready to submit (all complete) but locked
+      if (incompleteCount === 0) {
+        lockedMonths.push({
+          month,
+          draftCount,
+          totalCount: monthPlans.length
+        });
+      }
+    });
+    
+    return lockedMonths;
+  }, [plans, lockSettings]);
 
   // Get incomplete items (not Achieved or Not Achieved) for selected month
   const getIncompleteItems = useMemo(() => {
@@ -376,6 +448,25 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       return (b.id || 0) - (a.id || 0); // Newest first within same month
     });
   }, [basePlans, selectedStatus, selectedCategory]);
+
+  // Pre-calculate consolidated count for the export modal
+  // Uses same fingerprint logic as the actual consolidation
+  const consolidatedCount = useMemo(() => {
+    const grouped = new Set();
+    tablePlans.forEach(row => {
+      const fingerprint = [
+        row.category,
+        row.area_focus,
+        row.goal_strategy,
+        row.action_plan,
+        row.indicator,
+        row.evidence,
+        row.pic
+      ].map(val => String(val || '').trim().toLowerCase()).join('|');
+      grouped.add(fingerprint);
+    });
+    return grouped.size;
+  }, [tablePlans]);
 
   // Check if any filters are active
   const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || showPendingOnly;
@@ -646,8 +737,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         ? `Recall Ungraded Items for ${selectedMonth}?`
         : `Recall ${selectedMonth} Report?`,
       message: isPartialRecall
-        ? `You are about to recall ${monthStatus.ungradedCount} ungraded item(s) from the Management Grading Queue. The ${monthStatus.gradedCount} already graded item(s) will remain locked.`
-        : `Are you sure you want to recall the ${selectedMonth} report? This will pull back ${monthStatus.ungradedCount} item(s) from the Management Grading Queue and allow editing again.`,
+        ? `You are about to recall ${monthStatus.recallableCount} item(s) from the Management Grading Queue. The ${monthStatus.gradedCount} manually graded item(s) will remain locked.`
+        : `Are you sure you want to recall the ${selectedMonth} report? This will pull back ${monthStatus.recallableCount} item(s) from the Management Grading Queue and allow editing again.`,
       onConfirm: handleRecallReport
     });
   };
@@ -693,36 +784,51 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     if (!month) return;
     
     // Calculate month status for the target month
+    // Now includes auto-graded "Not Achieved" items as recallable
     const monthPlans = plans.filter(p => p.month === month);
     const submittedItems = monthPlans.filter(p => p.submission_status === 'submitted');
-    const gradedCount = submittedItems.filter(p => p.quality_score != null).length;
-    const ungradedCount = submittedItems.length - gradedCount;
     
-    if (ungradedCount === 0) {
+    // Manually graded items (locked forever - cannot be recalled)
+    const manuallyGradedCount = submittedItems.filter(
+      p => p.quality_score != null && !(p.quality_score === 0 && p.status === 'Not Achieved')
+    ).length;
+    
+    // Auto-graded "Not Achieved" items (can be recalled)
+    const autoGradedCount = submittedItems.filter(
+      p => p.quality_score === 0 && p.status === 'Not Achieved'
+    ).length;
+    
+    // Ungraded items (can be recalled)
+    const ungradedCount = submittedItems.filter(p => p.quality_score == null).length;
+    
+    // Total recallable
+    const recallableCount = ungradedCount + autoGradedCount;
+    
+    if (recallableCount === 0) {
       setModalConfig({
         isOpen: true,
         type: 'info',
         title: 'Nothing to Recall',
-        message: gradedCount > 0 
-          ? `All ${gradedCount} submitted items for ${month} have been graded and cannot be recalled.`
+        message: manuallyGradedCount > 0 
+          ? `All ${manuallyGradedCount} submitted items for ${month} have been manually graded and cannot be recalled.`
           : `No submitted items found for ${month}.`,
         onConfirm: null
       });
       return;
     }
     
-    const isPartialRecall = gradedCount > 0;
+    const isPartialRecall = manuallyGradedCount > 0;
     
     setModalConfig({
       isOpen: true,
       type: 'confirm',
       actionType: 'recall',
       title: isPartialRecall 
-        ? `Recall Ungraded Items for ${month}?`
+        ? `Recall Items for ${month}?`
         : `Recall ${month} Report?`,
       message: isPartialRecall
-        ? `You are about to recall ${ungradedCount} ungraded item(s) from the Management Grading Queue. The ${gradedCount} already graded item(s) will remain locked.`
-        : `Are you sure you want to recall the ${month} report? This will pull back ${ungradedCount} item(s) from the Management Grading Queue and allow editing again.`,
+        ? `You are about to recall ${recallableCount} item(s) from the Management Grading Queue. The ${manuallyGradedCount} manually graded item(s) will remain locked.`
+        : `Are you sure you want to recall the ${month} report? This will pull back ${recallableCount} item(s) from the Management Grading Queue and allow editing again.`,
       onConfirm: async () => {
         closeModal();
         setSubmitting(true);
@@ -735,7 +841,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             count, 
             planTitle: '',
             isPartial: isPartialRecall,
-            gradedCount
+            gradedCount: manuallyGradedCount
           });
         } catch (error) {
           console.error('Recall failed:', error);
@@ -822,6 +928,341 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       toast({ title: 'Export Failed', description: 'Failed to export data. Please try again.', variant: 'error' });
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Export PDF handler - Mirrors current table state (WYSIWYG)
+  const handleExportPDF = async (config = {}) => {
+    const { includesSummary = true, isConsolidated = false } = config;
+    
+    setExportingPdf(true);
+    setShowExportModal(false);
+    
+    try {
+      const year = plans[0]?.year || CURRENT_YEAR;
+      const deptName = departments.find(d => d.code === departmentCode)?.name || departmentCode;
+      
+      // Month order for chronological sorting
+      const monthMap = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+      };
+      
+      // Consolidation helper - merges duplicate plans into single rows with grouped months
+      // CRITICAL: Uses strict string sanitization to ensure proper matching
+      const consolidateData = (data) => {
+        const grouped = {};
+        
+        data.forEach(row => {
+          // Create a strict content fingerprint
+          // ONLY include fields that define the "same" action plan
+          // EXCLUDE: id, created_at, updated_at, month, status, score, remark, outcome_link
+          // SANITIZE: trim whitespace, normalize to lowercase for comparison
+          const fingerprint = [
+            row.category,
+            row.area_focus,
+            row.goal_strategy,
+            row.action_plan,  // Most important field
+            row.indicator,
+            row.evidence,
+            row.pic
+          ].map(val => String(val || '').trim().toLowerCase()).join('|');
+          
+          if (!grouped[fingerprint]) {
+            // First occurrence: Clone row and init months array
+            grouped[fingerprint] = { ...row, _monthsList: [row.month] };
+          } else {
+            // Duplicate found: Just push the month (avoid duplicates)
+            if (!grouped[fingerprint]._monthsList.includes(row.month)) {
+              grouped[fingerprint]._monthsList.push(row.month);
+            }
+          }
+        });
+        
+        // Convert back to array and format the 'Month' column
+        return Object.values(grouped).map(item => {
+          // Remove duplicate months and sort chronologically
+          const uniqueMonths = [...new Set(item._monthsList)];
+          uniqueMonths.sort((a, b) => (monthMap[a] || 99) - (monthMap[b] || 99));
+          
+          // Format month label based on count
+          let monthLabel = '';
+          if (uniqueMonths.length === 12) {
+            monthLabel = `FY ${year} (Jan-Dec)`;
+          } else if (uniqueMonths.length > 3) {
+            // Range format for 4+ months: "Jan - Jun (6 Months)"
+            monthLabel = `${uniqueMonths[0]} - ${uniqueMonths[uniqueMonths.length - 1]} (${uniqueMonths.length}mo)`;
+          } else if (uniqueMonths.length > 1) {
+            // List format for 2-3 months: "Jan, Feb, Mar"
+            monthLabel = uniqueMonths.join(', ');
+          } else {
+            monthLabel = uniqueMonths[0] || '-';
+          }
+          
+          // Clean up internal property and return
+          const { _monthsList, ...cleanItem } = item;
+          return { ...cleanItem, month: monthLabel };
+        });
+      };
+      
+      // Use tablePlans directly - already filtered by current UI filters
+      // Apply chronological sorting by month first
+      let sortedData = [...tablePlans].sort((a, b) => {
+        const monthA = monthMap[a.month] || 99;
+        const monthB = monthMap[b.month] || 99;
+        return monthA - monthB;
+      });
+      
+      // Apply consolidation if enabled
+      const dataToExport = isConsolidated ? consolidateData(sortedData) : sortedData;
+      
+      if (dataToExport.length === 0) {
+        toast({ title: 'No Data', description: 'No action plans to export.', variant: 'warning' });
+        setExportingPdf(false);
+        return;
+      }
+      
+      // Column definitions - maps table column IDs to PDF labels and data accessors
+      // Adjust month column width when consolidated (needs more space for ranges)
+      const COLUMN_DEFS = {
+        month: { label: 'Month', fixedWidth: isConsolidated ? 22 : 14, align: 'center', getValue: (p) => String(p.month || '-') },
+        category: { label: 'Category', fixedWidth: 20, align: 'center', getValue: (p) => String(p.category || '-') },
+        area_focus: { label: 'Area Focus', fixedWidth: null, align: 'left', getValue: (p) => String(p.area_focus || '-') },
+        goal_strategy: { label: 'Goal/Strategy', fixedWidth: null, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
+        action_plan: { label: 'Action Plan', fixedWidth: null, align: 'left', getValue: (p) => String(p.action_plan || '-') },
+        indicator: { label: 'Indicator', fixedWidth: null, align: 'left', getValue: (p) => String(p.indicator || '-') },
+        pic: { label: 'PIC', fixedWidth: 25, align: 'left', getValue: (p) => String(p.pic || '-') },
+        evidence: { label: 'Evidence', fixedWidth: null, align: 'left', getValue: (p) => String(p.evidence || '-') },
+        status: { label: 'Status', fixedWidth: 22, align: 'center', getValue: (p) => String(p.status || '-') },
+        score: { label: 'Score', fixedWidth: 12, align: 'center', getValue: (p) => p.quality_score != null ? `${p.quality_score}%` : '-' },
+        outcome: { label: 'Proof', fixedWidth: null, align: 'left', getValue: (p) => String(p.outcome_link || '-') },
+        remark: { label: 'Remark', fixedWidth: null, align: 'left', getValue: (p) => String(p.remark || '-') },
+      };
+      
+      // Build active columns from table's columnOrder and visibleColumns state
+      const finalCols = columnOrder.filter(colId => visibleColumns[colId] && COLUMN_DEFS[colId]);
+      
+      // Build table headers and row builder
+      const tableHead = [finalCols.map(c => COLUMN_DEFS[c]?.label || c)];
+      const buildRow = (p) => finalCols.map(c => COLUMN_DEFS[c]?.getValue(p) || '-');
+      const statusColIdx = finalCols.indexOf('status');
+      
+      // Build column styles
+      const colStyles = {};
+      finalCols.forEach((colId, idx) => {
+        const def = COLUMN_DEFS[colId];
+        if (def?.fixedWidth) {
+          colStyles[idx] = { cellWidth: def.fixedWidth, halign: def.align };
+        } else {
+          colStyles[idx] = { halign: def?.align || 'left' };
+        }
+      });
+      
+      // Create PDF document - LANDSCAPE A4
+      const doc = new jsPDF('landscape', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 12;
+      const generatedDate = new Date().toLocaleDateString('en-US', { 
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+      });
+      
+      // Helper: Add header
+      const addHeader = () => {
+        doc.setFillColor(13, 148, 136);
+        doc.rect(0, 0, pageWidth, 18, 'F');
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(255, 255, 255);
+        doc.text('Werkudara Group - Action Plan Report', margin, 12);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${deptName} (${departmentCode}) | FY ${year}`, pageWidth - margin, 12, { align: 'right' });
+      };
+      
+      // Helper: Add footer
+      const addFooter = (pageNum, totalPages) => {
+        doc.setFontSize(8);
+        doc.setTextColor(128, 128, 128);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Generated on ${generatedDate}`, margin, pageHeight - 8);
+        doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+      };
+      
+      // Add first page header
+      addHeader();
+      
+      // Report info
+      let yPosition = 26;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Total: ${dataToExport.length} Action Plans | ${finalCols.length} Columns`, margin, yPosition);
+      yPosition += 6;
+      
+      // Build table body
+      const tableBody = dataToExport.map(buildRow);
+      
+      // Generate table
+      autoTable(doc, {
+        startY: yPosition,
+        head: tableHead,
+        body: tableBody,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
+        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold', fontSize: 9, halign: 'center', valign: 'middle', cellPadding: 2 },
+        bodyStyles: { fontSize: 8, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak' },
+        columnStyles: colStyles,
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { top: 28, bottom: 20, left: margin, right: margin },
+        tableLineColor: [200, 200, 200],
+        tableLineWidth: 0.1,
+        tableWidth: 'auto',
+        didDrawPage: () => {
+          doc.setFillColor(13, 148, 136);
+          doc.rect(0, 0, pageWidth, 18, 'F');
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(255, 255, 255);
+          doc.text('Werkudara Group - Action Plan Report', margin, 12);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`${deptName} (${departmentCode}) | FY ${year}`, pageWidth - margin, 12, { align: 'right' });
+        },
+        willDrawCell: (data) => {
+          if (statusColIdx >= 0 && data.section === 'body' && data.column.index === statusColIdx) {
+            const status = data.cell.raw;
+            if (status === 'Achieved') doc.setTextColor(22, 163, 74);
+            else if (status === 'Not Achieved') doc.setTextColor(220, 38, 38);
+            else if (status === 'On Progress') doc.setTextColor(37, 99, 235);
+            else doc.setTextColor(107, 114, 128);
+          }
+        },
+        didDrawCell: () => { doc.setTextColor(0, 0, 0); }
+      });
+      
+      // Add Summary Page (optional)
+      if (includesSummary) {
+        doc.addPage();
+        addHeader();
+        
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(31, 41, 55);
+        doc.text('Executive Summary', margin, 32);
+        
+        let summaryY = 45;
+        
+        const priorityConfig = {
+          'UH (Ultra High)': { color: [220, 38, 38], shortLabel: 'Ultra High' },
+          'H (High)': { color: [234, 88, 12], shortLabel: 'High' },
+          'M (Medium)': { color: [202, 138, 4], shortLabel: 'Medium' },
+          'L (Low)': { color: [22, 163, 74], shortLabel: 'Low' },
+          'Uncategorized': { color: [107, 114, 128], shortLabel: 'Uncategorized' }
+        };
+        const priorityOrder = ['UH (Ultra High)', 'H (High)', 'M (Medium)', 'L (Low)', 'Uncategorized'];
+        
+        const categoryToBucket = (category) => {
+          if (!category || typeof category !== 'string') return 'Uncategorized';
+          const normalized = category.trim();
+          if (normalized.includes('Ultra High') || normalized === 'UH') return 'UH (Ultra High)';
+          if (normalized.includes('High') && !normalized.includes('Ultra')) return 'H (High)';
+          if (normalized.includes('Medium') || normalized === 'M') return 'M (Medium)';
+          if (normalized.includes('Low') || normalized === 'L') return 'L (Low)';
+          return 'Uncategorized';
+        };
+        
+        const drawBullet = (x, y, color) => {
+          doc.setFillColor(color[0], color[1], color[2]);
+          doc.circle(x, y - 1.5, 2, 'F');
+        };
+        
+        // Priority Breakdown
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(margin, summaryY - 5, 120, 60, 3, 3, 'F');
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(31, 41, 55);
+        doc.text('Priority Distribution', margin + 5, summaryY + 3);
+        
+        summaryY += 12;
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        
+        const priorityCounts = {};
+        priorityOrder.forEach(k => { priorityCounts[k] = 0; });
+        dataToExport.forEach(p => { priorityCounts[categoryToBucket(p.category)]++; });
+        
+        priorityOrder.forEach(priorityKey => {
+          const count = priorityCounts[priorityKey];
+          if (count > 0) {
+            const cfg = priorityConfig[priorityKey];
+            const percentage = ((count / dataToExport.length) * 100).toFixed(1);
+            drawBullet(margin + 7, summaryY, cfg.color);
+            doc.setTextColor(cfg.color[0], cfg.color[1], cfg.color[2]);
+            doc.text(`${cfg.shortLabel}:`, margin + 12, summaryY);
+            doc.setTextColor(31, 41, 55);
+            doc.text(`${count} items (${percentage}%)`, margin + 45, summaryY);
+            summaryY += 7;
+          }
+        });
+        
+        summaryY += 3;
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(13, 148, 136);
+        doc.text(`Total: ${dataToExport.length} action plans`, margin + 5, summaryY);
+        
+        // Status Breakdown
+        summaryY = 45;
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(margin + 130, summaryY - 5, 120, 60, 3, 3, 'F');
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(31, 41, 55);
+        doc.text('Status Breakdown', margin + 135, summaryY + 3);
+        
+        summaryY += 12;
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        
+        const statusCounts = {};
+        const statusColors = { 'Achieved': [22, 163, 74], 'On Progress': [37, 99, 235], 'Open': [107, 114, 128], 'Not Achieved': [220, 38, 38] };
+        
+        dataToExport.forEach(p => {
+          const status = p.status || 'Unknown';
+          statusCounts[status] = (statusCounts[status] || 0) + 1;
+        });
+        
+        Object.entries(statusCounts).forEach(([status, count]) => {
+          const percentage = ((count / dataToExport.length) * 100).toFixed(1);
+          const color = statusColors[status] || [107, 114, 128];
+          doc.setTextColor(color[0], color[1], color[2]);
+          doc.text(`${status}:`, margin + 135, summaryY);
+          doc.setTextColor(31, 41, 55);
+          doc.text(`${count} (${percentage}%)`, margin + 175, summaryY);
+          summaryY += 7;
+        });
+      }
+      
+      // Add page numbers
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        addFooter(i, totalPages);
+      }
+      
+      // Save
+      const timestamp = new Date().toISOString().split('T')[0];
+      doc.save(`${departmentCode}_Action_Plans_${year}_${timestamp}.pdf`);
+      
+      toast({ title: 'PDF Exported', description: 'Report generated successfully.', variant: 'success' });
+    } catch (error) {
+      console.error('PDF Export failed:', error);
+      toast({ title: 'Export Failed', description: 'Failed to export PDF. Please try again.', variant: 'error' });
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -998,6 +1439,24 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setBulkUnlockReason('');
   };
 
+  // Open bulk unlock modal for a specific month (called from ReportStatusMenu)
+  const handleOpenBulkUnlockForMonth = (month) => {
+    // Calculate locked items for the specified month
+    const monthPlans = plans.filter(p => p.month === month);
+    const lockedItems = monthPlans.filter(p => 
+      p.unlock_status !== 'approved' && p.unlock_status !== 'pending' &&
+      isPlanLocked(month, CURRENT_YEAR, p.unlock_status, p.approved_until, lockSettings)
+    );
+    
+    setBulkUnlockModal({
+      isOpen: true,
+      month: month,
+      year: CURRENT_YEAR,
+      lockedCount: lockedItems.length
+    });
+    setBulkUnlockReason('');
+  };
+
   // Handle bulk unlock submission
   const handleBulkUnlock = async () => {
     if (!bulkUnlockReason.trim()) {
@@ -1136,14 +1595,26 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               {exporting ? 'Exporting...' : 'Export Excel'}
             </button>
 
+            {/* Export PDF Button */}
+            <button
+              onClick={() => setShowExportModal(true)}
+              disabled={exportingPdf || plans.length === 0}
+              className="flex items-center gap-2 px-4 py-2.5 border border-red-500 text-red-500 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileText className="w-4 h-4" />
+              {exportingPdf ? 'Exporting...' : 'Export PDF'}
+            </button>
+
             {/* Leader Submit/Recall Report Button - ONLY visible for Leaders (not Admins) */}
             {isLeader && (
               <ReportStatusMenu
                 plans={plans}
                 onSubmit={proceedWithFinalize}
                 onRecall={handleRecallFromMenu}
+                onRequestUnlock={handleOpenBulkUnlockForMonth}
                 submitting={submitting}
                 disabled={false}
+                lockSettings={lockSettings}
               />
             )}
             
@@ -1165,6 +1636,36 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       {/* Scrollable Content Area */}
       <main className="p-6 space-y-6">
+        {/* Missed Deadline Warning Banner - Shows when there are locked months ready to submit */}
+        {isLeader && !isAdmin && lockedMonthsNeedingAttention.length > 0 && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-medium text-amber-800">
+                  ⚠️ Missed Submission Deadline
+                </p>
+                <p className="text-sm text-amber-600">
+                  {lockedMonthsNeedingAttention.length === 1 
+                    ? `${lockedMonthsNeedingAttention[0].month} is ready to submit but the deadline has passed.`
+                    : `${lockedMonthsNeedingAttention.map(m => m.month).join(', ')} are ready to submit but deadlines have passed.`
+                  }
+                  {' '}Request unlock to submit late.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleOpenBulkUnlockForMonth(lockedMonthsNeedingAttention[0].month)}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium whitespace-nowrap"
+            >
+              <Unlock className="w-4 h-4" />
+              Request Unlock
+            </button>
+          </div>
+        )}
+
         {/* Global Locked Months Summary - Shows all locked/pending months at a glance */}
         <LockedMonthsSummary
           departmentCode={departmentCode}
@@ -1203,7 +1704,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           </div>
         )}
 
-        {/* Pending Unlock Banner - Shows when there are pending requests */}
+        {/* Pending Unlock Banner - Shows when there are pending requests AND no more items to request unlock for */}
         {isLeader && !isAdmin && monthLockStatus.pendingCount > 0 && monthLockStatus.lockedItems.length === 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
@@ -1639,6 +2140,17 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         onRestore={restorePlan}
         onPermanentDelete={permanentlyDeletePlan}
         isAdmin={isAdmin}
+      />
+
+      {/* Export Config Modal */}
+      <ExportConfigModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        onExport={handleExportPDF}
+        isExporting={exportingPdf}
+        recordCount={tablePlans.length}
+        consolidatedCount={consolidatedCount}
+        visibleColumnCount={columnOrder.filter(c => visibleColumns[c]).length}
       />
 
       {/* Admin Grade Modal */}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -38,15 +38,24 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const isLocked = (isPlanLocked && !isAdmin) || isReadOnly; // Regular users are locked out, Executives are always read-only
   const isAdminOverride = isPlanLocked && isAdmin && !isReadOnly; // Admin can override the lock (but not if Executive)
   
-  // Check if plan can be recalled (locked but NOT graded yet)
+  // Check if plan can be recalled (locked but NOT manually graded yet)
+  // Allow recall for:
+  // 1. Ungraded items (quality_score == null)
+  // 2. Auto-graded "Not Achieved" items (quality_score === 0 AND status === 'Not Achieved')
+  const isAutoGradedNotAchieved = editData?.quality_score === 0 && editData?.status === 'Not Achieved';
   const canRecall = isPlanLocked && 
-    editData?.quality_score == null && // Not graded yet
+    (editData?.quality_score == null || isAutoGradedNotAchieved) && // Not manually graded
     (isLeader || isAdmin) && // Only Leaders or Admins can recall
     onRecall; // Recall handler must be provided
   
   // Recall confirmation state
   const [showRecallConfirm, setShowRecallConfirm] = useState(false);
   const [recalling, setRecalling] = useState(false);
+  
+  // Progress log state
+  const [progressLogs, setProgressLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [progressUpdate, setProgressUpdate] = useState('');
   
   // Get the plan's department (from editData or the prop)
   const planDept = editData?.department_code || departmentCode || '';
@@ -130,6 +139,41 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       fetchDropdownOptions();
     }
   }, [isOpen]);
+
+  // Fetch progress logs when modal opens with editData
+  useEffect(() => {
+    if (isOpen && editData?.id) {
+      fetchProgressLogs(editData.id);
+    } else {
+      setProgressLogs([]);
+      setProgressUpdate('');
+    }
+  }, [isOpen, editData?.id]);
+
+  const fetchProgressLogs = async (actionPlanId) => {
+    setLoadingLogs(true);
+    try {
+      const { data, error } = await supabase
+        .from('progress_logs')
+        .select(`
+          id,
+          message,
+          created_at,
+          user_id,
+          profiles:user_id (full_name)
+        `)
+        .eq('action_plan_id', actionPlanId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setProgressLogs(data || []);
+    } catch (err) {
+      console.error('Failed to fetch progress logs:', err);
+      setProgressLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
 
   const fetchFailureReasons = async () => {
     setLoadingReasons(true);
@@ -319,6 +363,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Validation: If status is "On Progress", require progress update message
+    if (formData.status === 'On Progress' && editData) {
+      if (!progressUpdate || progressUpdate.trim().length < 5) {
+        toast({ title: 'Missing Information', description: 'Please provide a progress update (at least 5 characters) when setting status to "On Progress".', variant: 'warning' });
+        return;
+      }
+    }
+    
     // Validation: If status is "Not Achieved", require gap category and gap analysis
     if (formData.status === 'Not Achieved') {
       if (!gapCategory) {
@@ -396,6 +448,22 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       } else {
         // Single create/update
         await onSave(finalFormData);
+        
+        // Insert progress log if status is "On Progress" and there's a message
+        if (editData?.id && progressUpdate && progressUpdate.trim()) {
+          const { error: logError } = await supabase
+            .from('progress_logs')
+            .insert({
+              action_plan_id: editData.id,
+              user_id: profile?.id,
+              message: progressUpdate.trim()
+            });
+          
+          if (logError) {
+            console.error('Failed to save progress log:', logError);
+            // Don't fail the whole operation, just log the error
+          }
+        }
       }
       onClose();
     } catch (error) {
@@ -878,6 +946,85 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           </select>
           </div>
 
+          {/* Progress Update Section - Show input when "On Progress", always show timeline if logs exist */}
+          {editData && (formData.status === 'On Progress' || progressLogs.length > 0) && (
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
+              <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Progress Updates
+              </h4>
+              
+              {/* Progress Update Input - Only show when status is "On Progress" and not locked */}
+              {formData.status === 'On Progress' && (!isLocked || isAdminOverride) && (
+                <div>
+                  <label className="block text-xs font-medium text-blue-700 mb-1">
+                    Current Progress Update <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={progressUpdate}
+                    onChange={(e) => setProgressUpdate(e.target.value)}
+                    placeholder="Describe the current progress, what has been done, and next steps..."
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm placeholder:text-blue-300 ${
+                      !progressUpdate || progressUpdate.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-blue-300 bg-white'
+                    }`}
+                    rows={3}
+                    required
+                  />
+                  {(!progressUpdate || progressUpdate.trim().length < 5) && (
+                    <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 5 characters describing the progress</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Progress Timeline */}
+              {loadingLogs ? (
+                <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading progress history...
+                </div>
+              ) : progressLogs.length > 0 ? (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-blue-600 mb-2 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Progress History ({progressLogs.length} {progressLogs.length === 1 ? 'update' : 'updates'})
+                  </p>
+                  <div className="max-h-48 overflow-y-auto pr-2 space-y-0">
+                    {progressLogs.map((log, index) => (
+                      <div key={log.id} className="relative pl-4 pb-3">
+                        {/* Timeline line */}
+                        {index < progressLogs.length - 1 && (
+                          <div className="absolute left-[5px] top-3 bottom-0 w-0.5 bg-blue-200"></div>
+                        )}
+                        {/* Timeline dot */}
+                        <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-blue-400 border-2 border-blue-100"></div>
+                        {/* Content */}
+                        <div className="bg-white rounded-lg p-2 border border-blue-100 ml-2">
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                            <span className="font-medium text-gray-700">
+                              {log.profiles?.full_name || 'Unknown User'}
+                            </span>
+                            <span>•</span>
+                            <span>
+                              {new Date(log.created_at).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700">{log.message}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-blue-500 italic">No progress updates recorded yet.</p>
+              )}
+            </div>
+          )}
+
           {/* Row 8: Proof of Evidence (Full Width) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1134,6 +1281,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     
                     // URL validation (if starts with http, must be valid)
                     if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
+                    
+                    // Progress update validation for "On Progress" status
+                    if (formData.status === 'On Progress' && editData) {
+                      if (!progressUpdate || progressUpdate.trim().length < 5) return true;
+                    }
                     
                     // Completion status validation
                     const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';

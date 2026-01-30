@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -64,6 +64,7 @@ export default function Sidebar() {
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/workspace') return location.pathname === '/workspace';
     if (path === '/approvals') return location.pathname === '/approvals';
+    if (path === '/audit-log') return location.pathname === '/audit-log';
     // Department routes
     if (path.startsWith('/dept/')) {
       return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -173,6 +174,15 @@ export default function Sidebar() {
                 >
                   <Users className="w-4 h-4" />
                   <span className="text-sm">Team Management</span>
+                </button>
+                <button
+                  onClick={() => navigate('/audit-log')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                    isActive('/audit-log') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <History className="w-4 h-4" />
+                  <span className="text-sm">Activity Log</span>
                 </button>
                 <button
                   onClick={() => navigate('/settings')}

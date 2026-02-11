@@ -109,8 +109,8 @@ describe('KPICard Badge Rendering - Property Tests', () => {
               <KPICard {...defaultProps} badge={badgeText} />
             );
             
-            // Find badge by its specific class combination
-            const badge = container.querySelector('span.absolute.top-2.right-2.bg-white\\/20.rounded-full');
+            // Find badge by positioning classes (styling varies: YTD gets amber, others get white)
+            const badge = container.querySelector('span.absolute.top-2.right-2.rounded-full');
             expect(badge).not.toBeNull();
             expect(badge.textContent).toBe(badgeText);
           }
@@ -286,11 +286,11 @@ describe('KPICard Badge Rendering - Property Tests', () => {
    */
   describe('Badge Styling and Positioning', () => {
     it('badge has correct CSS classes for styling', () => {
-      render(<KPICard {...defaultProps} badge="YTD" />);
+      render(<KPICard {...defaultProps} badge="Filtered" />);
       
-      const badge = screen.getByText('YTD');
+      const badge = screen.getByText('Filtered');
       
-      // Verify all expected styling classes
+      // Verify all expected styling classes (non-YTD badges get bg-white/20)
       expect(badge).toHaveClass('absolute');
       expect(badge).toHaveClass('top-2');
       expect(badge).toHaveClass('right-2');

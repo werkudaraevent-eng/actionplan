@@ -54,9 +54,21 @@ export const DEPARTMENTS = [
 
 // Simplified workflow: Staff can directly mark Achieved
 // Internal Review and Waiting Approval are legacy/system states
-export const STATUS_OPTIONS = ['Open', 'On Progress', 'Achieved', 'Not Achieved'];
+// Blocked: Staff reports an obstacle (sets is_blocked flag)
+// Escalation is handled via attention_level metadata on Blocked items
+export const STATUS_OPTIONS = ['Open', 'On Progress', 'Blocked', 'Achieved', 'Not Achieved'];
 
 // Legacy status options (for display purposes only)
-export const ALL_STATUS_OPTIONS = ['Open', 'On Progress', 'Internal Review', 'Waiting Approval', 'Achieved', 'Not Achieved'];
+export const ALL_STATUS_OPTIONS = ['Open', 'On Progress', 'Blocked', 'Internal Review', 'Waiting Approval', 'Achieved', 'Not Achieved'];
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const REPORT_FORMATS = ['Monthly Report', 'Weekly Update', 'Quarterly Review', 'Annual Report'];
+
+// Blocker category options for the Blocked status
+export const BLOCKER_CATEGORIES = ['Internal', 'External', 'Budget', 'Approval'];
+
+// Attention level options for escalation severity
+export const ATTENTION_LEVELS = [
+  { value: 'Standard', label: 'Standard (I am handling it)' },
+  { value: 'Leader', label: 'Leader Attention (Need Supervisor help)' },
+  { value: 'Management_BOD', label: 'Management / BOD Attention (CRITICAL)' },
+];

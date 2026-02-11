@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, Lock, Calendar, RefreshCw, Mail } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, Lock, Calendar, RefreshCw, Mail, Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import ImportModal from '../components/action-plan/ImportModal';
@@ -1779,6 +1779,17 @@ function SystemSettingsTab() {
   const [editDate, setEditDate] = useState('');
   const [showInfoDetails, setShowInfoDetails] = useState(false);
 
+  // Carry-over penalty settings
+  const [penaltySettings, setPenaltySettings] = useState({ carry_over_penalty_1: 80, carry_over_penalty_2: 50 });
+  const [savingPenalties, setSavingPenalties] = useState(false);
+
+  // Grading strategy settings (granular per-priority thresholds)
+  const [gradingSettings, setGradingSettings] = useState({
+    is_strict_grading_enabled: false,
+    threshold_uh: 100, threshold_h: 100, threshold_m: 80, threshold_l: 70
+  });
+  const [savingGrading, setSavingGrading] = useState(false);
+
   const LOCK_YEARS_RANGE = [2025, 2026, 2027, 2028, 2029, 2030];
   const LOCK_MONTHS = Array.from({ length: 12 }, (_, i) => ({
     index: i,
@@ -1796,17 +1807,31 @@ function SystemSettingsTab() {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('*')
-        .eq('id', 1)
-        .single();
+      const [settingsResult, penaltyResult] = await Promise.all([
+        supabase.from('system_settings').select('*').eq('id', 1).single(),
+        supabase.rpc('get_carry_over_settings')
+      ]);
       
-      if (error) throw error;
-      if (data) {
+      if (settingsResult.error) throw settingsResult.error;
+      if (settingsResult.data) {
         setSettings({
-          is_lock_enabled: data.is_lock_enabled,
-          lock_cutoff_day: data.lock_cutoff_day
+          is_lock_enabled: settingsResult.data.is_lock_enabled,
+          lock_cutoff_day: settingsResult.data.lock_cutoff_day
+        });
+        // Load grading settings from the same row
+        setGradingSettings({
+          is_strict_grading_enabled: settingsResult.data.is_strict_grading_enabled ?? false,
+          threshold_uh: settingsResult.data.threshold_uh ?? 100,
+          threshold_h: settingsResult.data.threshold_h ?? 100,
+          threshold_m: settingsResult.data.threshold_m ?? 80,
+          threshold_l: settingsResult.data.threshold_l ?? 70,
+        });
+      }
+
+      if (!penaltyResult.error && penaltyResult.data) {
+        setPenaltySettings({
+          carry_over_penalty_1: penaltyResult.data.carry_over_penalty_1 ?? 80,
+          carry_over_penalty_2: penaltyResult.data.carry_over_penalty_2 ?? 50
         });
       }
     } catch (error) {
@@ -2035,6 +2060,64 @@ function SystemSettingsTab() {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
+  // Save carry-over penalty settings
+  const handleSavePenalties = async () => {
+    const p1 = penaltySettings.carry_over_penalty_1;
+    const p2 = penaltySettings.carry_over_penalty_2;
+
+    if (p1 < 0 || p1 > 100 || p2 < 0 || p2 > 100) {
+      toast({ title: 'Invalid Values', description: 'Penalties must be between 0 and 100.', variant: 'warning' });
+      return;
+    }
+    if (p2 >= p1) {
+      toast({ title: 'Invalid Configuration', description: 'Month 2 penalty must be lower than Month 1.', variant: 'warning' });
+      return;
+    }
+
+    setSavingPenalties(true);
+    try {
+      const { error } = await supabase.rpc('update_carry_over_settings', {
+        p_penalty_1: p1,
+        p_penalty_2: p2
+      });
+      if (error) throw error;
+      toast({ title: 'Settings Updated', description: 'Carry-over penalties saved.', variant: 'success' });
+    } catch (error) {
+      console.error('Error saving penalty settings:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to save penalties.', variant: 'error' });
+    }
+    setSavingPenalties(false);
+  };
+
+  // Save grading strategy settings
+  const handleSaveGrading = async () => {
+    setSavingGrading(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({
+          is_strict_grading_enabled: gradingSettings.is_strict_grading_enabled,
+          threshold_uh: gradingSettings.threshold_uh,
+          threshold_h: gradingSettings.threshold_h,
+          threshold_m: gradingSettings.threshold_m,
+          threshold_l: gradingSettings.threshold_l,
+        })
+        .eq('id', 1);
+      if (error) throw error;
+      toast({
+        title: 'Settings Updated',
+        description: gradingSettings.is_strict_grading_enabled
+          ? `Strict grading enabled. UH:${gradingSettings.threshold_uh} H:${gradingSettings.threshold_h} M:${gradingSettings.threshold_m} L:${gradingSettings.threshold_l}`
+          : 'Flexible grading mode active. Admin decides status manually.',
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Error saving grading settings:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to save grading settings.', variant: 'error' });
+    }
+    setSavingGrading(false);
   };
 
   if (loading) return <LoadingState />;
@@ -2292,6 +2375,235 @@ function SystemSettingsTab() {
         )}
       </div>
 
+      {/* Carry Over Penalty Rules */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-100 rounded-lg">
+              <Target className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Carry Over Penalty Rules</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Configure max score caps for late action plans carried over between months
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Penalty 1 */}
+          <div className="flex items-start gap-4 bg-amber-50/50 rounded-xl p-4 border border-amber-200">
+            <div className="flex-1">
+              <label className="block font-semibold text-gray-800 mb-1">
+                Late Month 1 — Max Score Cap
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                The maximum score a plan can achieve if carried over once (first late month).
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={penaltySettings.carry_over_penalty_1}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 0 && v <= 100) {
+                      setPenaltySettings(prev => ({ ...prev, carry_over_penalty_1: v }));
+                    }
+                  }}
+                  className="w-20 px-3 py-2 text-center font-semibold text-gray-800 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                />
+                <span className="text-gray-500 font-medium">%</span>
+              </div>
+            </div>
+            <span className="mt-1 px-2.5 py-1 bg-amber-200 text-amber-800 text-xs font-bold rounded-full">M1</span>
+          </div>
+
+          {/* Penalty 2 */}
+          <div className="flex items-start gap-4 bg-rose-50/50 rounded-xl p-4 border border-rose-200">
+            <div className="flex-1">
+              <label className="block font-semibold text-gray-800 mb-1">
+                Late Month 2 — Max Score Cap
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                The maximum score for a second carry-over. Plans exceeding this limit will be forced to Drop.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={penaltySettings.carry_over_penalty_2}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 0 && v <= 100) {
+                      setPenaltySettings(prev => ({ ...prev, carry_over_penalty_2: v }));
+                    }
+                  }}
+                  className="w-20 px-3 py-2 text-center font-semibold text-gray-800 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                />
+                <span className="text-gray-500 font-medium">%</span>
+              </div>
+            </div>
+            <span className="mt-1 px-2.5 py-1 bg-rose-200 text-rose-800 text-xs font-bold rounded-full">M2</span>
+          </div>
+
+          {/* Validation hint + Save */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <p className="text-xs text-gray-400">
+              Month 2 cap must be lower than Month 1 cap.
+            </p>
+            <button
+              onClick={handleSavePenalties}
+              disabled={savingPenalties || penaltySettings.carry_over_penalty_2 >= penaltySettings.carry_over_penalty_1}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+            >
+              {savingPenalties ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Configuration
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Grading Strategy Configuration */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-purple-100 rounded-lg">
+              <Star className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Grading Strategy Configuration</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Control how the system determines Achieved/Not Achieved status during grading
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Strict Mode Toggle */}
+          <div className="flex items-start gap-4 bg-purple-50/50 rounded-xl p-4 border border-purple-200">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-1">
+                <label className="font-semibold text-gray-800">Strict Grading Mode</label>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  gradingSettings.is_strict_grading_enabled
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-gray-200 text-gray-600'
+                }`}>
+                  {gradingSettings.is_strict_grading_enabled ? 'STRICT' : 'FLEXIBLE'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                {gradingSettings.is_strict_grading_enabled
+                  ? 'System auto-determines status based on per-priority thresholds below. Each priority level has its own passing score.'
+                  : 'Admin freely chooses Achieved or Not Achieved regardless of score. No automatic rules applied.'}
+              </p>
+            </div>
+            <button
+              onClick={() => setGradingSettings(prev => ({ ...prev, is_strict_grading_enabled: !prev.is_strict_grading_enabled }))}
+              className={`p-1 rounded-lg transition-all flex-shrink-0 ${
+                gradingSettings.is_strict_grading_enabled
+                  ? 'text-purple-600 hover:bg-purple-100'
+                  : 'text-gray-400 hover:bg-gray-100'
+              }`}
+            >
+              {gradingSettings.is_strict_grading_enabled
+                ? <ToggleRight className="w-9 h-9" />
+                : <ToggleLeft className="w-9 h-9" />}
+            </button>
+          </div>
+
+          {/* Passing Score Input — only meaningful when strict mode is ON */}
+          {/* Grid of 4 threshold inputs */}
+          <div className={`grid grid-cols-2 gap-4 transition-all ${
+            gradingSettings.is_strict_grading_enabled ? '' : 'opacity-50 pointer-events-none'
+          }`}>
+            {[
+              { key: 'threshold_uh', label: 'Ultra High', tag: 'UH', color: 'red', desc: 'Threshold for Ultra High priority plans' },
+              { key: 'threshold_h', label: 'High', tag: 'H', color: 'orange', desc: 'Threshold for High priority plans' },
+              { key: 'threshold_m', label: 'Medium', tag: 'M', color: 'blue', desc: 'Threshold for Medium priority plans' },
+              { key: 'threshold_l', label: 'Low', tag: 'L', color: 'gray', desc: 'Threshold for Low priority plans' },
+            ].map(({ key, label, tag, color, desc }) => (
+              <div key={key} className={`flex items-start gap-4 rounded-xl p-4 border bg-${color}-50/50 border-${color}-200`}>
+                <div className="flex-1">
+                  <label className="block font-semibold text-gray-800 mb-1">
+                    {label} Threshold
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">{desc}</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={gradingSettings[key]}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!isNaN(v) && v >= 1 && v <= 100) {
+                          setGradingSettings(prev => ({ ...prev, [key]: v }));
+                        }
+                      }}
+                      disabled={!gradingSettings.is_strict_grading_enabled}
+                      className={`w-20 px-3 py-2 text-center font-semibold text-gray-800 border border-gray-300 rounded-lg focus:ring-2 focus:ring-${color}-500 focus:border-${color}-500 disabled:bg-gray-100 disabled:text-gray-400`}
+                    />
+                    <span className="text-gray-500 font-medium">%</span>
+                  </div>
+                </div>
+                <span className={`mt-1 px-2.5 py-1 text-xs font-bold rounded-full ${
+                  gradingSettings.is_strict_grading_enabled
+                    ? `bg-${color}-200 text-${color}-800`
+                    : 'bg-gray-200 text-gray-500'
+                }`}>{tag}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Strict Mode Rules Summary */}
+          {gradingSettings.is_strict_grading_enabled && (
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+              <h4 className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Active Rules</h4>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  <span className="text-gray-700">Ultra High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_uh}%</span></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                  <span className="text-gray-700">High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_h}%</span></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span className="text-gray-700">Medium → Must score <span className="font-semibold">≥ {gradingSettings.threshold_m}%</span></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-gray-500"></span>
+                  <span className="text-gray-700">Low → Must score <span className="font-semibold">≥ {gradingSettings.threshold_l}%</span></span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Carry-over items: threshold is capped at the plan's max possible score.</p>
+            </div>
+          )}
+
+          {/* Save */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <p className="text-xs text-gray-400">
+              Changes apply immediately to all future gradings.
+            </p>
+            <button
+              onClick={handleSaveGrading}
+              disabled={savingGrading}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+            >
+              {savingGrading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Configuration
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Developer Zone - UAT/Testing Cleanup Tools */}
       <DeveloperZone />
     </div>
@@ -2302,35 +2614,52 @@ function SystemSettingsTab() {
 function DeveloperZone() {
   const { toast } = useToast();
   const [hardResetting, setHardResetting] = useState(false);
+  const [safeResetting, setSafeResetting] = useState(false);
   const [showHardResetConfirm, setShowHardResetConfirm] = useState(false);
+  const [showSafeResetConfirm, setShowSafeResetConfirm] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
 
-  // HARD RESET: Call RPC function to sanitize ALL simulation data
+  // HARD RESET: Mark & Sweep — deletes carry-over children, resets parents to Blocked
   const handleHardReset = async () => {
     setHardResetting(true);
-    
     try {
-      const { error } = await supabase.rpc('reset_simulation_data');
-      
+      const { data, error } = await supabase.rpc('reset_simulation_data');
       if (error) throw error;
-      
+      setLastResult({ type: 'hard', ...data });
       setShowHardResetConfirm(false);
       toast({ 
-        title: '✅ System Sanitized!', 
-        description: 'All action plans are now "Open" and clean.', 
+        title: '✅ Hard Reset Complete', 
+        description: `Deleted ${data?.deleted_carry_over ?? 0} carry-over plans, reset ${data?.reset_parents ?? 0} parents, removed ${data?.deleted_duplicates ?? 0} duplicates.`, 
         variant: 'success' 
       });
-      
-      // Reload after a brief delay so user sees the toast
-      setTimeout(() => window.location.reload(), 1500);
+      setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
       console.error('Hard reset failed:', err);
-      toast({ 
-        title: 'Reset Failed', 
-        description: err.message || 'Unknown error occurred.', 
-        variant: 'error' 
-      });
+      toast({ title: 'Reset Failed', description: err.message || 'Unknown error.', variant: 'error' });
     } finally {
       setHardResetting(false);
+    }
+  };
+
+  // SAFE RESET: UPDATE-only factory reset — no deletions, breaks carry-over links
+  const handleSafeReset = async () => {
+    setSafeResetting(true);
+    try {
+      const { data, error } = await supabase.rpc('reset_action_plans_safe');
+      if (error) throw error;
+      setLastResult({ type: 'safe', ...data });
+      setShowSafeResetConfirm(false);
+      toast({ 
+        title: '✅ Safe Reset Complete', 
+        description: `Reset ${data?.reset_count ?? 0} action plans to Open. No records deleted.`, 
+        variant: 'success' 
+      });
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (err) {
+      console.error('Safe reset failed:', err);
+      toast({ title: 'Reset Failed', description: err.message || 'Unknown error.', variant: 'error' });
+    } finally {
+      setSafeResetting(false);
     }
   };
 
@@ -2352,28 +2681,57 @@ function DeveloperZone() {
       </div>
 
       {/* Content */}
-      <div className="p-5">
-        {/* HARD RESET - God Mode */}
+      <div className="p-5 space-y-4">
+        {/* SAFE RESET — Recommended */}
+        <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-300">
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h4 className="font-bold text-amber-700">🔄 Safe Reset: Factory Reset (No Deletion)</h4>
+                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">RECOMMENDED</span>
+              </div>
+              <p className="text-sm text-amber-600 mt-1 mb-3">
+                Resets all statuses, scores, carry-over flags, and blocker data back to <code className="bg-amber-100 px-1 rounded">Open</code>. 
+                Breaks parent-child links safely. <strong>Zero deletions</strong> — all plan definitions are preserved.
+              </p>
+              
+              <div className="text-xs text-amber-500 space-y-1 mb-4">
+                <p><strong>Resets:</strong> status → Open, scores → NULL, carry-over → Normal, blockers → cleared, audit logs → truncated</p>
+                <p><strong>Preserves:</strong> department, month, goal, action plan title, indicator, PIC, category, evidence</p>
+              </div>
+
+              <button
+                onClick={() => setShowSafeResetConfirm(true)}
+                disabled={safeResetting}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {safeResetting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Resetting...</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4" /> 🔄 SAFE RESET — Factory Reset</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* HARD RESET — Mark & Sweep */}
         <div className="p-4 bg-red-50 rounded-xl border-2 border-red-300">
           <div className="flex items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold text-red-700">🔥 God Mode: Full System Sanitize</h4>
+                <h4 className="font-bold text-red-700">🔥 Hard Reset: Mark & Sweep</h4>
+                <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">DESTRUCTIVE</span>
               </div>
               <p className="text-sm text-red-600 mt-1 mb-3">
-                Nuclear option. Calls the <code className="bg-red-100 px-1 rounded">reset_simulation_data</code> RPC function to wipe ALL trial data back to a clean state.
+                Deletes all carry-over child plans, resets parent plans to <code className="bg-red-100 px-1 rounded">Blocked</code>, 
+                removes duplicates. Use when you need to re-test the Resolution Wizard from scratch.
               </p>
               
               <div className="text-xs text-red-500 space-y-1 mb-4">
-                <p><strong>This will reset ALL action plans:</strong></p>
-                <ul className="list-disc list-inside ml-2 space-y-0.5">
-                  <li><code className="bg-red-100 px-1 rounded">status</code> → 'Open'</li>
-                  <li><code className="bg-red-100 px-1 rounded">remark</code> → NULL</li>
-                  <li><code className="bg-red-100 px-1 rounded">unlock_status</code> → NULL</li>
-                  <li><code className="bg-red-100 px-1 rounded">unlock_reason</code> → NULL</li>
-                  <li><code className="bg-red-100 px-1 rounded">unlock_rejection_reason</code> → NULL</li>
-                  <li>All unlock request timestamps → NULL</li>
-                </ul>
+                <p><strong>Deletes:</strong> All plans where <code className="bg-red-100 px-1 rounded">origin_plan_id IS NOT NULL</code> (carry-over children)</p>
+                <p><strong>Resets:</strong> Parent plans → Blocked, scores → NULL, carry-over flags → cleared</p>
+                <p><strong>Preserves:</strong> Recurring (native) plans with <code className="bg-red-100 px-1 rounded">origin_plan_id = NULL</code></p>
               </div>
 
               <button
@@ -2382,87 +2740,97 @@ function DeveloperZone() {
                 className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
               >
                 {hardResetting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Sanitizing...
-                  </>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Sweeping...</>
                 ) : (
-                  <>
-                    <Shield className="w-4 h-4" />
-                    🔥 HARD RESET - Sanitize All Data
-                  </>
+                  <><Shield className="w-4 h-4" /> 🔥 HARD RESET — Delete Carry-Overs</>
                 )}
               </button>
             </div>
           </div>
         </div>
+
+        {/* Last Result Summary */}
+        {lastResult && (
+          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-600">
+            <span className="font-semibold">Last {lastResult.type === 'hard' ? 'Hard' : 'Safe'} Reset:</span>{' '}
+            {lastResult.type === 'hard' 
+              ? `${lastResult.deleted_carry_over} children deleted, ${lastResult.reset_parents} parents reset, ${lastResult.deleted_duplicates} duplicates removed`
+              : `${lastResult.reset_count} plans reset to Open`
+            }
+          </div>
+        )}
       </div>
 
-      {/* Confirmation Modal for Hard Reset (God Mode) */}
+      {/* Confirmation Modal for Safe Reset */}
+      {showSafeResetConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                  <RefreshCw className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">🔄 Safe Factory Reset</h3>
+                  <p className="text-amber-100 text-sm">UPDATE only — no deletions</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-5">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-amber-800 font-medium mb-2">This will reset ALL action plans:</p>
+                <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                  <li>Status → Open, Scores → NULL</li>
+                  <li>Carry-over links broken, flags cleared</li>
+                  <li>Blockers, remarks, unlock requests → cleared</li>
+                  <li>Audit logs, notifications, progress logs → truncated</li>
+                </ul>
+              </div>
+              <p className="text-sm text-gray-600 mb-2">Plan definitions (titles, goals, PICs, departments) stay intact.</p>
+              <p className="text-sm font-semibold text-gray-800">Proceed?</p>
+            </div>
+            <div className="px-5 pb-5 flex gap-3">
+              <button onClick={() => setShowSafeResetConfirm(false)} disabled={safeResetting} className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">Cancel</button>
+              <button onClick={handleSafeReset} disabled={safeResetting} className="flex-1 px-4 py-2.5 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                {safeResetting ? <><Loader2 className="w-4 h-4 animate-spin" /> Resetting...</> : <><RefreshCw className="w-4 h-4" /> Yes, Safe Reset</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Hard Reset */}
       {showHardResetConfirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
-            {/* Modal Header - Red gradient */}
             <div className="bg-gradient-to-r from-red-600 to-red-500 p-5">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
                   <Shield className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">🔥 God Mode Activated</h3>
-                  <p className="text-red-100 text-sm">Full System Sanitize</p>
+                  <h3 className="text-lg font-bold text-white">🔥 Hard Reset: Mark & Sweep</h3>
+                  <p className="text-red-100 text-sm">Deletes carry-over children</p>
                 </div>
               </div>
             </div>
-
-            {/* Modal Body */}
             <div className="p-5">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 font-medium mb-2">
-                  ⚠️ DANGER: This will reset ALL Action Plans
-                </p>
+                <p className="text-sm text-red-800 font-medium mb-2">⚠️ DESTRUCTIVE: This will DELETE carry-over plans</p>
                 <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
-                  <li>Status → 'Open'</li>
-                  <li>Remarks → Cleared</li>
-                  <li>Unlock requests → Cleared</li>
-                  <li>Rejection reasons → Cleared</li>
+                  <li>All plans with origin_plan_id → DELETED</li>
+                  <li>Parent plans → status reverted to Blocked</li>
+                  <li>Scores, carry-over flags → cleared</li>
+                  <li>Duplicates → removed</li>
                 </ul>
               </div>
-              
-              <p className="text-sm text-gray-600 mb-2">
-                Data content (goals, indicators, PICs) will remain intact. Only statuses and workflow data will be wiped.
-              </p>
-              
-              <p className="text-sm font-semibold text-gray-800">
-                Are you absolutely sure?
-              </p>
+              <p className="text-sm text-gray-600 mb-2">Recurring (native) plans are preserved. Use this to re-test the Resolution Wizard.</p>
+              <p className="text-sm font-semibold text-gray-800">Are you absolutely sure?</p>
             </div>
-
-            {/* Modal Footer */}
             <div className="px-5 pb-5 flex gap-3">
-              <button
-                onClick={() => setShowHardResetConfirm(false)}
-                disabled={hardResetting}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleHardReset}
-                disabled={hardResetting}
-                className="flex-1 px-4 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-              >
-                {hardResetting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Sanitizing...
-                  </>
-                ) : (
-                  <>
-                    <Shield className="w-4 h-4" />
-                    Yes, Sanitize All
-                  </>
-                )}
+              <button onClick={() => setShowHardResetConfirm(false)} disabled={hardResetting} className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">Cancel</button>
+              <button onClick={handleHardReset} disabled={hardResetting} className="flex-1 px-4 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                {hardResetting ? <><Loader2 className="w-4 h-4 animate-spin" /> Sweeping...</> : <><Shield className="w-4 h-4" /> Yes, Hard Reset</>}
               </button>
             </div>
           </div>

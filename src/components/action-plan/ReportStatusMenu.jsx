@@ -39,10 +39,26 @@ export default function ReportStatusMenu({
       const monthPlans = plans.filter(p => p.month === month);
       const totalCount = monthPlans.length;
       
-      // Check if this month is locked (date-based lock)
-      const isMonthLocked = lockSettings?.isLockEnabled 
+      // Check if this month is date-locked
+      const isDateLocked = lockSettings?.isLockEnabled 
         ? isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings)
         : false;
+      
+      // If date-locked, check if all draft plans have active temporary unlocks
+      let isMonthLocked = isDateLocked;
+      if (isDateLocked && totalCount > 0) {
+        const draftPlans = monthPlans.filter(p => !p.submission_status || p.submission_status === 'draft');
+        if (draftPlans.length > 0) {
+          const allDraftsUnlocked = draftPlans.every(p => 
+            p.unlock_status === 'approved' && 
+            p.approved_until && 
+            new Date(p.approved_until) > new Date()
+          );
+          if (allDraftsUnlocked) {
+            isMonthLocked = false; // All drafts have active temporary unlock
+          }
+        }
+      }
       
       if (totalCount === 0) {
         return { month, status: 'empty', totalCount: 0, draftCount: 0, submittedCount: 0, gradedCount: 0, ungradedCount: 0, isLocked: isMonthLocked };

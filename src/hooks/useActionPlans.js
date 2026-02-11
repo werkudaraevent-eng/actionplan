@@ -2,76 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
 import { checkLockStatusServerSide } from '../utils/lockUtils';
 
-// Helper to create audit log entry
-async function createAuditLog(actionPlanId, userId, changeType, previousValue, newValue, description) {
-  try {
-    await supabase.from('audit_logs').insert({
-      action_plan_id: actionPlanId,
-      user_id: userId,
-      change_type: changeType,
-      previous_value: previousValue,
-      new_value: newValue,
-      description: description,
-    });
-  } catch (err) {
-    console.error('Failed to create audit log:', err);
-    // Don't throw - audit logging should not block the main operation
-  }
-}
-
-// Utility for shortening long text
-const truncateText = (text, maxLength = 30) => {
-  if (!text) return 'Empty';
-  const str = String(text);
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength) + '...';
-};
-
-// Helper to generate detailed change description using config map (returns array)
-function generateChangeDescription(original, updated) {
-  if (!original) return ['Updated record details'];
-  
-  const changes = [];
-
-  // Configuration: Map DB columns to Human Labels & Rules
-  const fieldsToTrack = {
-    // Dropdowns / Short Text
-    month:         { label: 'Month', isLong: false },
-    status:        { label: 'Status', isLong: false },
-    pic:           { label: 'PIC', isLong: false },
-    report_format: { label: 'Report Format', isLong: false },
-    indicator:     { label: 'KPI', isLong: false },
-    // Long Text / Areas
-    goal_strategy: { label: 'Strategy', isLong: true },
-    action_plan:   { label: 'Action Plan', isLong: true },
-    outcome_link:  { label: 'Outcome/URL', isLong: true },
-    remark:        { label: 'Remark', isLong: true },
-  };
-
-  // Loop through every field in the config
-  Object.keys(fieldsToTrack).forEach((key) => {
-    const config = fieldsToTrack[key];
-    const oldVal = original[key];
-    const newVal = updated[key];
-
-    // Compare values (loose equality to handle null vs undefined vs "")
-    if (oldVal != newVal) {
-      let fromText = oldVal ? oldVal : 'Empty';
-      let toText = newVal ? newVal : 'Empty';
-
-      // Apply truncation if it's a long field
-      if (config.isLong) {
-        fromText = truncateText(fromText);
-        toText = truncateText(toText);
-      }
-
-      changes.push(`Changed ${config.label} from '${fromText}' to '${toText}'`);
-    }
-  });
-
-  if (changes.length === 0) return ['Updated record (No specific changes detected)'];
-  return changes; // Return array, don't join
-}
+// NOTE: Manual audit logging has been REMOVED from frontend.
+// The database trigger `log_action_plan_changes()` now handles ALL audit logging automatically.
+// This ensures consistent, detailed logging without duplicates.
+// See migration: enhanced_audit_trigger_super_detailed
 
 export function useActionPlans(departmentCode = null) {
   const [plans, setPlans] = useState([]);
@@ -91,7 +25,7 @@ export function useActionPlans(departmentCode = null) {
 
       let query = supabase
         .from('action_plans')
-        .select('*')
+        .select('*, origin_plan:origin_plan_id(month)')
         .is('deleted_at', null) // Only fetch active (non-deleted) items
         .order('created_at', { ascending: false }) // CRITICAL: Newest first
         .range(0, 9999); // CRITICAL: Increase limit from default 1000 to 10,000
@@ -198,18 +132,7 @@ export function useActionPlans(departmentCode = null) {
     // Optimistic update
     setPlans((prev) => [...prev, data]);
     
-    // Audit log
-    const userId = await getCurrentUserId();
-    if (userId) {
-      await createAuditLog(
-        data.id,
-        userId,
-        'CREATED',
-        null,
-        planData,
-        `Created action plan: "${planData.action_plan?.substring(0, 50)}..."`
-      );
-    }
+    // NOTE: Audit logging handled by DB trigger (CREATED)
     
     return data;
   };
@@ -226,20 +149,7 @@ export function useActionPlans(departmentCode = null) {
     // Optimistic update
     setPlans((prev) => [...prev, ...data]);
     
-    // Audit log for each created plan
-    const userId = await getCurrentUserId();
-    if (userId && data) {
-      for (const plan of data) {
-        await createAuditLog(
-          plan.id,
-          userId,
-          'CREATED',
-          null,
-          { ...plan, bulk_created: true },
-          `Created action plan (bulk): "${plan.action_plan?.substring(0, 50)}..." for ${plan.month}`
-        );
-      }
-    }
+    // NOTE: Audit logging handled by DB trigger (CREATED for each plan)
     
     return data;
   };
@@ -248,6 +158,14 @@ export function useActionPlans(departmentCode = null) {
   const updatePlan = async (id, updates, previousData = null, skipLockCheck = false) => {
     // Get previous data from state if not provided
     const original = previousData || plans.find((p) => p.id === id);
+    
+    // DEBUG: Log the update request
+    console.log('[useActionPlans.updatePlan] Called with:', {
+      id,
+      updates,
+      originalStatus: original?.status,
+      skipLockCheck
+    });
     
     // PRE-FLIGHT LOCK CHECK: Verify the plan is still editable before saving
     // This prevents stale state issues where admin updated deadlines after user loaded the page
@@ -262,6 +180,7 @@ export function useActionPlans(departmentCode = null) {
       );
       
       if (lockStatus.isLocked) {
+        console.log('[useActionPlans.updatePlan] BLOCKED: Period is locked');
         const error = new Error('PERIOD_LOCKED');
         error.code = 'PERIOD_LOCKED';
         error.message = `⛔ Action Denied: The deadline for ${original.month} has passed or was updated by Admin. Please refresh the page.`;
@@ -280,12 +199,25 @@ export function useActionPlans(departmentCode = null) {
       updates.admin_feedback = null; // Clear the old revision feedback
     }
     
+    // AUTO-RESOLVE BLOCKER: Clear blocker when task is completed (Achieved/Not Achieved)
+    // A completed task cannot be blocked - this fixes the UX bug where "BLOCKED" badge persists
+    const isCompletionStatus = updates.status === 'Achieved' || updates.status === 'Not Achieved';
+    const shouldClearBlocker = isCompletionStatus && original?.is_blocked === true;
+    
+    if (shouldClearBlocker) {
+      updates.is_blocked = false;
+      updates.blocker_reason = null;
+      console.log('[updatePlan] AUTO-RESOLVE: Clearing blocker (task completed with status:', updates.status, ')');
+    }
+    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
     );
 
     try {
+      console.log('[useActionPlans.updatePlan] Sending to Supabase:', { id, updates });
+      
       const { data, error } = await supabase
         .from('action_plans')
         .update(updates)
@@ -294,74 +226,25 @@ export function useActionPlans(departmentCode = null) {
         .single();
 
       if (error) {
+        console.error('[useActionPlans.updatePlan] Supabase error:', error);
         await fetchPlans();
         throw error;
       }
+
+      console.log('[useActionPlans.updatePlan] Supabase success:', { 
+        returnedStatus: data?.status,
+        returnedId: data?.id 
+      });
 
       setPlans((prev) =>
         prev.map((p) => (p.id === id ? data : p))
       );
 
-      // Audit log with detailed change description
-      const userId = await getCurrentUserId();
-      if (userId) {
-        // Determine change type with PRIORITY logic for hierarchical workflow
-        let changeType = 'FULL_UPDATE';
-        const updateKeys = Object.keys(updates);
-        
-        // Check for status change first (highest priority)
-        const oldStatus = original?.status;
-        const newStatus = updates.status;
-        const statusChanged = newStatus !== undefined && newStatus !== oldStatus;
-        
-        if (statusChanged) {
-          // Priority 1: Staff marked ready for Leader (Internal Review)
-          if (newStatus === 'Internal Review' && oldStatus !== 'Internal Review') {
-            changeType = 'MARKED_READY';
-          }
-          // Priority 2: Leader submitted to Admin (Waiting Approval)
-          else if (newStatus === 'Waiting Approval' && oldStatus !== 'Waiting Approval') {
-            changeType = 'SUBMITTED_FOR_REVIEW';
-          }
-          // Priority 3: Approved (Admin approved the submission)
-          else if (newStatus === 'Achieved' && oldStatus === 'Waiting Approval') {
-            changeType = 'APPROVED';
-          }
-          // Priority 4: Rejected by Admin (sent back for revision)
-          else if (oldStatus === 'Waiting Approval' && newStatus !== 'Achieved') {
-            changeType = 'REJECTED';
-          }
-          // Priority 5: Leader sent back to staff (from Internal Review)
-          else if (oldStatus === 'Internal Review' && (newStatus === 'On Progress' || newStatus === 'Open')) {
-            changeType = 'REJECTED';
-          }
-          // Priority 6: Generic status change
-          else {
-            changeType = 'STATUS_UPDATE';
-          }
-        } else if (updateKeys.length === 1) {
-          // Single field updates (no status change)
-          if (updates.remark !== undefined) changeType = 'REMARK_UPDATE';
-          else if (updates.outcome_link !== undefined) changeType = 'OUTCOME_UPDATE';
-        }
-
-        // Generate detailed description (returns array)
-        const mergedUpdate = { ...original, ...updates };
-        const descriptionArray = generateChangeDescription(original, mergedUpdate);
-
-        await createAuditLog(
-          id,
-          userId,
-          changeType,
-          original,
-          updates,
-          JSON.stringify(descriptionArray) // Store as JSON array
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (detailed field-level changes)
 
       return data;
     } catch (err) {
-      console.error('Update failed:', err);
+      console.error('[useActionPlans.updatePlan] Update failed:', err);
       throw err;
     }
   };
@@ -374,7 +257,7 @@ export function useActionPlans(departmentCode = null) {
     setPlans((prev) => prev.filter((p) => p.id !== id));
 
     try {
-      const { id: userId, name: userName } = await getCurrentUser();
+      const { name: userName } = await getCurrentUser();
       const deletedAt = new Date().toISOString();
       
       // Soft delete: set deleted_at timestamp, deleted_by name, and deletion_reason
@@ -395,17 +278,8 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Audit log (using DELETED as change_type for DB constraint compatibility)
-      if (userId && planToDelete) {
-        await createAuditLog(
-          id,
-          userId,
-          'DELETED',
-          planToDelete,
-          { deleted_at: deletedAt, deleted_by: userName, deletion_reason: deletionReason },
-          `Soft deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..." by ${userName}. Reason: ${deletionReason || 'Not specified'}`
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (SOFT_DELETE not yet in trigger - keep manual for now)
+      // TODO: Add SOFT_DELETE to trigger if needed
     } catch (err) {
       console.error('Delete failed:', err);
       throw err;
@@ -415,8 +289,6 @@ export function useActionPlans(departmentCode = null) {
   // Restore soft-deleted plan
   const restorePlan = async (id) => {
     try {
-      const userId = await getCurrentUserId();
-      
       // Restore: set deleted_at to null
       const { data, error } = await supabase
         .from('action_plans')
@@ -430,17 +302,8 @@ export function useActionPlans(departmentCode = null) {
       // Add back to active list
       setPlans((prev) => [...prev, data]);
 
-      // Audit log (using STATUS_UPDATE as change_type for DB constraint compatibility)
-      if (userId) {
-        await createAuditLog(
-          id,
-          userId,
-          'STATUS_UPDATE',
-          { deleted_at: data.deleted_at },
-          { restored: true },
-          `Restored action plan: "${data.action_plan?.substring(0, 50)}..."`
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (RESTORE not yet in trigger - keep manual for now)
+      // TODO: Add RESTORE to trigger if needed
 
       return data;
     } catch (err) {
@@ -472,27 +335,8 @@ export function useActionPlans(departmentCode = null) {
 
   // Permanently delete (for admin cleanup if needed)
   const permanentlyDeletePlan = async (id) => {
-    const userId = await getCurrentUserId();
-    
-    // Get plan info before deletion
-    const { data: planToDelete } = await supabase
-      .from('action_plans')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    // Audit log before permanent delete (using DELETED as change_type for DB constraint compatibility)
-    if (userId && planToDelete) {
-      await createAuditLog(
-        id,
-        userId,
-        'DELETED',
-        planToDelete,
-        { permanently_deleted: true },
-        `Permanently deleted action plan: "${planToDelete.action_plan?.substring(0, 50)}..."`
-      );
-    }
-
+    // NOTE: Permanent delete bypasses trigger since record is removed
+    // This is intentional - we don't need audit trail for permanently deleted items
     const { error } = await supabase
       .from('action_plans')
       .delete()
@@ -515,6 +359,11 @@ export function useActionPlans(departmentCode = null) {
     // AUTO-WIPE: Clear all failure-related fields when transitioning FROM "Not Achieved" to any other status
     const shouldClearFailureData = previousStatus === 'Not Achieved' && status !== 'Not Achieved';
     
+    // AUTO-RESOLVE BLOCKER: Clear blocker when task is completed (Achieved/Not Achieved)
+    // A completed task cannot be blocked - this fixes the UX bug where "BLOCKED" badge persists on "Achieved" items
+    const isCompletionStatus = status === 'Achieved' || status === 'Not Achieved';
+    const shouldClearBlocker = isCompletionStatus && previousPlan?.is_blocked === true;
+    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { 
@@ -530,6 +379,11 @@ export function useActionPlans(departmentCode = null) {
           remark: null,
           // Evidence (clear since task is open again)
           outcome_link: null
+        }),
+        // AUTO-RESOLVE: Clear blocker on completion
+        ...(shouldClearBlocker && {
+          is_blocked: false,
+          blocker_reason: null
         })
       } : p))
     );
@@ -555,6 +409,14 @@ export function useActionPlans(departmentCode = null) {
         console.log('[updateStatus] AUTO-WIPE: Clearing failure data, remark, and outcome_link (status changed from Not Achieved to', status, ')');
       }
       
+      // AUTO-RESOLVE BLOCKER: Clear blocker fields in DB when completing task
+      if (shouldClearBlocker) {
+        updatePayload.is_blocked = false;
+        updatePayload.blocker_reason = null;
+        
+        console.log('[updateStatus] AUTO-RESOLVE: Clearing blocker (task completed with status:', status, ')');
+      }
+      
       const { error } = await supabase
         .from('action_plans')
         .update(updatePayload)
@@ -565,38 +427,7 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Audit log with priority-based change type
-      const userId = await getCurrentUserId();
-      if (userId) {
-        // Determine change type with PRIORITY logic
-        let changeType = 'STATUS_UPDATE';
-        
-        // Priority 1: Staff marked ready for Leader (Internal Review)
-        if (status === 'Internal Review' && previousStatus !== 'Internal Review') {
-          changeType = 'MARKED_READY';
-        }
-        // Priority 2: Submitted for Review
-        else if (status === 'Waiting Approval' && previousStatus !== 'Waiting Approval') {
-          changeType = 'SUBMITTED_FOR_REVIEW';
-        }
-        // Priority 3: Approved (Admin approved the submission)
-        else if (status === 'Achieved' && previousStatus === 'Waiting Approval') {
-          changeType = 'APPROVED';
-        }
-        // Priority 4: Rejected (Admin sent back for revision)
-        else if (previousStatus === 'Waiting Approval' && status !== 'Achieved') {
-          changeType = 'REJECTED';
-        }
-        
-        await createAuditLog(
-          id,
-          userId,
-          changeType,
-          { status: previousStatus },
-          updatePayload,
-          `Changed status from "${previousStatus}" to "${status}"${shouldClearLeaderFeedback ? ' (cleared leader feedback)' : ''}`
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (STATUS_UPDATE with detailed field changes)
     } catch (err) {
       console.error('Status update failed:', err);
       throw err;
@@ -696,32 +527,7 @@ export function useActionPlans(departmentCode = null) {
         }
       }
 
-      // Create audit logs for each item (using STATUS_UPDATE as change_type for DB constraint compatibility)
-      if (userId) {
-        // Audit logs for Achieved items
-        for (const item of achievedItems) {
-          await createAuditLog(
-            item.id,
-            userId,
-            'STATUS_UPDATE',
-            { submission_status: 'draft' },
-            { submission_status: 'submitted', submitted_at: submittedAt },
-            `Report finalized for ${month} by ${userName} - item locked for Management grading`
-          );
-        }
-        
-        // Audit logs for Not Achieved items (with auto-score note)
-        for (const item of failedItems) {
-          await createAuditLog(
-            item.id,
-            userId,
-            'STATUS_UPDATE',
-            { submission_status: 'draft', quality_score: null },
-            { submission_status: 'submitted', submitted_at: submittedAt, quality_score: 0 },
-            `Report finalized for ${month} by ${userName} - auto-scored 0 (Not Achieved)`
-          );
-        }
-      }
+      // NOTE: Audit logging handled by DB trigger (SUBMITTED_FOR_REVIEW with detailed changes)
 
       return itemsToFinalize.length;
     } catch (err) {
@@ -775,29 +581,7 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Audit log (using STATUS_UPDATE as change_type for DB constraint compatibility)
-      const userId = await getCurrentUserId();
-      if (userId) {
-        const previousValue = { submission_status: 'submitted' };
-        const newValue = { submission_status: 'draft' };
-        
-        // Include score info in audit if auto-grade was cleared
-        if (isAutoGradedNotAchieved) {
-          previousValue.quality_score = 0;
-          newValue.quality_score = null;
-        }
-        
-        await createAuditLog(
-          id,
-          userId,
-          'STATUS_UPDATE',
-          previousValue,
-          newValue,
-          isAutoGradedNotAchieved 
-            ? `Item unlocked for editing (auto-grade cleared for re-evaluation)`
-            : `Item unlocked for editing`
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (detailed submission_status change)
     } catch (err) {
       console.error('Unlock failed:', err);
       throw err;
@@ -897,30 +681,7 @@ export function useActionPlans(departmentCode = null) {
         }
       }
 
-      // Create audit logs for each recalled item
-      if (userId) {
-        for (const item of ungradedItems) {
-          await createAuditLog(
-            item.id,
-            userId,
-            'STATUS_UPDATE',
-            { submission_status: 'submitted' },
-            { submission_status: 'draft' },
-            `Report recalled for ${month} by ${userName} - item unlocked for editing`
-          );
-        }
-        
-        for (const item of autoGradedItems) {
-          await createAuditLog(
-            item.id,
-            userId,
-            'STATUS_UPDATE',
-            { submission_status: 'submitted', quality_score: 0 },
-            { submission_status: 'draft', quality_score: null },
-            `Report recalled for ${month} by ${userName} - auto-grade cleared for re-evaluation`
-          );
-        }
-      }
+      // NOTE: Audit logging handled by DB trigger (detailed submission_status and score changes)
 
       return itemsToRecall.length;
     } catch (err) {
@@ -930,83 +691,86 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Grade a plan with race condition protection
-  // Only grades if the item is still in 'submitted' status (prevents zombie grading)
+  // Grade via RPC — server-side logic handles strict/flexible mode dynamically.
+  // Race condition guard is built into the RPC (checks submission_status = 'submitted').
+  // Revision requests (quality_score = null) bypass the RPC and do a direct update.
   const gradePlan = async (id, gradeData) => {
-    const original = plans.find((p) => p.id === id);
-    
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...gradeData, updated_at: new Date().toISOString() } : p))
     );
 
     try {
-      // CRITICAL GUARD: Only update if submission_status is still 'submitted'
-      // This prevents "zombie grading" when a Leader recalls while Admin is grading
-      const { data, error } = await supabase
-        .from('action_plans')
-        .update(gradeData)
-        .eq('id', id)
-        .eq('submission_status', 'submitted') // <-- Race condition guard
-        .select();
+      // REVISION PATH: quality_score is null → direct update (kickback to draft)
+      if (gradeData.quality_score == null) {
+        const { data, error } = await supabase
+          .from('action_plans')
+          .update(gradeData)
+          .eq('id', id)
+          .eq('submission_status', 'submitted')
+          .select('*, origin_plan:origin_plan_id(month)');
+
+        if (error) { await fetchPlans(); throw error; }
+        if (!data || data.length === 0) {
+          await fetchPlans();
+          const recalledError = new Error('ITEM_RECALLED');
+          recalledError.code = 'ITEM_RECALLED';
+          recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+          throw recalledError;
+        }
+        setPlans((prev) => prev.map((p) => (p.id === id ? data[0] : p)));
+        return data[0];
+      }
+
+      // GRADING PATH: call RPC for dynamic strict/flexible logic
+      const { data: result, error } = await withTimeout(
+        supabase.rpc('grade_action_plan', {
+          p_plan_id: id,
+          p_input_score: gradeData.quality_score,
+          p_status: gradeData.status || 'Achieved',
+          p_admin_feedback: gradeData.admin_feedback || null,
+          p_reviewed_by: gradeData.reviewed_by || null,
+        }),
+        10000
+      );
 
       if (error) {
         await fetchPlans();
+        if (error.message?.includes('recalled') || error.message?.includes('not in submitted status')) {
+          const recalledError = new Error('ITEM_RECALLED');
+          recalledError.code = 'ITEM_RECALLED';
+          recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+          throw recalledError;
+        }
         throw error;
       }
 
-      // Check if the update actually happened (data will be empty if condition failed)
-      if (!data || data.length === 0) {
-        // Item was recalled - rollback optimistic update and throw specific error
-        await fetchPlans();
-        const recalledError = new Error('ITEM_RECALLED');
-        recalledError.code = 'ITEM_RECALLED';
-        recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
-        throw recalledError;
+      // Re-fetch the updated plan row to get the full object with joins
+      const { data: updated } = await supabase
+        .from('action_plans')
+        .select('*, origin_plan:origin_plan_id(month)')
+        .eq('id', id)
+        .single();
+
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        return { ...updated, _rpcResult: result };
       }
 
-      // Update succeeded
+      // Fallback: apply RPC result optimistically
       setPlans((prev) =>
-        prev.map((p) => (p.id === id ? data[0] : p))
+        prev.map((p) => (p.id === id ? {
+          ...p,
+          status: result.final_status,
+          quality_score: result.final_score,
+          admin_feedback: gradeData.admin_feedback,
+          reviewed_by: gradeData.reviewed_by,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } : p))
       );
 
-      // Audit log
-      const userId = await getCurrentUserId();
-      if (userId) {
-        const isApproval = gradeData.quality_score != null;
-        const isRevisionRequest = gradeData.status === 'On Progress' && gradeData.submission_status === 'draft';
-        
-        // Determine action type
-        let actionType = 'APPROVED';
-        let description = `Graded with score ${gradeData.quality_score}%`;
-        
-        if (isRevisionRequest) {
-          actionType = 'REVISION_REQUESTED';
-          description = `Returned for revision. Reason: "${gradeData.admin_feedback || 'No reason provided'}"`;
-        } else if (!isApproval) {
-          actionType = 'REJECTED';
-          description = `Rejected: ${gradeData.admin_feedback?.substring(0, 100) || 'No feedback'}`;
-        }
-        
-        await createAuditLog(
-          id,
-          userId,
-          actionType,
-          { 
-            quality_score: original?.quality_score, 
-            status: original?.status,
-            submission_status: original?.submission_status 
-          },
-          { 
-            quality_score: gradeData.quality_score,
-            status: gradeData.status,
-            submission_status: gradeData.submission_status,
-            admin_feedback: gradeData.admin_feedback
-          },
-          description
-        );
-      }
-
-      return data[0];
+      return result;
     } catch (err) {
       console.error('Grade failed:', err);
       throw err;
@@ -1019,8 +783,6 @@ export function useActionPlans(departmentCode = null) {
   const resetPlan = async (id) => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
-    
-    const { id: userId, name: userName } = await getCurrentUser();
     
     const resetData = {
       quality_score: null,
@@ -1055,24 +817,7 @@ export function useActionPlans(departmentCode = null) {
         prev.map((p) => (p.id === id ? data : p))
       );
 
-      // Audit log with GRADE_RESET type
-      if (userId) {
-        await createAuditLog(
-          id,
-          userId,
-          'GRADE_RESET',
-          { 
-            quality_score: original.quality_score, 
-            status: original.status,
-            submission_status: original.submission_status,
-            outcome_link: original.outcome_link,
-            remark: original.remark,
-            admin_feedback: original.admin_feedback
-          },
-          resetData,
-          `Assessment cleared by ${userName} - score (${original.quality_score}), evidence, and remarks wiped`
-        );
-      }
+      // NOTE: Audit logging handled by DB trigger (GRADE_RESET with detailed changes)
 
       return data;
     } catch (err) {
@@ -1135,31 +880,7 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      // Create audit logs for each reset item with GRADE_RESET type
-      if (userId) {
-        for (const item of gradedItems) {
-          await createAuditLog(
-            item.id,
-            userId,
-            'GRADE_RESET',
-            { 
-              quality_score: item.quality_score, 
-              status: item.status,
-              submission_status: item.submission_status,
-              outcome_link: item.outcome_link,
-              remark: item.remark
-            },
-            { 
-              quality_score: null, 
-              status: 'Open',
-              submission_status: 'draft',
-              outcome_link: null,
-              remark: null
-            },
-            `Bulk reset by ${userName} - score (${item.quality_score}), evidence, and remarks cleared`
-          );
-        }
-      }
+      // NOTE: Audit logging handled by DB trigger (GRADE_RESET for each item)
 
       return gradedItems.length;
     } catch (err) {
@@ -1169,63 +890,57 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Approve unlock request (Admin only)
-  // Sets unlock_status to 'approved' and optionally sets an expiry date
-  const approveUnlockRequest = async (id, approvalDurationDays = 7) => {
+  // Uses process_unlock_request RPC — admin specifies an expiry deadline
+  const approveUnlockRequest = async (id, expiryDate = null) => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
     
-    const { id: userId, name: userName } = await getCurrentUser();
-    const approvedAt = new Date().toISOString();
-    const approvedUntil = new Date(Date.now() + approvalDurationDays * 24 * 60 * 60 * 1000).toISOString();
-    
-    const updateData = {
-      unlock_status: 'approved',
-      unlock_approved_by: userId,
-      unlock_approved_at: approvedAt,
-      approved_until: approvedUntil
-    };
+    const { id: userId } = await getCurrentUser();
+
+    // If no expiry provided, default to 7 days from now
+    const expiry = expiryDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...updateData, updated_at: new Date().toISOString() } : p))
+      prev.map((p) => (p.id === id ? {
+        ...p,
+        unlock_status: 'approved',
+        unlock_approved_by: userId,
+        unlock_approved_at: new Date().toISOString(),
+        approved_until: expiry,
+        updated_at: new Date().toISOString()
+      } : p))
     );
 
     try {
-      const { data, error } = await supabase
-        .from('action_plans')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
+      const { data: result, error } = await withTimeout(
+        supabase.rpc('process_unlock_request', {
+          p_plan_id: id,
+          p_action: 'APPROVE',
+          p_admin_id: userId,
+          p_expiry_date: expiry,
+        }),
+        10000
+      );
 
       if (error) {
         await fetchPlans();
         throw error;
       }
 
-      setPlans((prev) =>
-        prev.map((p) => (p.id === id ? data : p))
-      );
+      // Re-fetch the updated plan for full object
+      const { data: updated } = await supabase
+        .from('action_plans')
+        .select('*, origin_plan:origin_plan_id(month)')
+        .eq('id', id)
+        .single();
 
-      // Audit log for unlock approval
-      if (userId) {
-        await createAuditLog(
-          id,
-          userId,
-          'UNLOCK_APPROVED',
-          { 
-            unlock_status: original.unlock_status,
-            unlock_reason: original.unlock_reason
-          },
-          { 
-            unlock_status: 'approved',
-            approved_until: approvedUntil
-          },
-          `Unlock approved by ${userName}. Plan editable until ${new Date(approvedUntil).toLocaleDateString()}. Original reason: "${original.unlock_reason || 'Not specified'}"`
-        );
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        return updated;
       }
 
-      return data;
+      return result;
     } catch (err) {
       console.error('Approve unlock failed:', err);
       throw err;
@@ -1233,61 +948,114 @@ export function useActionPlans(departmentCode = null) {
   };
 
   // Reject unlock request (Admin only)
+  // Uses process_unlock_request RPC — plan stays locked, forces resolution wizard
   const rejectUnlockRequest = async (id, rejectionReason = '') => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
     
-    const { id: userId, name: userName } = await getCurrentUser();
-    
-    const updateData = {
-      unlock_status: 'rejected',
-      unlock_approved_by: userId,
-      unlock_approved_at: new Date().toISOString(),
-      approved_until: null
-    };
+    const { id: userId } = await getCurrentUser();
     
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...updateData, updated_at: new Date().toISOString() } : p))
+      prev.map((p) => (p.id === id ? {
+        ...p,
+        unlock_status: 'rejected',
+        unlock_approved_by: userId,
+        unlock_approved_at: new Date().toISOString(),
+        unlock_rejection_reason: rejectionReason,
+        approved_until: null,
+        updated_at: new Date().toISOString()
+      } : p))
     );
 
     try {
-      const { data, error } = await supabase
-        .from('action_plans')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
+      const { data: result, error } = await withTimeout(
+        supabase.rpc('process_unlock_request', {
+          p_plan_id: id,
+          p_action: 'REJECT',
+          p_admin_id: userId,
+          p_rejection_reason: rejectionReason || null,
+        }),
+        10000
+      );
 
       if (error) {
         await fetchPlans();
         throw error;
       }
 
-      setPlans((prev) =>
-        prev.map((p) => (p.id === id ? data : p))
-      );
+      // Re-fetch the updated plan for full object
+      const { data: updated } = await supabase
+        .from('action_plans')
+        .select('*, origin_plan:origin_plan_id(month)')
+        .eq('id', id)
+        .single();
 
-      // Audit log for unlock rejection
-      if (userId) {
-        await createAuditLog(
-          id,
-          userId,
-          'UNLOCK_REJECTED',
-          { 
-            unlock_status: original.unlock_status,
-            unlock_reason: original.unlock_reason
-          },
-          { 
-            unlock_status: 'rejected'
-          },
-          `Unlock rejected by ${userName}. ${rejectionReason ? `Reason: "${rejectionReason}"` : 'No reason provided.'} Original request: "${original.unlock_reason || 'Not specified'}"`
-        );
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        return updated;
       }
 
-      return data;
+      return result;
     } catch (err) {
       console.error('Reject unlock failed:', err);
+      throw err;
+    }
+  };
+
+  // Revoke an active unlock (Admin only)
+  // Uses revoke_unlock_access RPC — immediately re-locks the plan
+  const revokeUnlockAccess = async (id) => {
+    const original = plans.find((p) => p.id === id);
+    if (!original) throw new Error('Plan not found');
+    
+    const { id: userId } = await getCurrentUser();
+    
+    // Optimistic update — clear all unlock fields
+    setPlans((prev) =>
+      prev.map((p) => (p.id === id ? {
+        ...p,
+        unlock_status: null,
+        unlock_approved_by: null,
+        unlock_approved_at: null,
+        approved_until: null,
+        unlock_requested_by: null,
+        unlock_requested_at: null,
+        unlock_reason: null,
+        unlock_rejection_reason: null,
+        updated_at: new Date().toISOString()
+      } : p))
+    );
+
+    try {
+      const { data: result, error } = await withTimeout(
+        supabase.rpc('revoke_unlock_access', {
+          p_plan_id: id,
+          p_admin_id: userId,
+        }),
+        10000
+      );
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Re-fetch the updated plan for full object
+      const { data: updated } = await supabase
+        .from('action_plans')
+        .select('*, origin_plan:origin_plan_id(month)')
+        .eq('id', id)
+        .single();
+
+      if (updated) {
+        setPlans((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        return updated;
+      }
+
+      return result;
+    } catch (err) {
+      console.error('Revoke unlock failed:', err);
       throw err;
     }
   };
@@ -1314,6 +1082,7 @@ export function useActionPlans(departmentCode = null) {
     bulkResetGrades,
     approveUnlockRequest,
     rejectUnlockRequest,
+    revokeUnlockAccess,
   };
 }
 

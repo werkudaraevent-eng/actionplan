@@ -10,6 +10,7 @@ import LoadingScreen from './components/common/LoadingScreen';
 import Sidebar from './components/layout/Sidebar';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
+import AdminPermissions from './pages/AdminPermissions';
 import ApprovalInbox from './pages/ApprovalInbox';
 import GlobalAuditLog from './pages/GlobalAuditLog';
 import UserManagement from './components/user/UserManagement';
@@ -143,14 +144,16 @@ function DepartmentViewWrapper() {
   const { deptCode } = useParams();
   const [searchParams] = useSearchParams();
   const statusFilter = searchParams.get('status') || '';
-  return <DepartmentView departmentCode={deptCode} initialStatusFilter={statusFilter} />;
+  const highlightId = searchParams.get('highlight') || '';
+  return <DepartmentView departmentCode={deptCode} initialStatusFilter={statusFilter} highlightPlanId={highlightId} />;
 }
 
 function CompanyActionPlansWrapper() {
   const [searchParams] = useSearchParams();
   const statusFilter = searchParams.get('status') || '';
   const tab = searchParams.get('tab') || 'all_records';
-  return <CompanyActionPlans initialStatusFilter={statusFilter} initialActiveTab={tab} />;
+  const highlightId = searchParams.get('highlight') || '';
+  return <CompanyActionPlans initialStatusFilter={statusFilter} initialActiveTab={tab} highlightPlanId={highlightId} />;
 }
 
 function UserManagementWrapper() {
@@ -251,6 +254,12 @@ function AppRoutes() {
           <Route path="/settings" element={
             <ProtectedRoute adminOnly>
               <AdminSettingsWrapper />
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/permissions" element={
+            <ProtectedRoute adminOnly>
+              <AdminPermissions />
             </ProtectedRoute>
           } />
           

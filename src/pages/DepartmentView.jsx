@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
+import { usePermission } from '../hooks/usePermission';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
 import UnifiedPageHeader from '../components/layout/UnifiedPageHeader';
 import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
@@ -16,26 +17,13 @@ import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal
 import ExportConfigModal from '../components/action-plan/ExportConfigModal';
 import LockedMonthsSummary from '../components/common/LockedMonthsSummary';
 import ReportStatusMenu from '../components/action-plan/ReportStatusMenu';
+import ResolutionWizardModal from '../components/action-plan/ResolutionWizardModal';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
 import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../utils/lockUtils';
 
-// Helper to create audit log entry for unlock requests
-async function createUnlockAuditLog(actionPlanId, userId, changeType, previousValue, newValue, description) {
-  try {
-    await supabase.from('audit_logs').insert({
-      action_plan_id: actionPlanId,
-      user_id: userId,
-      change_type: changeType,
-      previous_value: previousValue,
-      new_value: newValue,
-      description: description,
-    });
-  } catch (err) {
-    console.error('Failed to create unlock audit log:', err);
-    // Don't throw - audit logging should not block the main operation
-  }
-}
+// NOTE: Manual audit logging REMOVED - DB trigger handles all audit logging automatically
+// See migration: enhanced_audit_trigger_super_detailed
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -43,16 +31,26 @@ const CURRENT_YEAR = new Date().getFullYear();
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
-export default function DepartmentView({ departmentCode, initialStatusFilter = '' }) {
+export default function DepartmentView({ departmentCode, initialStatusFilter = '', highlightPlanId = '' }) {
   const { isAdmin, isExecutive, isLeader } = useAuth();
   const { toast } = useToast();
   const { departments } = useDepartments();
-  const canManagePlans = (isAdmin || isLeader) && !isExecutive; // Executives cannot manage plans
-  const canEdit = !isExecutive; // Executives have read-only access
+  const { can } = usePermission();
+  
+  // Permission-based access control
+  const canCreatePlan = can('action_plan', 'create');
+  const canEditPlan = can('action_plan', 'edit');
+  const canDeletePlan = can('action_plan', 'delete');
+  
+  const canManagePlans = (isAdmin || isLeader) && !isExecutive && canCreatePlan; // Executives cannot manage plans
+  const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
   const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
+  
+  // Smart modal navigation: counter to signal when edit modal closes
+  const [editModalClosedCounter, setEditModalClosedCounter] = useState(0);
   
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
@@ -316,11 +314,24 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     // Always calculate pending count (regardless of lock status)
     const pendingCount = monthPlans.filter(p => p.unlock_status === 'pending').length;
     
-    // Check if the selected month is locked
-    const isMonthLocked = isPlanLocked(selectedMonth, CURRENT_YEAR, null, null, lockSettings);
+    // Check if the selected month is date-locked
+    const isDateLocked = isPlanLocked(selectedMonth, CURRENT_YEAR, null, null, lockSettings);
     
-    if (!isMonthLocked) {
+    if (!isDateLocked) {
       return { isLocked: false, lockedItems: [], pendingCount };
+    }
+    
+    // Month is date-locked — check if all draft plans have active temporary unlocks
+    const draftPlans = monthPlans.filter(p => !p.submission_status || p.submission_status === 'draft');
+    if (draftPlans.length > 0) {
+      const allDraftsUnlocked = draftPlans.every(p => 
+        p.unlock_status === 'approved' && 
+        p.approved_until && 
+        new Date(p.approved_until) > new Date()
+      );
+      if (allDraftsUnlocked) {
+        return { isLocked: false, lockedItems: [], pendingCount };
+      }
     }
     
     // Get all locked items for this month (not already approved or pending)
@@ -347,28 +358,34 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       const monthPlans = plans.filter(p => p.month === month);
       if (monthPlans.length === 0) return;
       
-      // Check if month is locked
-      const isMonthLocked = isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings);
-      if (!isMonthLocked) return;
+      // Check if month is date-locked
+      const isDateLocked = isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings);
+      if (!isDateLocked) return;
       
       // Check if there are draft items
-      const draftCount = monthPlans.filter(
+      const draftPlans = monthPlans.filter(
         p => !p.submission_status || p.submission_status === 'draft'
-      ).length;
-      if (draftCount === 0) return;
+      );
+      if (draftPlans.length === 0) return;
+      
+      // If all drafts have active temporary unlocks, skip this month
+      const allDraftsUnlocked = draftPlans.every(p => 
+        p.unlock_status === 'approved' && 
+        p.approved_until && 
+        new Date(p.approved_until) > new Date()
+      );
+      if (allDraftsUnlocked) return;
       
       // Check if all drafts are complete (Achieved or Not Achieved)
-      const incompleteCount = monthPlans.filter(
-        p => (!p.submission_status || p.submission_status === 'draft') &&
-             p.status !== 'Achieved' && 
-             p.status !== 'Not Achieved'
+      const incompleteCount = draftPlans.filter(
+        p => p.status !== 'Achieved' && p.status !== 'Not Achieved'
       ).length;
       
       // Only add if ready to submit (all complete) but locked
       if (incompleteCount === 0) {
         lockedMonths.push({
           month,
-          draftCount,
+          draftCount: draftPlans.length,
           totalCount: monthPlans.length
         });
       }
@@ -557,23 +574,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           : plan
       ));
 
-      // Create audit logs for each item
-      if (userId) {
-        for (const item of lockedItems) {
-          await createUnlockAuditLog(
-            item.id,
-            userId,
-            'UNLOCK_REQUESTED',
-            { unlock_status: null },
-            { 
-              unlock_status: 'pending', 
-              unlock_reason: reason.trim(),
-              unlock_requested_at: requestedAt
-            },
-            `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${reason.trim()}"`
-          );
-        }
-      }
+      // NOTE: Audit logging handled by DB trigger (UNLOCK_REQUESTED)
 
       toast({ 
         title: 'Unlock Requested', 
@@ -642,22 +643,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       return;
     }
 
-    // Step 2: Status Check - Find incomplete items (only check drafts)
-    const incompleteForMonth = monthPlans.filter(
+    // Step 2: Status Check - Find BLOCKING incomplete items (only Open, On Progress, or Blocked)
+    // Exclude items that are temporarily unlocked (admin approved with valid expiry)
+    const blockingIncomplete = monthPlans.filter(
       p => (!p.submission_status || p.submission_status === 'draft') &&
-           p.status !== 'Achieved' && 
-           p.status !== 'Not Achieved'
+           (p.status === 'Open' || p.status === 'On Progress' || p.status === 'Blocked') &&
+           !(p.unlock_status === 'approved' && p.approved_until && new Date(p.approved_until) > new Date())
     );
     
-    if (incompleteForMonth.length > 0) {
-      setIncompleteItems(incompleteForMonth);
-      setTargetMonth(month); // Store target month for incomplete modal display
+    // Block submission if there are incomplete items — open Resolution Wizard
+    if (blockingIncomplete.length > 0) {
+      setIncompleteItems(blockingIncomplete);
+      setTargetMonth(month); // Store target month for wizard
       setShowIncompleteModal(true);
-      // DO NOT change selectedMonth - keep user's view filter intact
       return;
     }
 
-    // Step 3: All draft items complete - show confirmation modal
+    // Step 3: All draft items complete (Achieved/Not Achieved) - show standard confirmation
     // Different messaging for re-submit vs initial submit
     const isResubmit = gradedCount > 0;
     
@@ -1267,8 +1269,25 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   };
 
   const handleSave = async (formData, isBulk = false) => {
+    // DEBUG: Log incoming data to trace save flow
+    console.log('[DepartmentView.handleSave] Called with:', {
+      formDataStatus: formData.status,
+      editDataId: editData?.id,
+      editDataStatus: editData?.status,
+      canManagePlans,
+      isBulk
+    });
+    
     try {
+      // Track if blocker was auto-resolved for toast notification
+      let blockerWasAutoResolved = false;
+      
       if (editData) {
+        // Check if blocker will be auto-resolved (completing a blocked task)
+        const originalPlan = plans.find(p => p.id === editData.id);
+        const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
+        blockerWasAutoResolved = isCompletionStatus && originalPlan?.is_blocked === true;
+        
         // Update existing plan
         const updateFields = canManagePlans 
           ? {
@@ -1281,10 +1300,20 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               status: formData.status,
               outcome_link: formData.outcome_link,
               remark: formData.remark,
+              // Additional planning fields
+              area_focus: formData.area_focus,
+              category: formData.category,
+              evidence: formData.evidence,
               // Gap analysis fields for "Not Achieved" status
               gap_category: formData.gap_category,
               gap_analysis: formData.gap_analysis,
               specify_reason: formData.specify_reason,
+              // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
+              ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
+              ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
+              // Escalation fields (blocker category & attention level)
+              ...(formData.blocker_category !== undefined && { blocker_category: formData.blocker_category }),
+              ...(formData.attention_level !== undefined && { attention_level: formData.attention_level }),
             }
           : {
               // Staff can only update these fields
@@ -1295,12 +1324,39 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               gap_category: formData.gap_category,
               gap_analysis: formData.gap_analysis,
               specify_reason: formData.specify_reason,
+              // Staff can report blockers
+              ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
+              ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
+              // Escalation fields (blocker category & attention level)
+              ...(formData.blocker_category !== undefined && { blocker_category: formData.blocker_category }),
+              ...(formData.attention_level !== undefined && { attention_level: formData.attention_level }),
             };
+        
+        // DEBUG: Log the update payload
+        console.log('[DepartmentView.handleSave] Updating plan:', {
+          id: editData.id,
+          updateFields,
+          originalStatus: originalPlan?.status
+        });
         
         // Pass the original plan data for accurate audit logging
         // (editData.status might be pre-filled from handleCompletionStatusChange)
-        const originalPlan = plans.find(p => p.id === editData.id);
-        await updatePlan(editData.id, updateFields, originalPlan);
+        const updatedPlan = await updatePlan(editData.id, updateFields, originalPlan);
+        
+        // DEBUG: Log the result
+        console.log('[DepartmentView.handleSave] Update result:', {
+          newStatus: updatedPlan?.status,
+          success: !!updatedPlan
+        });
+        
+        // Show toast if blocker was auto-resolved
+        if (blockerWasAutoResolved) {
+          toast({ 
+            title: 'Plan Completed', 
+            description: 'Blocker has been automatically cleared.', 
+            variant: 'success' 
+          });
+        }
       } else if (isBulk && Array.isArray(formData)) {
         // Bulk create (recurring task)
         const plansWithDept = formData.map(plan => ({
@@ -1317,18 +1373,24 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       }
       setEditData(null);
     } catch (error) {
-      console.error('Save failed:', error);
-      toast({ title: 'Save Failed', description: 'Failed to save. Please try again.', variant: 'error' });
+      console.error('[DepartmentView.handleSave] Save failed:', error);
+      // Show more specific error message if available
+      const errorMessage = error.code === 'PERIOD_LOCKED' 
+        ? error.message 
+        : 'Failed to save. Please try again.';
+      toast({ title: 'Save Failed', description: errorMessage, variant: 'error' });
+      // Re-throw so ActionPlanModal knows the save failed
+      throw error;
     }
   };
 
   const handleDelete = (item) => {
-    // Safety check: Prevent deletion of achieved items for non-admins
-    // Admins have "God Mode" and can delete anything
-    if (item.status?.toLowerCase() === 'achieved' && !isAdmin) {
+    // Only prevent deletion if the plan is graded/locked by management
+    // Users with delete permission can delete plans of ANY status (Open, On Progress, Achieved, Not Achieved)
+    if (item.quality_score != null) {
       toast({ 
         title: 'Action Denied', 
-        description: 'You cannot delete a verified achievement. Please contact an Admin if this was marked in error.', 
+        description: 'This plan has been graded by management and cannot be deleted. Contact an Admin if needed.', 
         variant: 'warning' 
       });
       return;
@@ -1366,6 +1428,58 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const handleEdit = (item) => {
     setEditData(item);
     setIsModalOpen(true);
+  };
+
+  // Carry Over handler - creates a new action plan for the next month
+  // NOTE: The DB trigger automatically logs CARRY_OVER to audit_logs when is_carry_over=true
+  const handleCarryOver = async (item) => {
+    try {
+      // Calculate next month
+      const currentMonthIndex = MONTHS_ORDER.indexOf(item.month);
+      const nextMonthIndex = (currentMonthIndex + 1) % 12;
+      const nextMonth = MONTHS_ORDER[nextMonthIndex];
+      const nextYear = nextMonthIndex === 0 ? (item.year || CURRENT_YEAR) + 1 : (item.year || CURRENT_YEAR);
+      
+      // Create new action plan with copied details
+      // The DB trigger will automatically create a CARRY_OVER audit log entry
+      const newPlan = {
+        department_code: item.department_code,
+        year: nextYear,
+        month: nextMonth,
+        goal_strategy: item.goal_strategy,
+        action_plan: item.action_plan,
+        indicator: item.indicator,
+        pic: item.pic,
+        report_format: item.report_format || 'Monthly Report',
+        area_focus: item.area_focus,
+        category: item.category,
+        status: 'Open',
+        is_carry_over: true,
+        submission_status: 'draft'
+      };
+      
+      const { error } = await supabase
+        .from('action_plans')
+        .insert(newPlan);
+      
+      if (error) throw error;
+      
+      // Refresh data
+      await refetch();
+      
+      toast({
+        title: '⏭️ Plan Carried Over',
+        description: `Action plan has been carried over to ${nextMonth} ${nextYear}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Carry over failed:', error);
+      toast({
+        title: 'Carry Over Failed',
+        description: 'Failed to carry over the action plan. Please try again.',
+        variant: 'error'
+      });
+    }
   };
 
   const handleStatusChange = async (id, newStatus) => {
@@ -1506,23 +1620,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           : plan
       ));
 
-      // Create audit logs for each item in the bulk unlock request
-      if (userId) {
-        for (const item of monthLockStatus.lockedItems) {
-          await createUnlockAuditLog(
-            item.id,
-            userId,
-            'UNLOCK_REQUESTED',
-            { unlock_status: null },
-            { 
-              unlock_status: 'pending', 
-              unlock_reason: bulkUnlockReason.trim(),
-              unlock_requested_at: requestedAt
-            },
-            `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${bulkUnlockReason.trim()}"`
-          );
-        }
-      }
+      // NOTE: Audit logging handled by DB trigger (UNLOCK_REQUESTED for each item)
 
       toast({ 
         title: 'Unlock Requested', 
@@ -1585,25 +1683,30 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               <Trash2 className="w-4 h-4" />
             </button>
 
-            {/* Export Excel Button */}
-            <button
-              onClick={handleExportExcel}
-              disabled={exporting || plans.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Export Excel'}
-            </button>
+            {/* Export Buttons - Only visible if user has export permission */}
+            {can('report', 'export') && (
+              <>
+                {/* Export Excel Button */}
+                <button
+                  onClick={handleExportExcel}
+                  disabled={exporting || plans.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  {exporting ? 'Exporting...' : 'Export Excel'}
+                </button>
 
-            {/* Export PDF Button */}
-            <button
-              onClick={() => setShowExportModal(true)}
-              disabled={exportingPdf || plans.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 border border-red-500 text-red-500 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileText className="w-4 h-4" />
-              {exportingPdf ? 'Exporting...' : 'Export PDF'}
-            </button>
+                {/* Export PDF Button */}
+                <button
+                  onClick={() => setShowExportModal(true)}
+                  disabled={exportingPdf || plans.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-red-500 text-red-500 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-4 h-4" />
+                  {exportingPdf ? 'Exporting...' : 'Export PDF'}
+                </button>
+              </>
+            )}
 
             {/* Leader Submit/Recall Report Button - ONLY visible for Leaders (not Admins) */}
             {isLeader && (
@@ -1787,12 +1890,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           onCompletionStatusChange={handleCompletionStatusChange}
           onGrade={isAdmin ? handleOpenGradeModal : undefined}
           onRequestUnlock={isLeader ? handleRequestUnlock : undefined}
+          onCarryOver={(isLeader || isAdmin) ? handleCarryOver : undefined}
           onRefresh={refetch}
           showDepartmentColumn={true}
           visibleColumns={visibleColumns}
           columnOrder={columnOrder}
           isReadOnly={isExecutive}
           showPendingOnly={showPendingOnly}
+          highlightPlanId={highlightPlanId}
+          onEditModalClosed={editModalClosedCounter}
         />
       </main>
 
@@ -1801,6 +1907,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         onClose={() => {
           setIsModalOpen(false);
           setEditData(null);
+          // Signal to DataTable that edit modal closed (for return navigation)
+          setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
         editData={editData}
@@ -1885,64 +1993,41 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         </div>
       )}
 
-      {/* Incomplete Items Blocking Modal */}
-      {showIncompleteModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                <X className="w-6 h-6 text-red-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">Cannot Submit Report</h3>
-                <p className="text-sm text-gray-500">There are incomplete items for {targetMonth || selectedMonth}</p>
-              </div>
-            </div>
-            
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-              <p className="text-red-800 font-medium mb-2">
-                {incompleteItems.length} item(s) are not marked as "Achieved" or "Not Achieved":
-              </p>
-              <ul className="space-y-2 max-h-48 overflow-y-auto">
-                {incompleteItems.slice(0, 10).map((item, idx) => (
-                  <li key={item.id} className="flex items-start gap-2 text-sm">
-                    <span className="text-red-400 font-mono">{idx + 1}.</span>
-                    <div className="flex-1">
-                      <span className="text-gray-700">{item.action_plan?.substring(0, 50)}{item.action_plan?.length > 50 ? '...' : ''}</span>
-                      <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
-                        item.status === 'Open' ? 'bg-gray-100 text-gray-600' :
-                        item.status === 'On Progress' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
-                        {item.status}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-                {incompleteItems.length > 10 && (
-                  <li className="text-sm text-gray-500 italic">
-                    ...and {incompleteItems.length - 10} more items
-                  </li>
-                )}
-              </ul>
-            </div>
-            
-            <p className="text-sm text-gray-600 mb-4">
-              Please update all items to "Achieved" or "Not Achieved" status before finalizing the report.
-            </p>
-            
-            <button
-              onClick={() => {
-                setShowIncompleteModal(false);
-                setTargetMonth(null); // Clear target month when closing
-              }}
-              className="w-full px-4 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors"
-            >
-              Close & Fix Items
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Resolution Wizard Modal — replaces the old "Cannot Submit" blocker */}
+      <ResolutionWizardModal
+        isOpen={showIncompleteModal}
+        onClose={() => {
+          setShowIncompleteModal(false);
+          setTargetMonth(null);
+          setIncompleteItems([]);
+        }}
+        items={incompleteItems}
+        departmentCode={departmentCode}
+        month={targetMonth || selectedMonth}
+        year={CURRENT_YEAR}
+        onSuccess={(resolutions, result) => {
+          setShowIncompleteModal(false);
+          setIncompleteItems([]);
+          // Optimistic UI: update resolved plans in local state
+          // so they show "Not Achieved" with null score immediately
+          const resolvedIds = new Set(resolutions.map(r => r.plan_id));
+          const resolutionMap = Object.fromEntries(resolutions.map(r => [r.plan_id, r.action]));
+          setPlans(prev => prev.map(plan => {
+            if (!resolvedIds.has(plan.id)) return plan;
+            return {
+              ...plan,
+              status: 'Not Achieved',
+              quality_score: null,
+              resolution_type: resolutionMap[plan.id] === 'carry_over' ? 'carried_over' : 'dropped',
+              updated_at: new Date().toISOString(),
+            };
+          }));
+          // Clear target month — do NOT re-trigger finalize (breaks the loop)
+          setTargetMonth(null);
+          // Background refetch to pick up any new carry-over plans created by the RPC
+          refetch();
+        }}
+      />
 
       {/* Recall Success Modal - Big Green Popup for Reassurance (supports bulk and single) */}
       {recallSuccess.isOpen && (
@@ -2252,21 +2337,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                           : plan
                       ));
                       
-                      // Create audit log for single item unlock request
-                      if (userId) {
-                        await createUnlockAuditLog(
-                          item.id,
-                          userId,
-                          'UNLOCK_REQUESTED',
-                          { unlock_status: null },
-                          { 
-                            unlock_status: 'pending', 
-                            unlock_reason: bulkUnlockReason.trim(),
-                            unlock_requested_at: requestedAt
-                          },
-                          `Unlock requested for ${item.month} ${item.year || CURRENT_YEAR}. Reason: "${bulkUnlockReason.trim()}"`
-                        );
-                      }
+                      // NOTE: Audit logging handled by DB trigger (UNLOCK_REQUESTED)
                       
                       toast({ title: 'Request Submitted', description: 'Unlock request sent to admin.', variant: 'success' });
                       setBulkUnlockModal({ isOpen: false, month: '', year: CURRENT_YEAR, lockedCount: 0 });

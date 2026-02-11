@@ -1,18 +1,35 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare, LockKeyhole, ToggleLeft, ToggleRight, ShieldAlert, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS } from '../../lib/supabase';
+import { usePermission } from '../../hooks/usePermission';
+import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, BLOCKER_CATEGORIES, ATTENTION_LEVELS } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useDepartmentUsers } from '../../hooks/useDepartmentUsers';
 import { useToast } from '../common/Toast';
+import { getLockStatus, getLockStatusMessage } from '../../utils/lockUtils';
+import { validateBlockerReason, getMinReasonLength, buildBlockerResetFields, getFilteredAttentionLevels } from '../../utils/escalationUtils';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isExecutive, isLeader, departmentCode: userDeptCode } = useAuth();
+  const { can } = usePermission();
   const { toast } = useToast();
   const { departments } = useDepartments();
   
-  // Executives have read-only access
-  const isReadOnly = isExecutive;
+  // Permission checks - granular access control
+  const canCreate = can('action_plan', 'create');
+  const canEditFull = can('action_plan', 'edit'); // Full edit access (planning details)
+  const canUpdateStatus = can('action_plan', 'update_status'); // Status/evidence updates only
+  
+  // Determine access mode:
+  // - isFullEditMode: Can edit ALL fields (planning + execution)
+  // - isSubmissionMode: Can ONLY edit execution fields (status, evidence, remarks)
+  // - isReadOnly: Cannot edit anything
+  const isCreating = !editData;
+  const isFullEditMode = isCreating ? canCreate : canEditFull;
+  const isSubmissionMode = !isFullEditMode && canUpdateStatus && !isCreating;
+  
+  // Executives have read-only access regardless of permissions
+  const isReadOnly = isExecutive || (!isFullEditMode && !isSubmissionMode);
   
   // Calculate available departments for the user
   const availableDepartments = useMemo(() => {
@@ -34,9 +51,76 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   
   // SECURITY: Determine if this plan is locked (finalized for Management grading)
   // Admin God Mode: Admins can edit locked plans, others cannot
+  // BUT: Submission mode users can still update status/evidence even when "locked" (unless graded)
   const isPlanLocked = editData?.submission_status === 'submitted' || editData?.status === 'Waiting Approval';
-  const isLocked = (isPlanLocked && !isAdmin) || isReadOnly; // Regular users are locked out, Executives are always read-only
+  const isGradedByAdmin = editData?.quality_score != null;
+  
+  // Lock logic:
+  // - Full edit users: locked when submitted (unless admin)
+  // - Submission mode users: only locked when GRADED (not just submitted)
+  const isLockedForFullEdit = (isPlanLocked && !isAdmin) || isReadOnly;
+  const isLockedForSubmission = isGradedByAdmin && !isAdmin; // Submission mode only locked after grading
+  
+  // Combined lock state
+  const isLocked = isFullEditMode ? isLockedForFullEdit : isLockedForSubmission;
   const isAdminOverride = isPlanLocked && isAdmin && !isReadOnly; // Admin can override the lock (but not if Executive)
+  
+  // DATE-BASED LOCK: Check if the plan's month is past the modification deadline
+  // This is separate from submission lock - it's based on calendar dates
+  const [lockSettings, setLockSettings] = useState({
+    isLockEnabled: false,
+    lockCutoffDay: 6,
+    monthlyOverrides: []
+  });
+  const [isDateOverrideEnabled, setIsDateOverrideEnabled] = useState(false);
+  
+  // Fetch lock settings on mount
+  useEffect(() => {
+    const fetchLockSettings = async () => {
+      try {
+        const [settingsResult, schedulesResult] = await Promise.all([
+          supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day').eq('id', 1).single(),
+          supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open')
+        ]);
+        
+        setLockSettings({
+          isLockEnabled: settingsResult.data?.is_lock_enabled ?? false,
+          lockCutoffDay: settingsResult.data?.lock_cutoff_day ?? 6,
+          monthlyOverrides: schedulesResult.data || []
+        });
+      } catch (err) {
+        console.error('Error fetching lock settings:', err);
+      }
+    };
+    
+    if (isOpen) {
+      fetchLockSettings();
+      setIsDateOverrideEnabled(false); // Reset override when modal opens
+    }
+  }, [isOpen]);
+  
+  // Calculate date lock status for the current plan
+  const dateLockStatus = useMemo(() => {
+    if (!editData?.month || !editData?.year) return { isLocked: false };
+    return getLockStatus(
+      editData.month,
+      editData.year,
+      editData.unlock_status,
+      editData.approved_until,
+      lockSettings
+    );
+  }, [editData?.month, editData?.year, editData?.unlock_status, editData?.approved_until, lockSettings]);
+  
+  // Is this plan date-locked (past modification deadline)?
+  const isDateLocked = dateLockStatus.isLocked;
+  const dateLockMessage = getLockStatusMessage(dateLockStatus);
+  
+  // Combined lock state for form fields:
+  // - If date-locked AND admin AND override NOT enabled → fields should be disabled
+  // - If date-locked AND admin AND override IS enabled → fields should be enabled
+  // - If date-locked AND NOT admin → fields should be disabled (no override option)
+  const isDateLockedForAdmin = isDateLocked && isAdmin && !isDateOverrideEnabled;
+  const shouldDisableForDateLock = isDateLocked && (!isAdmin || !isDateOverrideEnabled);
   
   // Check if plan can be recalled (locked but NOT manually graded yet)
   // Allow recall for:
@@ -57,6 +141,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [progressUpdate, setProgressUpdate] = useState('');
   
+  // Blocker workflow state
+  const [blockerReason, setBlockerReason] = useState('');
+  const [resolutionNote, setResolutionNote] = useState('');
+  
+  // Track if we're transitioning FROM blocked state (for resolution flow)
+  const wasBlocked = editData?.is_blocked === true || editData?.status === 'Blocked';
+  
   // Get the plan's department (from editData or the prop)
   const planDept = editData?.department_code || departmentCode || '';
   
@@ -64,6 +155,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const userDept = userDeptCode || profile?.department_code || '';
 
   // Permission Logic: Determine if user has full edit access
+  // This combines role-based checks with permission-based checks
   const hasFullAccess = useMemo(() => {
     // Debug logging
     console.log('[ActionPlanModal] Permission Check:', {
@@ -74,16 +166,21 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       planDept,
       profileDept: profile?.department_code,
       isMatch: userDept === planDept,
-      result: staffMode ? 'STAFF_MODE' : isAdmin ? 'ADMIN' : (isLeader && userDept === planDept) ? 'LEADER_MATCH' : 'NO_ACCESS'
+      isFullEditMode,
+      isSubmissionMode,
+      result: staffMode ? 'STAFF_MODE' : isAdmin ? 'ADMIN' : isFullEditMode ? 'FULL_EDIT' : isSubmissionMode ? 'SUBMISSION_ONLY' : 'NO_ACCESS'
     });
 
+    // If in submission-only mode, return false for full access (but submission fields will still be editable)
+    if (!isFullEditMode) return false;
+    
     if (staffMode) return false; // Staff mode always restricts
     if (isAdmin) return true; // Admin can edit everything
     if (isLeader && userDept && planDept && userDept === planDept) {
-      return true; // Leader can edit their own department
+      return true; // Leader can edit their own department (if they have edit permission)
     }
     return false; // Staff or unknown role
-  }, [isAdmin, isLeader, staffMode, userDept, planDept, profile]);
+  }, [isAdmin, isLeader, staffMode, userDept, planDept, profile, isFullEditMode, isSubmissionMode]);
 
   // Can change department: Only admin, and only for new plans
   const canChangeDepartment = isAdmin && !editData;
@@ -107,6 +204,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     status: 'Open',
     outcome_link: '',
     remark: '',
+    blocker_category: null,
+    attention_level: 'Standard',
   });
   
   // Use the new hook to fetch department users (includes primary + additional access)
@@ -127,6 +226,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // Gap analysis state (for "Not Achieved" status) - new structured fields
   const [gapCategory, setGapCategory] = useState(''); // Uses failureReasons options (Admin Settings)
   const [gapAnalysis, setGapAnalysis] = useState('');
+  
+  // Blocker prefill state - tracks if modal was opened from blocked item flow
+  const [blockerPrefillActive, setBlockerPrefillActive] = useState(false);
   
   // Custom input mode state (for Goal/Strategy and Action Plan)
   const [isCustomGoal, setIsCustomGoal] = useState(false);
@@ -153,6 +255,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const fetchProgressLogs = async (actionPlanId) => {
     setLoadingLogs(true);
     try {
+      // Fetch official progress updates AND blocker events
+      // Types: progress_update, blocker_report, blocker_resolved
+      // Excludes: comment (casual comments shown in ViewDetailModal's Activity Feed)
       const { data, error } = await supabase
         .from('progress_logs')
         .select(`
@@ -160,9 +265,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           message,
           created_at,
           user_id,
+          type,
           profiles:user_id (full_name)
         `)
         .eq('action_plan_id', actionPlanId)
+        .in('type', ['progress_update', 'blocker_report', 'blocker_resolved']) // Official records only
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -247,16 +354,51 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // Reset repeat state when month changes or modal opens
   useEffect(() => {
     if (editData) {
-      setFormData(editData);
+      setFormData({
+        ...editData,
+        blocker_category: editData.blocker_category ?? null,
+        attention_level: editData.attention_level ?? 'Standard',
+        // If _prefillStatus is set (e.g., from "Resolve Blocker" button), override the status
+        ...(editData._prefillStatus ? { status: editData._prefillStatus } : {}),
+      });
       setRepeatEnabled(false);
       setSelectedMonths([]);
+      // Reset blocker fields first, then conditionally populate from editData
+      setBlockerReason(editData.status === 'Blocked' && editData.blocker_reason ? editData.blocker_reason : '');
+      setResolutionNote('');
       // Determine if existing values are custom (not in dropdown options)
       setIsCustomGoal(editData.goal_strategy && !goalOptions.some(o => o.label === editData.goal_strategy));
       setIsCustomAction(editData.action_plan && !actionPlanOptions.some(o => o.label === editData.action_plan));
       
+      // Check if this was opened via blocker flow (Not Achieved on blocked item)
+      // The _blockerPrefill flag contains the original blocker_reason
+      const hasBlockerPrefill = !!editData._blockerPrefill;
+      setBlockerPrefillActive(hasBlockerPrefill);
+      
       // Initialize gap analysis fields from editData
       // Smart loading: Handle both correct data AND incorrectly saved data
-      if (editData.gap_category) {
+      if (hasBlockerPrefill) {
+        // BLOCKER PREFILL: Pre-fill gap analysis with blocker reason
+        // Try to match to "External/Blocker" category if it exists, otherwise use "Other"
+        const blockerCategory = failureReasons.find(r => 
+          r.label.toLowerCase().includes('blocker') || 
+          r.label.toLowerCase().includes('external')
+        );
+        
+        if (blockerCategory) {
+          setGapCategory(blockerCategory.label);
+          setFailureReason(blockerCategory.label);
+          setOtherReason('');
+          // Put blocker reason in gap_analysis for detailed explanation
+          setGapAnalysis(editData._blockerPrefill);
+        } else {
+          // No matching category, use "Other" with blocker reason
+          setGapCategory('Other');
+          setFailureReason('Other');
+          setOtherReason(editData._blockerPrefill);
+          setGapAnalysis('');
+        }
+      } else if (editData.gap_category) {
         // Check if gap_category is a valid dropdown option
         const isValidCategory = failureReasons.some(r => r.label === editData.gap_category);
         
@@ -314,6 +456,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         area_focus: '',
         category: '',
         evidence: '',
+        blocker_category: null,
+        attention_level: 'Standard',
       });
       setRepeatEnabled(false);
       setSelectedMonths([]);
@@ -323,6 +467,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       setGapAnalysis('');
       setIsCustomGoal(false);
       setIsCustomAction(false);
+      setBlockerPrefillActive(false);
+      setBlockerReason('');
+      setResolutionNote('');
     }
     setShowConfirm(false);
   }, [editData, isOpen, departmentCode, failureReasons, goalOptions, actionPlanOptions]);
@@ -345,6 +492,17 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     }
   }, [repeatEnabled, remainingMonths]);
 
+  // Guard: If a Leader opens a plan that was previously set to 'Leader' attention level,
+  // reset it to 'Standard' since Leaders cannot escalate to themselves (Requirement 1.5)
+  useEffect(() => {
+    if (
+      (profile?.role === 'leader' || profile?.role === 'dept_head') &&
+      formData.attention_level === 'Leader'
+    ) {
+      setFormData(prev => ({ ...prev, attention_level: 'Standard' }));
+    }
+  }, [profile?.role, formData.attention_level]);
+
   if (!isOpen) return null;
 
   const toggleMonth = (month) => {
@@ -363,30 +521,65 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // DEBUG: Log form state at submission time
+    console.log('[ActionPlanModal.handleSubmit] Form state:', {
+      status: formData.status,
+      progressUpdate: progressUpdate?.substring(0, 50),
+      editDataId: editData?.id,
+      editDataStatus: editData?.status
+    });
+    
     // Validation: If status is "On Progress", require progress update message
+    // Exception: If resolving a blocker (wasBlocked), accept resolutionNote as substitute
+    const isResolvingBlocker = wasBlocked && formData.status !== 'Blocked';
+    const hasValidResolutionNote = isResolvingBlocker && resolutionNote && resolutionNote.trim().length >= 5;
     if (formData.status === 'On Progress' && editData) {
-      if (!progressUpdate || progressUpdate.trim().length < 5) {
+      const hasProgressUpdate = progressUpdate && progressUpdate.trim().length >= 5;
+      if (!hasProgressUpdate && !hasValidResolutionNote) {
+        console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing progress update');
         toast({ title: 'Missing Information', description: 'Please provide a progress update (at least 5 characters) when setting status to "On Progress".', variant: 'warning' });
         return;
       }
     }
+    // Effective progress message: use progressUpdate if filled, otherwise auto-fill from resolutionNote
+    const effectiveProgressUpdate = (progressUpdate && progressUpdate.trim().length >= 5)
+      ? progressUpdate.trim()
+      : hasValidResolutionNote
+      ? `[BLOCKER RESOLVED] ${resolutionNote.trim()}`
+      : null;
     
     // Validation: If status is "Not Achieved", require gap category and gap analysis
     if (formData.status === 'Not Achieved') {
       if (!gapCategory) {
+        console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing gap category');
         toast({ title: 'Missing Information', description: 'Please select a Root Cause Category.', variant: 'warning' });
         return;
       }
       if (gapCategory === 'Other' && (!otherReason || otherReason.trim().length < 3)) {
+        console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing other reason');
         toast({ title: 'Missing Information', description: 'Please specify the root cause reason (at least 3 characters).', variant: 'warning' });
         return;
       }
       if (!gapAnalysis || gapAnalysis.trim().length < 10) {
+        console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing gap analysis');
         toast({ title: 'Missing Information', description: 'Please provide Failure Details (at least 10 characters).', variant: 'warning' });
         return;
       }
     }
     
+    // Validation: If status is "Blocked", require blocker category and reason (dynamic min chars)
+    if (formData.status === 'Blocked' && editData) {
+      if (!formData.blocker_category) {
+        toast({ title: 'Missing Information', description: 'Please select a Blocker Category.', variant: 'warning' });
+        return;
+      }
+      if (!validateBlockerReason(blockerReason, formData.attention_level)) {
+        const minLen = getMinReasonLength(formData.attention_level);
+        toast({ title: 'Missing Information', description: `Please provide a blocker reason (at least ${minLen} characters).`, variant: 'warning' });
+        return;
+      }
+    }
+
     // Show confirmation if creating multiple plans
     if (repeatEnabled && selectedMonths.length > 0 && !showConfirm) {
       setShowConfirm(true);
@@ -398,6 +591,27 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       // Prepare the final form data
       let finalFormData = { ...formData };
       
+      // BLOCKED STATUS: Send status='Blocked' directly to DB (it's a real status now).
+      // Also set is_blocked=true and blocker_reason for the blocker tracking system.
+      if (formData.status === 'Blocked' && editData) {
+        finalFormData.is_blocked = true;
+        finalFormData.blocker_reason = blockerReason.trim();
+        finalFormData.blocker_category = formData.blocker_category;
+        finalFormData.attention_level = formData.attention_level;
+      }
+
+      // BLOCKER CLEARING: If this was opened from blocker flow, clear the blocker flags
+      // This ensures the blocker is removed when task is marked as Not Achieved
+      if (blockerPrefillActive || editData?._blockerPrefill) {
+        finalFormData.is_blocked = false;
+        finalFormData.blocker_reason = null;
+      }
+      
+      // BLOCKER RESOLUTION: If transitioning FROM blocked to a non-Blocked status, clear flags
+      if (wasBlocked && formData.status !== 'Blocked') {
+        Object.assign(finalFormData, buildBlockerResetFields());
+      }
+      
       if (formData.status === 'Not Achieved') {
         // FIX: Keep gap_category as the dropdown value (e.g., "Other"), NOT the custom text
         // The custom text goes into specify_reason column
@@ -406,25 +620,24 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         // Store the custom text in its own column when "Other" is selected
         finalFormData.specify_reason = gapCategory === 'Other' ? otherReason : null;
         
-        // Legacy: Also append to remark for backward compatibility
-        // Use the display value (custom text if "Other", otherwise the category)
-        const displayValue = gapCategory === 'Other' ? otherReason : gapCategory;
-        const cleanRemark = (formData.remark || '').replace(/^\[Cause: .+?\]\s*/, '').trim();
-        finalFormData.remark = `[Cause: ${displayValue}]${cleanRemark ? ' ' + cleanRemark : ''}`;
+        // REMOVED: Legacy auto-fill of remark with [Cause: ...] prefix
+        // The remark field should ONLY change if user explicitly edits it
+        // Root cause data is now stored in gap_category, gap_analysis, and specify_reason columns
+        // Keep remark exactly as user entered it (or null if empty)
+        finalFormData.remark = formData.remark?.trim() || null;
       } else {
         // Clear gap analysis fields if status is not "Not Achieved"
         finalFormData.gap_category = null;
         finalFormData.gap_analysis = null;
         finalFormData.specify_reason = null;
         
-        // Also clean the legacy [Cause: ...] prefix from remark if present
-        if (formData.remark) {
-          finalFormData.remark = formData.remark.replace(/^\[Cause: .+?\]\s*/, '').trim() || null;
-        }
+        // Keep remark exactly as user entered it - do NOT auto-clean [Cause: ...] prefix
+        // If user wants to remove it, they can do so manually
+        finalFormData.remark = formData.remark?.trim() || null;
       }
       
       // DEBUG: Log the payload being sent
-      console.log('[ActionPlanModal] FINAL PAYLOAD:', {
+      console.log('[ActionPlanModal.handleSubmit] FINAL PAYLOAD:', {
         status: finalFormData.status,
         gap_category: finalFormData.gap_category,
         gap_analysis: finalFormData.gap_analysis,
@@ -447,16 +660,21 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         await onSave(payloads, true); // Pass true to indicate bulk insert
       } else {
         // Single create/update
+        console.log('[ActionPlanModal.handleSubmit] Calling onSave...');
         await onSave(finalFormData);
+        console.log('[ActionPlanModal.handleSubmit] onSave completed successfully');
         
         // Insert progress log if status is "On Progress" and there's a message
-        if (editData?.id && progressUpdate && progressUpdate.trim()) {
+        // Mark as 'progress_update' type (official update from status form)
+        // Uses effectiveProgressUpdate which may be auto-filled from resolutionNote
+        if (editData?.id && effectiveProgressUpdate) {
           const { error: logError } = await supabase
             .from('progress_logs')
             .insert({
               action_plan_id: editData.id,
               user_id: profile?.id,
-              message: progressUpdate.trim()
+              message: effectiveProgressUpdate,
+              type: 'progress_update' // Official progress update (not casual comment)
             });
           
           if (logError) {
@@ -467,8 +685,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       }
       onClose();
     } catch (error) {
-      console.error('Error saving:', error);
-      toast({ title: 'Save Failed', description: 'Failed to save. Please try again.', variant: 'error' });
+      console.error('[ActionPlanModal.handleSubmit] Error saving:', error);
+      toast({ title: 'Save Failed', description: error.message || 'Failed to save. Please try again.', variant: 'error' });
     } finally {
       setLoading(false);
       setShowConfirm(false);
@@ -486,18 +704,27 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[10002] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col ring-1 ring-black/10">
         {/* STICKY HEADER */}
         <div className="p-6 border-b border-gray-100 shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-800">
-              {editData ? 'Edit Action Plan' : 'Add New Action Plan'}
+              {editData 
+                ? (isSubmissionMode ? 'Update Status & Evidence' : 'Edit Action Plan')
+                : 'Add New Action Plan'}
             </h2>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
               <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
+          {/* Submission Mode Indicator */}
+          {isSubmissionMode && editData && (
+            <p className="text-sm text-teal-600 mt-1 flex items-center gap-1">
+              <MessageSquare className="w-4 h-4" />
+              You can update status, evidence, and remarks for this action plan.
+            </p>
+          )}
         </div>
 
         {/* SCROLLABLE BODY */}
@@ -528,7 +755,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           )}
 
           {/* LOCKED BANNER - Security: Show when plan is finalized */}
-          {isLocked && (
+          {/* For submission mode users: Only show if graded (they can still update status/evidence otherwise) */}
+          {isLocked && !isSubmissionMode && (
             <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
               <div className="flex items-start gap-3">
                 <Lock className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
@@ -614,6 +842,70 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               <div>
                 <p className="font-medium text-red-800">⚠ ADMIN OVERRIDE ACTIVE</p>
                 <p className="text-sm text-red-700">This plan is finalized/locked. Edits will modify the official record.</p>
+              </div>
+            </div>
+          )}
+
+          {/* DATE LOCK BANNER - Shows when plan's modification period has ended */}
+          {/* For Admins: Shows toggle to enable override editing */}
+          {/* For Non-Admins: Shows read-only message */}
+          {isDateLocked && editData && !isPlanLocked && (
+            <div className={`border-l-4 p-4 mb-4 rounded-r-lg ${
+              isDateOverrideEnabled 
+                ? 'bg-amber-50 border-amber-500' 
+                : 'bg-gray-100 border-gray-400'
+            }`}>
+              <div className="flex items-start gap-3">
+                <LockKeyhole className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                  isDateOverrideEnabled ? 'text-amber-600' : 'text-gray-500'
+                }`} />
+                <div className="flex-1">
+                  <p className={`font-medium ${isDateOverrideEnabled ? 'text-amber-800' : 'text-gray-700'}`}>
+                    🔒 Modification period has ended ({editData.month} {editData.year})
+                  </p>
+                  <p className={`text-sm mt-1 ${isDateOverrideEnabled ? 'text-amber-700' : 'text-gray-600'}`}>
+                    {dateLockMessage}
+                  </p>
+                  
+                  {/* Admin Override Toggle */}
+                  {isAdmin && !isReadOnly && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsDateOverrideEnabled(!isDateOverrideEnabled)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          isDateOverrideEnabled
+                            ? 'bg-amber-600 text-white hover:bg-amber-700'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {isDateOverrideEnabled ? (
+                          <>
+                            <ToggleRight className="w-5 h-5" />
+                            Admin Override Enabled
+                          </>
+                        ) : (
+                          <>
+                            <ToggleLeft className="w-5 h-5" />
+                            Enable Admin Editing
+                          </>
+                        )}
+                      </button>
+                      {isDateOverrideEnabled && (
+                        <span className="text-xs text-amber-600 font-medium">
+                          ⚠️ Changes will bypass the lock deadline
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Non-Admin Message */}
+                  {!isAdmin && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Contact your administrator if you need to make changes.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -876,8 +1168,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             </>
           )}
 
-          {/* Limited access mode: Show read-only context for staff OR when locked (but NOT for admin override) */}
-          {(!hasFullAccess || isLocked) && !isAdminOverride && editData && (
+          {/* Limited access mode: Show read-only context for staff, submission mode, OR when locked (but NOT for admin override) */}
+          {((!hasFullAccess && !isSubmissionMode) || isSubmissionMode || isLocked) && !isAdminOverride && editData && (
             <div className="bg-gray-50 rounded-lg p-4 space-y-3 border border-gray-200">
               <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Task Details (Read Only)</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -930,32 +1222,184 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           )}
 
           {/* Row 7: Status (Full Width - Score is read-only, set by admin grading) */}
+          {/* Enabled for: Full edit mode OR Submission mode (unless graded) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select
               value={formData.status === 'Waiting Approval' ? 'Achieved' : formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              onChange={(e) => {
+                const newStatus = e.target.value;
+                setFormData(prev => ({
+                  ...prev,
+                  status: newStatus,
+                  // Reset blocker fields when not Blocked
+                  ...(newStatus !== 'Blocked' ? { blocker_category: null, attention_level: 'Standard' } : {}),
+                }));
+                // Clear blocker reason if not selecting Blocked
+                if (newStatus !== 'Blocked') {
+                  setBlockerReason('');
+                }
+                // Clear resolution note if not transitioning from blocked
+                if (!wasBlocked || newStatus === 'Blocked') {
+                  setResolutionNote('');
+                }
+              }}
               className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                isLocked && !isAdminOverride ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+                (isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
               }`}
-              disabled={isLocked && !isAdminOverride}
+              disabled={(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock}
             >
               {/* Status dropdown - simplified workflow */}
+              {/* All roles see the same status options; escalation is handled via attention_level on Blocked items */}
             {STATUS_OPTIONS
               .map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           </div>
+
+          {/* BLOCKER REPORT SECTION - Show when status is "Blocked" */}
+          {formData.status === 'Blocked' && editData && (
+            <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3">
+              <h4 className="text-sm font-semibold text-red-800 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4" />
+                Report Blocker / Obstacle
+              </h4>
+              <p className="text-xs text-red-600">
+                Describe the obstacle preventing progress. This will be recorded and visible to your department leader.
+              </p>
+
+              {/* Blocker Category Dropdown (mandatory) */}
+              <div>
+                <label className="block text-xs font-medium text-red-700 mb-1">
+                  Blocker Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formData.blocker_category || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, blocker_category: e.target.value || null }))}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white text-sm ${
+                    !formData.blocker_category ? 'border-amber-400' : 'border-red-300'
+                  }`}
+                  required
+                >
+                  <option value="">-- Select Category --</option>
+                  {BLOCKER_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                {!formData.blocker_category && (
+                  <p className="text-amber-600 text-xs mt-1">⚠️ Please select a blocker category</p>
+                )}
+              </div>
+
+              {/* Attention Level Radio Group */}
+              <div>
+                <label className="block text-xs font-medium text-red-700 mb-1">
+                  Needs Escalation / Help From? <span className="text-red-500">*</span>
+                </label>
+                <div className="space-y-2 mt-1">
+                  {getFilteredAttentionLevels(profile?.role, ATTENTION_LEVELS).map((level) => (
+                    <label
+                      key={level.value}
+                      className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                        formData.attention_level === level.value
+                          ? level.value === 'Management_BOD'
+                            ? 'border-red-400 bg-red-100'
+                            : level.value === 'Leader'
+                            ? 'border-amber-400 bg-amber-50'
+                            : 'border-red-300 bg-white'
+                          : 'border-gray-200 bg-white hover:border-red-200'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="attention_level"
+                        value={level.value}
+                        checked={formData.attention_level === level.value}
+                        onChange={(e) => setFormData(prev => ({ ...prev, attention_level: e.target.value }))}
+                        className="text-red-600 focus:ring-red-500"
+                      />
+                      <span className={`text-sm font-medium ${
+                        level.value === 'Management_BOD' ? 'text-red-700' :
+                        level.value === 'Leader' ? 'text-amber-700' : 'text-gray-700'
+                      }`}>
+                        {level.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Blocker Reason Textarea with dynamic validation */}
+              <div>
+                <label className="block text-xs font-medium text-red-700 mb-1">
+                  Blocker Reason / Obstacle Details <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={blockerReason}
+                  onChange={(e) => setBlockerReason(e.target.value)}
+                  placeholder="What is blocking progress? Be specific about the obstacle..."
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm placeholder:text-red-300 ${
+                    !validateBlockerReason(blockerReason, formData.attention_level) ? 'border-red-400 bg-red-50' : 'border-red-300 bg-white'
+                  }`}
+                  rows={3}
+                  required
+                />
+                {!validateBlockerReason(blockerReason, formData.attention_level) && (
+                  <p className="text-red-600 text-xs mt-1">
+                    ⚠️ Please provide at least {getMinReasonLength(formData.attention_level)} characters describing the blocker
+                    {formData.attention_level === 'Management_BOD' && ' (Management escalation requires more detail)'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* BLOCKER RESOLUTION SECTION - Show when transitioning FROM blocked to another status */}
+          {wasBlocked && formData.status !== 'Blocked' && formData.status !== 'Not Achieved' && editData && (
+            <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-200 space-y-3">
+              <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Blocker Resolution
+              </h4>
+              <p className="text-xs text-emerald-600">
+                The previous blocker will be cleared. Please explain how it was resolved.
+              </p>
+              {editData?.blocker_reason && (
+                <div className="bg-white/60 rounded p-2 border border-emerald-200">
+                  <span className="text-xs font-medium text-emerald-700">Previous Blocker: </span>
+                  <span className="text-xs text-emerald-900">"{editData.blocker_reason}"</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-emerald-700 mb-1">
+                  Resolution Note: How was this resolved? <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={resolutionNote}
+                  onChange={(e) => setResolutionNote(e.target.value)}
+                  placeholder="Explain how the blocker was resolved..."
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm placeholder:text-emerald-300 ${
+                    !resolutionNote || resolutionNote.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-emerald-300 bg-white'
+                  }`}
+                  rows={2}
+                  required
+                />
+                {(!resolutionNote || resolutionNote.trim().length < 5) && (
+                  <p className="text-amber-600 text-xs mt-1">⚠️ Please provide at least 5 characters explaining the resolution</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Progress Update Section - Show input when "On Progress", always show timeline if logs exist */}
           {editData && (formData.status === 'On Progress' || progressLogs.length > 0) && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
               <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4" />
-                Progress Updates
+                Official Progress Record
               </h4>
               
-              {/* Progress Update Input - Only show when status is "On Progress" and not locked */}
-              {formData.status === 'On Progress' && (!isLocked || isAdminOverride) && (
+              {/* Progress Update Input - Only show when status is "On Progress" and not locked (or admin override or submission mode) */}
+              {formData.status === 'On Progress' && !wasBlocked && ((!isLocked && !isSubmissionMode) || isAdminOverride || (isSubmissionMode && !isLockedForSubmission)) && (
                 <div>
                   <label className="block text-xs font-medium text-blue-700 mb-1">
                     Current Progress Update <span className="text-red-500">*</span>
@@ -976,7 +1420,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 </div>
               )}
               
-              {/* Progress Timeline */}
+              {/* Progress Timeline - Now includes blocker events with distinct styling */}
               {loadingLogs ? (
                 <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -986,37 +1430,54 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <div className="mt-3">
                   <p className="text-xs font-medium text-blue-600 mb-2 flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    Progress History ({progressLogs.length} {progressLogs.length === 1 ? 'update' : 'updates'})
+                    Progress History ({progressLogs.length} {progressLogs.length === 1 ? 'entry' : 'entries'})
                   </p>
                   <div className="max-h-48 overflow-y-auto pr-2 space-y-0">
-                    {progressLogs.map((log, index) => (
-                      <div key={log.id} className="relative pl-4 pb-3">
-                        {/* Timeline line */}
-                        {index < progressLogs.length - 1 && (
-                          <div className="absolute left-[5px] top-3 bottom-0 w-0.5 bg-blue-200"></div>
-                        )}
-                        {/* Timeline dot */}
-                        <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-blue-400 border-2 border-blue-100"></div>
-                        {/* Content */}
-                        <div className="bg-white rounded-lg p-2 border border-blue-100 ml-2">
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                            <span className="font-medium text-gray-700">
-                              {log.profiles?.full_name || 'Unknown User'}
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {new Date(log.created_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
+                    {progressLogs.map((log, index) => {
+                      // Determine styling based on log type
+                      const isBlockerReport = log.type === 'blocker_report';
+                      const isBlockerResolved = log.type === 'blocker_resolved';
+                      const dotColor = isBlockerReport ? 'bg-red-500' : isBlockerResolved ? 'bg-emerald-500' : 'bg-blue-400';
+                      const lineColor = isBlockerReport ? 'bg-red-200' : isBlockerResolved ? 'bg-emerald-200' : 'bg-blue-200';
+                      const borderColor = isBlockerReport ? 'border-red-200' : isBlockerResolved ? 'border-emerald-200' : 'border-blue-100';
+                      const bgColor = isBlockerReport ? 'bg-red-50' : isBlockerResolved ? 'bg-emerald-50' : 'bg-white';
+                      
+                      return (
+                        <div key={log.id} className="relative pl-4 pb-3">
+                          {/* Timeline line */}
+                          {index < progressLogs.length - 1 && (
+                            <div className={`absolute left-[5px] top-3 bottom-0 w-0.5 ${lineColor}`}></div>
+                          )}
+                          {/* Timeline dot */}
+                          <div className={`absolute left-0 top-1.5 w-3 h-3 rounded-full ${dotColor} border-2 border-white`}></div>
+                          {/* Content */}
+                          <div className={`${bgColor} rounded-lg p-2 border ${borderColor} ml-2`}>
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                              {/* Type badge */}
+                              {isBlockerReport && (
+                                <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-semibold">BLOCKER</span>
+                              )}
+                              {isBlockerResolved && (
+                                <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold">RESOLVED</span>
+                              )}
+                              <span className="font-medium text-gray-700">
+                                {log.profiles?.full_name || 'Unknown User'}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {new Date(log.created_at).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-700">{log.message}</p>
                           </div>
-                          <p className="text-sm text-gray-700">{log.message}</p>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -1026,6 +1487,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           )}
 
           {/* Row 8: Proof of Evidence (Full Width) */}
+          {/* Enabled for: Full edit mode OR Submission mode (unless graded) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Proof of Evidence (Link/URL)
@@ -1043,9 +1505,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               value={formData.outcome_link || ''}
               onChange={(e) => setFormData({ ...formData, outcome_link: e.target.value })}
               placeholder="e.g., https://drive.google.com/file/d/xyz or 'Sent via Email on Oct 20'"
-              disabled={isLocked && !isAdminOverride}
+              disabled={(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock}
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                (isLocked && !isAdminOverride) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' :
+                ((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' :
                 (formData.status === 'Achieved' || formData.status === 'Not Achieved') && (!formData.outcome_link || formData.outcome_link.length < 5)
                   ? 'border-amber-300 bg-amber-50'
                   : !isValidUrl(formData.outcome_link) && formData.outcome_link?.startsWith('http') 
@@ -1061,13 +1523,26 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             )}
           </div>
 
-          {/* Non-Achievement Analysis - Only show when status is "Not Achieved" and not locked (or admin override) */}
-          {formData.status === 'Not Achieved' && (!isLocked || isAdminOverride) && (
+          {/* Non-Achievement Analysis - Only show when status is "Not Achieved" and not locked (or admin override or submission mode) */}
+          {formData.status === 'Not Achieved' && ((!isLocked && !isSubmissionMode) || isAdminOverride || (isSubmissionMode && !isLockedForSubmission)) && (
             <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-4 mt-4">
               <h4 className="text-sm font-semibold text-red-800 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 Non-Achievement Analysis (Mandatory)
               </h4>
+              
+              {/* Blocker Prefill Alert - Show when opened from blocked item flow */}
+              {blockerPrefillActive && (
+                <div className="bg-amber-100 border border-amber-300 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">Autofilled from active blocker</p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      The root cause has been pre-filled with the blocker reason. You can edit or confirm below.
+                    </p>
+                  </div>
+                </div>
+              )}
               
               {/* Root Cause Category - Connected to Admin Settings via failureReasons */}
               <div>
@@ -1156,17 +1631,18 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
           )}
 
           {/* Row 9: Remark (Full Width) */}
+          {/* Enabled for: Full edit mode OR Submission mode (unless graded) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Remark / Notes</label>
             <textarea
               value={formData.remark || ''}
               onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
               className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                (isLocked && !isAdminOverride) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+                ((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
               }`}
               rows={3}
               placeholder="Enter your notes, analysis, or additional comments..."
-              disabled={isLocked && !isAdminOverride}
+              disabled={(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock}
             />
           </div>
 
@@ -1266,13 +1742,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 type="button"
                 onClick={() => { setShowConfirm(false); onClose(); }}
                 className={`px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors ${
-                  (isLocked && !isAdminOverride) ? 'flex-1' : 'flex-1'
+                  ((isLocked && !isAdminOverride) || shouldDisableForDateLock) ? 'flex-1' : 'flex-1'
                 }`}
               >
-                {(isLocked && !isAdminOverride) ? 'Close' : 'Cancel'}
+                {((isLocked && !isAdminOverride) || shouldDisableForDateLock) ? 'Close' : 'Cancel'}
               </button>
               {/* Hide Save button when locked (but show for admin override) OR when read-only (Executive) */}
-              {(!isLocked || isAdminOverride) && !isReadOnly && (
+              {((!isLocked || isAdminOverride) && !shouldDisableForDateLock) && !isReadOnly && (
                 <button
                   type="submit"
                   disabled={(() => {
@@ -1283,8 +1759,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     if (formData.outcome_link?.startsWith('http') && !isValidUrl(formData.outcome_link)) return true;
                     
                     // Progress update validation for "On Progress" status
+                    // Exception: resolutionNote counts as valid when resolving a blocker
                     if (formData.status === 'On Progress' && editData) {
-                      if (!progressUpdate || progressUpdate.trim().length < 5) return true;
+                      const hasProgress = progressUpdate && progressUpdate.trim().length >= 5;
+                      const hasResolution = wasBlocked && resolutionNote && resolutionNote.trim().length >= 5;
+                      if (!hasProgress && !hasResolution) return true;
                     }
                     
                     // Completion status validation
@@ -1308,7 +1787,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     return false;
                   })()}
                 className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
-                  isAdminOverride ? 'bg-red-600 hover:bg-red-700' :
+                  isAdminOverride || isDateOverrideEnabled ? 'bg-red-600 hover:bg-red-700' :
                   showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
                 }`}
               >
@@ -1319,6 +1798,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 )}
                 {loading ? 'Saving...' : 
                   isAdminOverride ? 'Save (Admin Override)' :
+                  isDateOverrideEnabled ? 'Save (Date Override)' :
                   showConfirm ? `Confirm & Create ${totalPlansToCreate} Plans` : 
                   'Save Changes'}
               </button>

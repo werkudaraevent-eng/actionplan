@@ -17,7 +17,7 @@ export function CardTooltip({ children, content, side = 'bottom', align = 'cente
                         align={align}
                         sideOffset={8}
                         collisionPadding={10}
-                        className="z-[9999] px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl min-w-[200px] max-w-[300px] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                        className="z-[9999] px-3 py-2 bg-gray-800 text-white text-sm rounded-lg shadow-xl min-w-[200px] max-w-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
                     >
                         {content}
                         <Tooltip.Arrow className="fill-gray-800" />

@@ -189,13 +189,15 @@ export default function AdminDashboard({ onNavigate }) {
 
     // FIX: Use audit_logs_with_user view to get ACTOR information (who performed the action)
     // This ensures we show "Hanung changed status" not "Yulia changed status" when admin edits
+    // NOTE: No .limit() here - we need ALL logs for accurate chart totals
+    // The "Latest Updates" list is sliced later in weeklyActivityData for UI display
+    // Include user_role to filter admin actions from chart (organic activity only)
     const { data, error } = await supabase
       .from('audit_logs_with_user')
-      .select('id, action_plan_id, change_type, created_at, user_id, description, user_name, user_department')
+      .select('id, action_plan_id, change_type, created_at, user_id, description, user_name, user_department, user_role')
       .gte('created_at', startOfWeek.toISOString())
       .lte('created_at', endOfWeek.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(20); // Explicit limit for performance
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching audit logs:', error);
@@ -233,7 +235,8 @@ export default function AdminDashboard({ onNavigate }) {
         localDateKey: new Date(log.created_at).toLocaleDateString('en-CA'),
         // ACTOR INFO: The person who performed the action (not the plan owner)
         actor_name: log.user_name || 'System',
-        actor_department: log.user_department
+        actor_department: log.user_department,
+        actor_role: log.user_role || 'unknown'
       };
     });
 
@@ -967,6 +970,10 @@ export default function AdminDashboard({ onNavigate }) {
     // We DO NOT filter out 'BULK' generically - 'BULK_SUBMIT' is valid team work!
     const BLACKLIST_ACTIONS = ['IMPORT', 'RESET', 'DELETE', 'RESTORE'];
 
+    // ADMIN ROLES: Exclude these from chart statistics (they inflate department activity)
+    // Keep them in Latest Updates feed for transparency
+    const ADMIN_ROLES = ['admin', 'super_admin'];
+
     // Filter audit logs - BLACKLIST approach (everything NOT on blacklist is shown)
     const organicLogs = auditLogs.filter(log => {
       const changeType = (log.change_type || '').toUpperCase();
@@ -983,6 +990,13 @@ export default function AdminDashboard({ onNavigate }) {
       // - APPROVED, GRADED
       // - MARKED_READY, SUBMITTED_FOR_REVIEW
       return true;
+    });
+
+    // CHART LOGS: Further filter to exclude admin-performed actions
+    // This ensures the chart only shows "organic" department activity
+    const chartLogs = organicLogs.filter(log => {
+      const role = (log.actor_role || '').toLowerCase();
+      return !ADMIN_ROLES.includes(role);
     });
 
     // Create a set of action plan IDs with organic activity this week
@@ -1012,10 +1026,9 @@ export default function AdminDashboard({ onNavigate }) {
       // Group by department - count organic activity per dept
       const deptActivity = {};
 
-      // Use audit logs for more accurate counting (one plan can have multiple updates)
-      // FIX: Use 'plans' (raw data) instead of 'filteredPlans' to catch ALL activities
+      // Use chartLogs (excludes admin actions) for accurate department activity
       // This ensures activities on plans hidden by filters still appear in the Pulse
-      organicLogs.forEach(log => {
+      chartLogs.forEach(log => {
         const plan = plans.find(p => p.id === log.action_plan_id);
         // If plan not found (maybe deleted?), still count it under 'General'
         const dept = plan?.department_code || 'General';
@@ -1035,8 +1048,8 @@ export default function AdminDashboard({ onNavigate }) {
       const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const dayActivity = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
 
-      // Use audit logs for accurate daily breakdown
-      organicLogs.forEach(log => {
+      // Use chartLogs (excludes admin actions) for accurate daily breakdown
+      chartLogs.forEach(log => {
         const logDate = new Date(log.created_at);
         const dayIndex = (logDate.getDay() + 6) % 7; // Convert to Mon=0
         const dayName = dayNames[dayIndex];
@@ -1082,14 +1095,14 @@ export default function AdminDashboard({ onNavigate }) {
       })
       .slice(0, 10); // Take top 10 unique events
 
-    // Count total organic activity (use logs count, not unique plans)
-    const totalOrganicUpdates = organicLogs.length;
+    // Count total organic activity (excludes admin actions)
+    const totalOrganicUpdates = chartLogs.length;
 
     return {
       chartData,
       recentUpdates,
       totalUpdates: totalOrganicUpdates,
-      activeDepts: new Set(organicLogs.map(log => {
+      activeDepts: new Set(chartLogs.map(log => {
         const plan = plans.find(p => p.id === log.action_plan_id);
         return plan?.department_code || 'General';
       }).filter(Boolean)).size,

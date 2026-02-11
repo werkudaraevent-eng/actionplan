@@ -103,29 +103,24 @@ export default function GlobalStatsGrid({
     const assessableCount = assessablePlans.length;
     const completionRate = assessableCount > 0 ? Number(((achieved / assessableCount) * 100).toFixed(1)) : 0;
 
-    // Verification Score: Average score of FINALIZED items (Achieved + Not Achieved)
-    // - "Achieved" items: Use their actual quality_score (or 0 if null)
-    // - "Not Achieved" items: Treated as score 0 (failure penalty)
-    // This ensures the score reflects overall performance, not just successful items
-    const finalizedPlans = assessablePlans.filter(p => 
-      p.status === 'Achieved' || p.status === 'Not Achieved'
+    // Verification Score: Average quality_score of all GRADED finalized items
+    // Include: plans with quality_score != null (both Achieved and Not Achieved)
+    // Exclude: plans still awaiting grading (quality_score IS null)
+    // This gives a true average of actual scores, not a proxy for completion rate
+    const gradedFinalizedPlans = assessablePlans.filter(p =>
+      (p.status === 'Achieved' || p.status === 'Not Achieved') && p.quality_score != null
     );
     
     let qualityScore = null;
     let gradedCount = 0;
     
-    if (finalizedPlans.length > 0) {
-      const totalScore = finalizedPlans.reduce((acc, plan) => {
-        // Not Achieved = 0 score (failure penalty)
-        // Achieved = actual score or 0 if not graded yet
-        const scoreValue = plan.status === 'Not Achieved' 
-          ? 0 
-          : (plan.quality_score != null ? parseInt(plan.quality_score, 10) : 0);
-        return acc + scoreValue;
+    if (gradedFinalizedPlans.length > 0) {
+      const totalScore = gradedFinalizedPlans.reduce((acc, plan) => {
+        return acc + parseInt(plan.quality_score, 10);
       }, 0);
       
-      qualityScore = Number((totalScore / finalizedPlans.length).toFixed(1));
-      gradedCount = finalizedPlans.length;
+      qualityScore = Number((totalScore / gradedFinalizedPlans.length).toFixed(1));
+      gradedCount = gradedFinalizedPlans.length;
     }
 
     return {
@@ -278,12 +273,12 @@ export default function GlobalStatsGrid({
             {stats.qualityScore !== null ? (
               <>
                 <p>Average: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
-                <p className="text-xs text-gray-400">Based on {stats.gradedCount} finalized {scope === 'personal' ? 'tasks' : 'items'}</p>
-                <p className="text-xs text-gray-500 mt-1">(Not Achieved items count as 0%)</p>
+                <p className="text-xs text-gray-400">Based on {stats.gradedCount} graded {scope === 'personal' ? 'tasks' : 'items'}</p>
+                <p className="text-xs text-gray-500 mt-1">Formula: sum(scores) ÷ {stats.gradedCount}</p>
                 <p className="text-xs text-gray-400 mt-1">Company Target: {QUALITY_SCORE_TARGET}%</p>
               </>
             ) : (
-              <p className="text-xs text-gray-400">No finalized items yet</p>
+              <p className="text-xs text-gray-400">No graded items yet</p>
             )}
           </div>
         }

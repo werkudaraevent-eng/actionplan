@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useDepartments } from '../../hooks/useDepartments';
+import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
 
 export default function Sidebar() {
@@ -12,6 +13,7 @@ export default function Sidebar() {
   const { profile, isAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { departments, loading: deptLoading } = useDepartments();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
+  const { can } = usePermission();
   
   // Pending unlock requests count (Admin only)
   const [pendingCount, setPendingCount] = useState(0);
@@ -61,6 +63,7 @@ export default function Sidebar() {
     if (path === '/plans') return location.pathname === '/plans';
     if (path === '/users') return location.pathname === '/users';
     if (path === '/settings') return location.pathname === '/settings';
+    if (path === '/permissions') return location.pathname === '/permissions';
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/workspace') return location.pathname === '/workspace';
     if (path === '/approvals') return location.pathname === '/approvals';
@@ -148,7 +151,7 @@ export default function Sidebar() {
               )}
             </div>
 
-            {/* System menu - only for Admin, not Executive */}
+            {/* System menu - Admin always sees full menu, others see based on permissions */}
             {isAdmin && (
               <>
                 <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
@@ -185,6 +188,15 @@ export default function Sidebar() {
                   <span className="text-sm">Activity Log</span>
                 </button>
                 <button
+                  onClick={() => navigate('/permissions')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                    isActive('/permissions') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  <span className="text-sm">Access Control</span>
+                </button>
+                <button
                   onClick={() => navigate('/settings')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
                     isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
@@ -192,6 +204,22 @@ export default function Sidebar() {
                 >
                   <Settings className="w-4 h-4" />
                   <span className="text-sm">Admin Settings</span>
+                </button>
+              </>
+            )}
+            
+            {/* Team Management for non-admin users with permission */}
+            {!isAdmin && can('user', 'view') && (
+              <>
+                <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
+                <button
+                  onClick={() => navigate('/users')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
+                    isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span className="text-sm">Team Management</span>
                 </button>
               </>
             )}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 // Helper function for priority badge styling
 const getPriorityStyle = (priority) => {
@@ -31,10 +32,38 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [showConfirmReject, setShowConfirmReject] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Dynamic grading settings from system_settings (granular per-priority thresholds)
+  const [gradingConfig, setGradingConfig] = useState({
+    strict: false, thresholdUH: 100, thresholdH: 100, thresholdM: 80, thresholdL: 70
+  });
+
+  // Fetch grading config when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    supabase
+      .from('system_settings')
+      .select('is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l')
+      .eq('id', 1)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setGradingConfig({
+            strict: data.is_strict_grading_enabled ?? false,
+            thresholdUH: data.threshold_uh ?? 100,
+            thresholdH: data.threshold_h ?? 100,
+            thresholdM: data.threshold_m ?? 80,
+            thresholdL: data.threshold_l ?? 70,
+          });
+        }
+      });
+  }, [isOpen]);
+
   // CRITICAL: Reset all state when modal opens or plan changes
   useEffect(() => {
     if (isOpen && plan) {
-      setScore(plan.quality_score ?? 85);
+      const limit = plan.max_possible_score && plan.max_possible_score < 100 ? plan.max_possible_score : 100;
+      const initialScore = plan.quality_score ?? Math.min(85, limit);
+      setScore(Math.min(initialScore, limit));
       setFeedback('');
       setErrorMessage('');
       setShowError(false);
@@ -45,7 +74,35 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
   if (!isOpen || !plan) return null;
 
+  // Effective max score — capped for carry-over items
+  const scoreLimit = plan.max_possible_score && plan.max_possible_score < 100 ? plan.max_possible_score : 100;
+  const isCapped = scoreLimit < 100;
+
+  // Dynamic grading: determine target per priority and whether current score meets it
+  const categoryUpper = (plan.category || '').toUpperCase();
+  const isUltraHigh = categoryUpper.includes('UH') || categoryUpper.includes('ULTRA');
+  const isHigh = !isUltraHigh && (categoryUpper.startsWith('H') || categoryUpper === 'HIGH');
+  const isMedium = categoryUpper.startsWith('M') || categoryUpper === 'MEDIUM';
+  // Low = anything else (including unknown) when strict mode is on
+
+  // Select the right threshold for this priority
+  const selectedThreshold = gradingConfig.strict
+    ? (isUltraHigh ? gradingConfig.thresholdUH
+      : isHigh ? gradingConfig.thresholdH
+      : isMedium ? gradingConfig.thresholdM
+      : gradingConfig.thresholdL)
+    : null;
+
+  // Fairness: cap threshold at plan's max possible score (carry-over items)
+  const targetScore = selectedThreshold != null ? Math.min(selectedThreshold, scoreLimit) : null;
+  const meetsTarget = targetScore != null ? score >= targetScore : true;
+  const strictNotAchieved = gradingConfig.strict && !meetsTarget;
+  const priorityLabel = isUltraHigh ? 'Ultra High' : isHigh ? 'High' : isMedium ? 'Medium' : 'Low';
+
   const getScoreColor = (value) => {
+    if (gradingConfig.strict && targetScore != null) {
+      return value >= targetScore ? 'text-emerald-600' : 'text-rose-600';
+    }
     if (value >= 90) return 'text-green-600';
     if (value >= 70) return 'text-amber-600';
     return 'text-red-600';
@@ -60,6 +117,10 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   };
 
   const getScoreBgColor = (value) => {
+    // In strict mode, use green/red based on target threshold
+    if (gradingConfig.strict && targetScore != null) {
+      return value >= targetScore ? 'bg-emerald-500' : 'bg-rose-500';
+    }
     if (value >= 90) return 'bg-green-500';
     if (value >= 70) return 'bg-amber-500';
     return 'bg-red-500';
@@ -68,10 +129,15 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const handleApprove = async () => {
     setLoading(true);
     setErrorMessage('');
+    const clampedScore = Math.min(score, scoreLimit);
+    // In strict mode, status is determined by whether score meets target
+    const status = gradingConfig.strict
+      ? (meetsTarget ? 'Achieved' : 'Not Achieved')
+      : 'Achieved';
     try {
       await onGrade(plan.id, {
-        status: 'Achieved',
-        quality_score: score,
+        status,
+        quality_score: clampedScore,
         admin_feedback: feedback.trim() || null,
         reviewed_by: profile?.id,
         reviewed_at: new Date().toISOString()
@@ -79,7 +145,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       onClose();
     } catch (error) {
       console.error('Grade error:', error);
-      setErrorMessage('Failed to approve: ' + (error.message || 'Unknown error'));
+      setErrorMessage('Failed to grade: ' + (error.message || 'Unknown error'));
     }
     setLoading(false);
   };
@@ -197,6 +263,26 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
         {/* SECTION 2: SCROLLABLE BODY - Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           
+          {/* CARRY-OVER PENALTY BANNER */}
+          {isCapped && (
+            <div className={`rounded-lg p-4 flex items-start gap-3 ${
+              scoreLimit <= 50 
+                ? 'bg-rose-50 border border-rose-200' 
+                : 'bg-amber-50 border border-amber-200'
+            }`}>
+              <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${scoreLimit <= 50 ? 'text-rose-600' : 'text-amber-600'}`} />
+              <div>
+                <h4 className={`font-bold text-sm ${scoreLimit <= 50 ? 'text-rose-800' : 'text-amber-800'}`}>
+                  Score Capped at {scoreLimit}%
+                </h4>
+                <p className={`text-sm mt-0.5 ${scoreLimit <= 50 ? 'text-rose-700' : 'text-amber-700'}`}>
+                  This is a carried-over item{plan.carry_over_status === 'Late_Month_2' ? ' (2nd carry-over)' : ''}. 
+                  The maximum possible score is limited to {scoreLimit} due to late submission penalty.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* UPDATE MODE SAFETY BANNER */}
           {isUpdateMode && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
@@ -325,9 +411,17 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                 <label className="font-semibold text-gray-800 flex items-center gap-2">
                   <Star className="w-4 h-4 text-yellow-500" />
                   Verification Score
+                  {isCapped && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      scoreLimit <= 50 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      Max {scoreLimit}
+                    </span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <span className={`text-3xl font-bold ${getScoreColor(score)}`}>{score}</span>
+                  {isCapped && <span className="text-lg text-gray-400 font-medium">/ {scoreLimit}</span>}
                   <span className={`text-sm px-2 py-0.5 rounded-full ${
                     score >= 90 ? 'bg-green-100 text-green-700' :
                     score >= 70 ? 'bg-amber-100 text-amber-700' :
@@ -340,12 +434,36 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
               
               {/* Custom Slider */}
               <div className="relative">
+
+              {/* Target Badge — strict mode indicator */}
+              {gradingConfig.strict && targetScore != null && (
+                <div className={`mb-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                  meetsTarget
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                    : 'bg-rose-50 border border-rose-200 text-rose-700'
+                }`}>
+                  <Target className="w-4 h-4" />
+                  <span>🎯 Target ({priorityLabel}): {targetScore}{targetScore < selectedThreshold ? ` (capped from ${selectedThreshold})` : ''}</span>
+                  <span className="ml-auto text-xs font-bold">
+                    {meetsTarget ? '✓ PASS' : '✗ BELOW TARGET'}
+                  </span>
+                </div>
+              )}
+              {!gradingConfig.strict && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-50 border border-gray-200 text-gray-500">
+                  <Target className="w-4 h-4" />
+                  <span>Target: Admin Discretion</span>
+                </div>
+              )}
+
+              {/* Slider Track */}
+              <div className="relative">
                 <input
                   type="range"
                   min="0"
-                  max="100"
+                  max={scoreLimit}
                   value={score}
-                  onChange={(e) => setScore(parseInt(e.target.value))}
+                  onChange={(e) => setScore(Math.min(parseInt(e.target.value), scoreLimit))}
                   className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer
                     [&::-webkit-slider-thumb]:appearance-none
                     [&::-webkit-slider-thumb]:w-6
@@ -359,18 +477,18 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                 />
                 <div 
                   className={`absolute top-0 left-0 h-3 rounded-full pointer-events-none ${getScoreBgColor(score)}`}
-                  style={{ width: `${score}%` }}
+                  style={{ width: `${(score / scoreLimit) * 100}%` }}
                 />
               </div>
               
               {/* FIX: Use absolute positioning for labels to align with slider values */}
               <div className="relative w-full h-6 mt-1">
-                {[0, 25, 50, 70, 90, 100].map((mark) => (
+                {[0, Math.round(scoreLimit * 0.25), Math.round(scoreLimit * 0.5), Math.round(scoreLimit * 0.7), Math.round(scoreLimit * 0.9), scoreLimit].map((mark, idx) => (
                   <div
-                    key={mark}
+                    key={idx}
                     className="absolute text-xs text-gray-400 font-medium"
                     style={{ 
-                      left: `${mark}%`, 
+                      left: `${(mark / scoreLimit) * 100}%`, 
                       transform: 'translateX(-50%)' 
                     }}
                   >
@@ -378,6 +496,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                   </div>
                 ))}
               </div>
+            </div>
             </div>
 
             {/* Feedback */}
@@ -421,30 +540,51 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
           >
             Cancel
           </button>
-          <button
-            onClick={handleRequestRevisionClick}
-            disabled={loading}
-            className="px-4 py-2.5 border-2 border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Request Revision
-          </button>
-          <button
-            onClick={handleApprove}
-            disabled={loading}
-            className={`px-5 py-2.5 text-white rounded-lg transition-colors font-medium flex items-center gap-2 disabled:opacity-50 ${
-              isUpdateMode 
-                ? 'bg-blue-600 hover:bg-blue-700' 
-                : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <CheckCircle className="w-4 h-4" />
-            )}
-            {isUpdateMode ? `Update Grade (${score})` : `Approve (${score})`}
-          </button>
+
+          {/* Revision button: hidden in strict mode when below target (forced Not Achieved) */}
+          {!(gradingConfig.strict && strictNotAchieved) && (
+            <button
+              onClick={handleRequestRevisionClick}
+              disabled={loading}
+              className="px-4 py-2.5 border-2 border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Request Revision
+            </button>
+          )}
+
+          {/* Primary action: changes based on strict mode + target */}
+          {gradingConfig.strict && strictNotAchieved ? (
+            <button
+              onClick={handleApprove}
+              disabled={loading}
+              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <XCircle className="w-4 h-4" />
+              )}
+              Mark Not Achieved ({score})
+            </button>
+          ) : (
+            <button
+              onClick={handleApprove}
+              disabled={loading}
+              className={`px-5 py-2.5 text-white rounded-lg transition-colors font-medium flex items-center gap-2 disabled:opacity-50 ${
+                isUpdateMode 
+                  ? 'bg-blue-600 hover:bg-blue-700' 
+                  : 'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4" />
+              )}
+              {isUpdateMode ? `Update Grade (${score})` : `Approve (${score})`}
+            </button>
+          )}
         </div>
             </>
           );

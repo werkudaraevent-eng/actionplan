@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { usePermission } from '../../hooks/usePermission';
 import UserModal from './UserModal';
 import ConfirmationModal from '../common/ConfirmationModal';
 import CredentialSuccessModal from './CredentialSuccessModal';
@@ -12,6 +13,7 @@ const TEMP_PASSWORD = 'Werkudara123!';
 
 export default function UserManagement({ initialFilter = '' }) {
   const { isAdmin } = useAuth();
+  const { can } = usePermission();
   const { toast } = useToast();
   const { departments, loading: deptLoading } = useDepartments();
   const [users, setUsers] = useState([]);
@@ -19,6 +21,12 @@ export default function UserManagement({ initialFilter = '' }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All'); // Strict department filter
   const [selectedRole, setSelectedRole] = useState('All Roles'); // Role filter
+
+  // Permission checks
+  const canCreate = can('user', 'create');
+  const canEdit = can('user', 'edit');
+  const canDelete = can('user', 'delete');
+  const showActions = canEdit || canDelete;
 
   // Modal states
   const [userModal, setUserModal] = useState({ isOpen: false, editData: null });
@@ -186,25 +194,27 @@ export default function UserManagement({ initialFilter = '' }) {
   };
 
   return (
-    <div className="flex-1 bg-gray-50 min-h-screen">
+    <div className="w-full bg-gray-50 min-h-screen">
       {/* Header - Sticky with high z-index */}
-      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
+      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 lg:px-8 py-4 sticky top-0 z-[100]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Team Management</h1>
             <p className="text-gray-500 text-sm">Manage user roles and department assignments</p>
           </div>
-          <button
-            onClick={() => setUserModal({ isOpen: true, editData: null })}
-            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add User
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => setUserModal({ isOpen: true, editData: null })}
+              className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add User
+            </button>
+          )}
         </div>
       </header>
 
-      <main className="p-6">
+      <main className="px-6 lg:px-8 py-6">
         {/* Search Bar & Department Filter */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -322,9 +332,11 @@ export default function UserManagement({ initialFilter = '' }) {
                   <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Joined
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  {showActions && (
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -372,24 +384,30 @@ export default function UserManagement({ initialFilter = '' }) {
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {formatDate(user.created_at)}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setUserModal({ isOpen: true, editData: user })}
-                          className="p-2 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteModal({ isOpen: true, user })}
-                          className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+                    {showActions && (
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-1">
+                          {canEdit && (
+                            <button
+                              onClick={() => setUserModal({ isOpen: true, editData: user })}
+                              className="p-2 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() => setDeleteModal({ isOpen: true, user })}
+                              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

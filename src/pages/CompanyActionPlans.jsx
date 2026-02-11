@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, FileText, RotateCcw, Loader2 } from 'lucide-react';
+import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, FileText, RotateCcw, Loader2, AlertTriangle, ArrowRight, XCircle, User, Megaphone, CheckCircle, Eye } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
+import { usePermission } from '../hooks/usePermission';
+import { supabase, withTimeout } from '../lib/supabase';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
 import UnifiedPageHeader from '../components/layout/UnifiedPageHeader';
 import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
@@ -13,6 +15,8 @@ import ActionPlanModal from '../components/action-plan/ActionPlanModal';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
 import ExportConfigModal from '../components/action-plan/ExportConfigModal';
+import ResolutionModal from '../components/action-plan/ResolutionModal';
+import ViewDetailModal from '../components/action-plan/ViewDetailModal';
 import { useToast } from '../components/common/Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -21,9 +25,11 @@ const CURRENT_YEAR = new Date().getFullYear();
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
-export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records' }) {
+export default function CompanyActionPlans({ initialStatusFilter = '', initialDeptFilter = '', initialActiveTab = 'all_records', highlightPlanId = '' }) {
   const { isAdmin, isExecutive } = useAuth();
+  const { can } = usePermission();
   const canEdit = !isExecutive; // Executives have read-only access
+  const canExport = can('report', 'export');
   const { toast } = useToast();
   const { departments } = useDepartments();
   // Fetch ALL plans (no department filter)
@@ -32,6 +38,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  
+  // Smart modal navigation: counter to signal when edit modal closes
+  const [editModalClosedCounter, setEditModalClosedCounter] = useState(0);
 
   // Tab state for Admin Grading Inbox - use initialActiveTab prop
   const [activeTab, setActiveTab] = useState(initialActiveTab);
@@ -117,6 +126,39 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
       });
   }, [plans, gradingDeptFilter]);
+
+  // Escalation department filter
+  const [escalationDeptFilter, setEscalationDeptFilter] = useState('all');
+
+  // Count escalated items (Management/BOD level only)
+  const escalationCount = useMemo(() => {
+    return plans.filter(p => p.status === 'Blocked' && p.attention_level === 'Management_BOD').length;
+  }, [plans]);
+
+  // Escalated items - sorted by department then month, with optional dept filter
+  const escalationPlans = useMemo(() => {
+    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return plans
+      .filter(p => {
+        // Must be Management/BOD escalation only
+        if (p.status !== 'Blocked' || p.attention_level !== 'Management_BOD') return false;
+        // Apply department filter if set
+        if (escalationDeptFilter && escalationDeptFilter !== 'all') {
+          const filterCode = escalationDeptFilter.trim().toUpperCase();
+          const planCode = (p.department_code || '').trim().toUpperCase();
+          if (planCode !== filterCode) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        // First sort by department
+        if (a.department_code !== b.department_code) {
+          return a.department_code.localeCompare(b.department_code);
+        }
+        // Then by month (oldest first)
+        return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
+      });
+  }, [plans, escalationDeptFilter]);
 
   // Combined filter logic - respects active tab
   const filteredPlans = useMemo(() => {
@@ -649,6 +691,11 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const handleSave = async (formData) => {
     try {
       if (editData) {
+        // Check if blocker will be auto-resolved (completing a blocked task)
+        const originalPlan = plans.find(p => p.id === editData.id);
+        const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
+        const blockerWasAutoResolved = isCompletionStatus && originalPlan?.is_blocked === true;
+        
         await updatePlan(editData.id, {
           month: formData.month,
           goal_strategy: formData.goal_strategy,
@@ -663,7 +710,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           gap_category: formData.gap_category,
           gap_analysis: formData.gap_analysis,
           specify_reason: formData.specify_reason,
-        });
+          // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
+          ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
+          ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
+          // Escalation fields (blocker category & attention level)
+          ...(formData.blocker_category !== undefined && { blocker_category: formData.blocker_category }),
+          ...(formData.attention_level !== undefined && { attention_level: formData.attention_level }),
+        }, originalPlan);
+        
+        // Show toast if blocker was auto-resolved
+        if (blockerWasAutoResolved) {
+          toast({ 
+            title: 'Plan Completed', 
+            description: 'Blocker has been automatically cleared.', 
+            variant: 'success' 
+          });
+        }
       }
       setEditData(null);
       setIsModalOpen(false);
@@ -674,8 +736,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   };
 
   const handleDelete = (item) => {
-    if (item.status?.toLowerCase() === 'achieved') {
-      toast({ title: 'Action Denied', description: 'Cannot delete achieved items.', variant: 'warning' });
+    // Only prevent deletion if the plan is graded/locked by management
+    // Users with delete permission can delete plans of ANY status (Open, On Progress, Achieved, Not Achieved)
+    if (item.quality_score != null) {
+      toast({ title: 'Action Denied', description: 'This plan has been graded by management and cannot be deleted.', variant: 'warning' });
       return;
     }
     setDeleteModal({
@@ -761,6 +825,91 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     }
   };
 
+  // Escalation action state
+  const [escalationUpdating, setEscalationUpdating] = useState(null);
+  
+  // Resolution modal state
+  const [resolutionModal, setResolutionModal] = useState({ isOpen: false, item: null });
+
+  // View detail modal state (for escalation cards)
+  const [viewPlan, setViewPlan] = useState(null);
+
+  // Track which escalation plans have management instructions
+  const [instructedPlanIds, setInstructedPlanIds] = useState(new Set());
+
+  // Fetch instruction status when escalation plans change
+  useEffect(() => {
+    if (escalationPlans.length === 0) {
+      setInstructedPlanIds(new Set());
+      return;
+    }
+    const ids = escalationPlans.map(p => p.id);
+    (async () => {
+      try {
+        const { data } = await withTimeout(
+          supabase
+            .from('progress_logs')
+            .select('action_plan_id, message')
+            .in('action_plan_id', ids)
+            .like('message', '%[MANAGEMENT INSTRUCTION]%'),
+          5000
+        );
+        if (data) {
+          setInstructedPlanIds(new Set(data.map(r => r.action_plan_id)));
+        }
+      } catch {
+        // Non-critical — cards just won't show instructed state
+      }
+    })();
+  }, [escalationPlans]);
+
+  // Handle escalation resolution - Opens the resolution modal
+  const handleMarkResolved = (item) => {
+    setResolutionModal({ isOpen: true, item });
+  };
+  
+  // Handle confirmed resolution from modal
+  const handleConfirmResolution = async (itemId, payload) => {
+    setEscalationUpdating(itemId);
+    try {
+      // Use updatePlan to update all fields at once (status, remark, action_plan, indicator, etc.)
+      await updatePlan(itemId, payload, null, true); // skipLockCheck = true for admin operations
+      
+      toast({ 
+        title: 'Escalation Resolved', 
+        description: payload.action_plan || payload.indicator 
+          ? 'Item resolved with plan adjustments. The team can continue working on it.'
+          : 'Item returned to "On Progress". The team can continue working on it.', 
+        variant: 'success' 
+      });
+      
+      setResolutionModal({ isOpen: false, item: null });
+    } catch (error) {
+      console.error('Resolution failed:', error);
+      toast({ title: 'Update Failed', description: 'Failed to resolve escalation.', variant: 'error' });
+    } finally {
+      setEscalationUpdating(null);
+    }
+  };
+
+  // Handle escalation closure - Close as Not Achieved
+  const handleCloseAsFailed = async (item) => {
+    setEscalationUpdating(item.id);
+    try {
+      await updateStatus(item.id, 'Not Achieved');
+      toast({ 
+        title: 'Escalation Closed', 
+        description: 'Item marked as "Not Achieved". It will appear in the grading queue.', 
+        variant: 'success' 
+      });
+    } catch (error) {
+      console.error('Close as failed failed:', error);
+      toast({ title: 'Update Failed', description: 'Failed to close escalation.', variant: 'error' });
+    } finally {
+      setEscalationUpdating(null);
+    }
+  };
+
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
       {/* Unified Page Header with Filters */}
@@ -796,22 +945,27 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
               <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
               <span className="text-sm font-medium">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </button>
-            <button
-              onClick={handleExportExcel}
-              disabled={exporting || filteredPlans.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              {exporting ? 'Exporting...' : 'Export Excel'}
-            </button>
-            <button
-              onClick={() => setShowExportModal(true)}
-              disabled={exportingPdf || filteredPlans.length === 0}
-              className="flex items-center gap-2 px-4 py-2.5 border border-red-500 text-red-500 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileText className="w-4 h-4" />
-              {exportingPdf ? 'Exporting...' : 'Export PDF'}
-            </button>
+            {/* Export Buttons - Only visible if user has export permission */}
+            {canExport && (
+              <>
+                <button
+                  onClick={handleExportExcel}
+                  disabled={exporting || filteredPlans.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  {exporting ? 'Exporting...' : 'Export Excel'}
+                </button>
+                <button
+                  onClick={() => setShowExportModal(true)}
+                  disabled={exportingPdf || filteredPlans.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-red-500 text-red-500 bg-white rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-4 h-4" />
+                  {exportingPdf ? 'Exporting...' : 'Export PDF'}
+                </button>
+              </>
+            )}
           </>
         }
         filterActions={
@@ -837,6 +991,24 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 )}
               </button>
               <button
+                onClick={() => setActiveTab('escalations')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'escalations'
+                  ? 'bg-white shadow text-amber-700'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Escalations
+                {escalationCount > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${activeTab === 'escalations'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-red-500 text-white'
+                    }`}>
+                    {escalationCount}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => setActiveTab('all_records')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'all_records'
                   ? 'bg-white shadow text-gray-800'
@@ -857,6 +1029,23 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
                 <select
                   value={gradingDeptFilter}
                   onChange={(e) => setGradingDeptFilter(e.target.value)}
+                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+                >
+                  <option value="all">All Depts</option>
+                  {departments.map((dept) => (
+                    <option key={dept.code} value={dept.code}>{dept.code}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Department Filter for Escalations Tab */}
+            {activeTab === 'escalations' && escalationCount > 0 && (
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+                <Building2 className="w-4 h-4 text-amber-500" />
+                <select
+                  value={escalationDeptFilter}
+                  onChange={(e) => setEscalationDeptFilter(e.target.value)}
                   className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
                 >
                   <option value="all">All Depts</option>
@@ -932,6 +1121,155 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           </div>
         )}
 
+        {/* Empty State for Escalations Tab */}
+        {activeTab === 'escalations' && escalationCount === 0 && !loading && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+                <PartyPopper className="w-10 h-10 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-800">No Escalations</h3>
+                <p className="text-gray-500 mt-1">All teams are progressing smoothly. No blockers reported.</p>
+              </div>
+              <button
+                onClick={() => setActiveTab('all_records')}
+                className="mt-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
+              >
+                View All Records →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Escalation List View - Card-based layout */}
+        {activeTab === 'escalations' && escalationCount > 0 && (
+          <div className="space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-800">Management Escalations</h2>
+                  <p className="text-sm text-gray-500">{escalationPlans.length} item{escalationPlans.length !== 1 ? 's' : ''} requiring attention</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Escalation Cards */}
+            <div className="grid gap-3">
+              {escalationPlans.map((item) => {
+                const isInstructed = instructedPlanIds.has(item.id);
+                return (
+                <div 
+                  key={item.id} 
+                  className={`rounded-xl shadow-sm border overflow-hidden hover:shadow-md transition-shadow ${
+                    isInstructed ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-4 px-5 py-4">
+                    {/* Left: Avatar + PIC Info */}
+                    <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${
+                        isInstructed ? 'bg-gradient-to-br from-gray-400 to-gray-600' : 'bg-gradient-to-br from-slate-600 to-slate-800'
+                      }`}>
+                        {(item.pic || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{item.pic || 'Unknown'}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">
+                            {item.department_code}
+                          </span>
+                          <span className="text-xs text-gray-400">{item.month}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Middle: Plan Name + Reason + Status Badge */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{item.action_plan || 'Untitled Plan'}</p>
+                        {isInstructed ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">
+                            <CheckCircle className="w-3 h-3" />
+                            Instruction Sent
+                          </span>
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Pending review" />
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1 line-clamp-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 inline-block mr-1 -mt-0.5" />
+                        {item.blocker_reason || 'No reason provided'}
+                      </p>
+                    </div>
+
+                    {/* Right: Action Area */}
+                    <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {isExecutive ? (
+                        isInstructed ? (
+                          <button
+                            onClick={() => setViewPlan(item)}
+                            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium"
+                          >
+                            <Eye className="w-4 h-4" />
+                            View Progress
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setViewPlan(item)}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-medium shadow-sm"
+                          >
+                            <Megaphone className="w-4 h-4" />
+                            Review & Instruct
+                          </button>
+                        )
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => setViewPlan(item)}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => handleMarkResolved(item)}
+                            disabled={escalationUpdating === item.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                          >
+                            {escalationUpdating === item.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ArrowRight className="w-4 h-4" />
+                            )}
+                            Resolve
+                          </button>
+                          <button
+                            onClick={() => handleCloseAsFailed(item)}
+                            disabled={escalationUpdating === item.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
+                          >
+                            {escalationUpdating === item.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <XCircle className="w-4 h-4" />
+                            )}
+                            Failed
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Data Table with Department Column */}
         {(activeTab === 'all_records' || (activeTab === 'needs_grading' && needsGradingCount > 0)) && (
           <DataTable
@@ -948,6 +1286,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             visibleColumns={visibleColumns}
             columnOrder={columnOrder}
             isReadOnly={isExecutive}
+            highlightPlanId={highlightPlanId}
+            onEditModalClosed={editModalClosedCounter}
           />
         )}
       </main>
@@ -957,6 +1297,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         onClose={() => {
           setIsModalOpen(false);
           setEditData(null);
+          // Signal to DataTable that edit modal closed (for return navigation)
+          setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
         editData={editData}
@@ -994,6 +1336,43 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         onGrade={handleGrade}
         plan={gradeModal.plan}
       />
+
+      {/* Escalation Resolution Modal */}
+      <ResolutionModal
+        isOpen={resolutionModal.isOpen}
+        onClose={() => !escalationUpdating && setResolutionModal({ isOpen: false, item: null })}
+        onResolve={handleConfirmResolution}
+        item={resolutionModal.item}
+        isLoading={escalationUpdating === resolutionModal.item?.id}
+      />
+
+      {/* View Detail Modal (for escalation cards) */}
+      {viewPlan && (
+        <ViewDetailModal
+          plan={viewPlan}
+          onClose={() => {
+            setViewPlan(null);
+            // Re-fetch instruction status so cards update after executive sends instruction
+            if (escalationPlans.length > 0) {
+              const ids = escalationPlans.map(p => p.id);
+              withTimeout(
+                supabase
+                  .from('progress_logs')
+                  .select('action_plan_id, message')
+                  .in('action_plan_id', ids)
+                  .like('message', '%[MANAGEMENT INSTRUCTION]%'),
+                5000
+              ).then(({ data }) => {
+                if (data) setInstructedPlanIds(new Set(data.map(r => r.action_plan_id)));
+              }).catch(() => {});
+            }
+          }}
+          onEdit={canEdit ? (plan) => { setViewPlan(null); handleEdit(plan); } : undefined}
+          onUpdateStatus={canEdit ? (plan) => { setViewPlan(null); handleEdit(plan); } : undefined}
+          onEscalate={undefined}
+          onRefresh={refetch}
+        />
+      )}
 
       {/* Quick Reset Confirmation Modal (Individual Item) */}
       {quickResetItem && (

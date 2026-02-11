@@ -7,7 +7,8 @@ function findBadgeOnCard(container, labelText) {
   const cards = container.querySelectorAll('[class*="from-"]');
   for (const card of cards) {
     if (card.textContent.includes(labelText)) {
-      const badge = card.querySelector('span.absolute.top-2.right-2.bg-white\\/20.rounded-full.text-white\\/90');
+      // Match both standard (bg-white/20) and YTD amber (bg-amber-500/30) badge styles
+      const badge = card.querySelector('span.absolute.top-2.right-2.rounded-full');
       return badge;
     }
   }
@@ -23,7 +24,11 @@ function getBadgeTextOnCard(container, labelText) {
   return badge ? badge.textContent : null;
 }
 
-const PRIMARY_CARD_LABELS = ['Completion Rate', 'Verification Score', 'Total Plans'];
+// Scoring cards always show 'YTD' badge regardless of dateContext/periodLabel
+const SCORING_CARD_LABELS = ['Completion Rate', 'Verification Score'];
+// Inventory card shows dateContext or periodLabel-derived badge
+const INVENTORY_CARD_LABEL = 'Total Plans';
+// Status card labels (conditionally show badges based on showBadgeOnStatusCards)
 const STATUS_CARD_LABELS = ['Achieved', 'In Progress', 'Not Achieved'];
 
 describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
@@ -31,8 +36,14 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
     cleanup();
   });
 
+  /**
+   * Property 3: Date Context Fallback to PeriodLabel
+   * 
+   * The Total Plans card uses inventoryBadge = dateContext || periodLabel (stripped).
+   * Completion Rate and Verification Score always use scoringBadge = 'YTD'.
+   */
   describe('Property 3: Date Context Fallback to PeriodLabel', () => {
-    it('falls back to periodLabel when dateContext is empty', () => {
+    it('Total Plans falls back to periodLabel when dateContext is empty', { timeout: 15000 }, () => {
       const periodLabelArb = fc.constantFrom('(YTD)', '(Jan - Mar)', '(Filtered)');
       fc.assert(
         fc.property(periodLabelArb, (periodLabel) => {
@@ -41,13 +52,13 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
             <GlobalStatsGrid plans={[]} dateContext="" periodLabel={periodLabel} />
           );
           const expectedBadgeText = periodLabel.trim().replace(/^\(|\)$/g, '');
-          expect(getBadgeTextOnCard(container, 'Completion Rate')).toBe(expectedBadgeText);
+          expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(expectedBadgeText);
         }),
         { numRuns: 100 }
       );
     });
 
-    it('falls back to periodLabel when dateContext is undefined', () => {
+    it('Total Plans falls back to periodLabel when dateContext is undefined', () => {
       const periodLabelArb = fc.constantFrom('(YTD)', '(Jan - Mar)', '(Filtered)');
       fc.assert(
         fc.property(periodLabelArb, (periodLabel) => {
@@ -56,14 +67,14 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
             <GlobalStatsGrid plans={[]} periodLabel={periodLabel} />
           );
           const expectedBadgeText = periodLabel.trim().replace(/^\(|\)$/g, '');
-          expect(getBadgeTextOnCard(container, 'Total Plans')).toBe(expectedBadgeText);
+          expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(expectedBadgeText);
         }),
         { numRuns: 100 }
       );
     });
 
-    it('prefers dateContext over periodLabel when both are provided', () => {
-      const dateContextArb = fc.constantFrom('YTD', 'Filtered', 'Jan - Mar');
+    it('Total Plans prefers dateContext over periodLabel when both are provided', () => {
+      const dateContextArb = fc.constantFrom('FY 2026', 'Filtered', 'Jan - Mar');
       const periodLabelArb = fc.constantFrom('(Different)', '(Other)');
       fc.assert(
         fc.property(dateContextArb, periodLabelArb, (dateContext, periodLabel) => {
@@ -71,15 +82,18 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           const { container } = render(
             <GlobalStatsGrid plans={[]} dateContext={dateContext} periodLabel={periodLabel} />
           );
-          expect(getBadgeTextOnCard(container, 'Completion Rate')).toBe(dateContext);
+          expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(dateContext);
         }),
         { numRuns: 100 }
       );
     });
   });
 
+  /**
+   * Property 4: Scoring cards always show 'YTD', inventory card shows context badge
+   */
   describe('Property 4: Primary Cards Always Show Badge', () => {
-    it('all primary cards show badge when dateContext is provided', () => {
+    it('scoring cards always show YTD badge regardless of dateContext', () => {
       const dateContextArb = fc.constantFrom('YTD', 'Filtered', 'Jan - Mar', 'Q1', '2025');
       fc.assert(
         fc.property(dateContextArb, (dateContext) => {
@@ -87,16 +101,20 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           const { container } = render(
             <GlobalStatsGrid plans={[]} dateContext={dateContext} />
           );
-          for (const label of PRIMARY_CARD_LABELS) {
+          // Scoring cards always show 'YTD'
+          for (const label of SCORING_CARD_LABELS) {
             expect(cardHasBadge(container, label)).toBe(true);
-            expect(getBadgeTextOnCard(container, label)).toBe(dateContext);
+            expect(getBadgeTextOnCard(container, label)).toBe('YTD');
           }
+          // Inventory card shows the dateContext
+          expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(true);
+          expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(dateContext);
         }),
         { numRuns: 100 }
       );
     });
 
-    it('primary cards show no badge when both dateContext and periodLabel are empty', () => {
+    it('scoring cards show YTD even when dateContext and periodLabel are empty', () => {
       const emptyContextArb = fc.constantFrom(
         { dateContext: '', periodLabel: '' },
         { dateContext: undefined, periodLabel: '' }
@@ -107,15 +125,22 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           const { container } = render(
             <GlobalStatsGrid plans={[]} dateContext={ctx.dateContext} periodLabel={ctx.periodLabel} />
           );
-          for (const label of PRIMARY_CARD_LABELS) {
-            expect(cardHasBadge(container, label)).toBe(false);
+          // Scoring cards always show 'YTD' badge
+          for (const label of SCORING_CARD_LABELS) {
+            expect(cardHasBadge(container, label)).toBe(true);
+            expect(getBadgeTextOnCard(container, label)).toBe('YTD');
           }
+          // Inventory card has no badge when both are empty
+          expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(false);
         }),
         { numRuns: 100 }
       );
     });
   });
 
+  /**
+   * Property 5: Status Cards Respect showBadgeOnStatusCards Flag
+   */
   describe('Property 5: Status Cards Respect showBadgeOnStatusCards Flag', () => {
     it('status cards do NOT show badges when showBadgeOnStatusCards is false', () => {
       const dateContextArb = fc.constantFrom('YTD', 'Filtered', 'Jan - Mar');
@@ -128,7 +153,8 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           for (const label of STATUS_CARD_LABELS) {
             expect(cardHasBadge(container, label)).toBe(false);
           }
-          for (const label of PRIMARY_CARD_LABELS) {
+          // Scoring cards still show badges
+          for (const label of SCORING_CARD_LABELS) {
             expect(cardHasBadge(container, label)).toBe(true);
           }
         }),
@@ -153,7 +179,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
     });
 
     it('status cards show badges when showBadgeOnStatusCards is true', () => {
-      const dateContextArb = fc.constantFrom('YTD', 'Filtered', 'Jan - Mar');
+      const dateContextArb = fc.constantFrom('FY 2026', 'Filtered', 'Jan - Mar');
       fc.assert(
         fc.property(dateContextArb, (dateContext) => {
           cleanup();
@@ -162,6 +188,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           );
           for (const label of STATUS_CARD_LABELS) {
             expect(cardHasBadge(container, label)).toBe(true);
+            // Status cards use inventoryBadge (dateContext)
             expect(getBadgeTextOnCard(container, label)).toBe(dateContext);
           }
         }),
@@ -169,18 +196,21 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
       );
     });
 
-    it('showBadgeOnStatusCards flag does not affect primary cards', () => {
+    it('showBadgeOnStatusCards flag does not affect scoring or inventory cards', () => {
       const showBadgeArb = fc.boolean();
-      const dateContextArb = fc.constantFrom('YTD', 'Filtered', 'Jan - Mar');
+      const dateContextArb = fc.constantFrom('FY 2026', 'Filtered', 'Jan - Mar');
       fc.assert(
         fc.property(showBadgeArb, dateContextArb, (showBadgeOnStatusCards, dateContext) => {
           cleanup();
           const { container } = render(
             <GlobalStatsGrid plans={[]} dateContext={dateContext} showBadgeOnStatusCards={showBadgeOnStatusCards} />
           );
-          for (const label of PRIMARY_CARD_LABELS) {
+          // Scoring cards always show 'YTD'
+          for (const label of SCORING_CARD_LABELS) {
             expect(cardHasBadge(container, label)).toBe(true);
           }
+          // Inventory card always shows dateContext
+          expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(true);
         }),
         { numRuns: 100 }
       );

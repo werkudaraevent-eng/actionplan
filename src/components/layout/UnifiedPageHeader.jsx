@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, Calendar, Building2, CheckCircle, Flag, X, ChevronDown, Check, ArrowLeft } from 'lucide-react';
 import { STATUS_OPTIONS } from '../../lib/supabase';
 import { ColumnToggle } from '../action-plan/DataTable';
+import NotificationCenter from '../common/NotificationCenter';
 
 // Month order for filtering
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -142,11 +143,10 @@ export default function UnifiedPageHeader({
           </div>
           
           {/* Header Actions (Top Right) */}
-          {headerActions && (
-            <div className="flex items-center gap-3">
-              {headerActions}
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {headerActions}
+            <NotificationCenter />
+          </div>
         </div>
 
         {/* ROW 2: Filters & Toolbar (Conditionally Rendered) */}

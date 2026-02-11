@@ -155,7 +155,7 @@ export default function DashboardCards({
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6 relative z-10">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6 relative z-0">
       {/* 1. Completion Rate - THE HERO METRIC */}
       <CardTooltip
         content={

@@ -254,9 +254,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   // Blocker prefill state - tracks if modal was opened from blocked item flow
   const [blockerPrefillActive, setBlockerPrefillActive] = useState(false);
 
-  // Custom input mode state (for Goal/Strategy and Action Plan)
+  // Custom input mode state (for Goal/Strategy, Action Plan, and Area of Focus)
   const [isCustomGoal, setIsCustomGoal] = useState(false);
   const [isCustomAction, setIsCustomAction] = useState(false);
+  const [isCustomAreaFocus, setIsCustomAreaFocus] = useState(false);
 
   // Fetch failure reasons when modal opens
   useEffect(() => {
@@ -330,20 +331,31 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const fetchDropdownOptions = async () => {
     setLoadingDropdowns(true);
     try {
-      const { data, error } = await supabase
+      // Fetch standard dropdown_options (category, goal, action_plan)
+      const { data: dropdownData, error: dropdownErr } = await supabase
         .from('dropdown_options')
         .select('id, label, category, sort_order')
-        .in('category', ['area_focus', 'category', 'goal', 'action_plan'])
+        .in('category', ['category', 'goal', 'action_plan'])
         .eq('is_active', true)
         .order('sort_order', { ascending: true });
 
-      if (error) throw error;
+      if (dropdownErr) throw dropdownErr;
+
+      // Fetch AREA_OF_FOCUS from master_options
+      const { data: areaData, error: areaErr } = await supabase
+        .from('master_options')
+        .select('id, label, value, category, sort_order, is_active')
+        .eq('category', 'AREA_OF_FOCUS')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (areaErr) throw areaErr;
 
       // Separate by category
-      setAreaFocusOptions((data || []).filter(d => d.category === 'area_focus'));
-      setCategoryOptions((data || []).filter(d => d.category === 'category'));
-      setGoalOptions((data || []).filter(d => d.category === 'goal'));
-      setActionPlanOptions((data || []).filter(d => d.category === 'action_plan'));
+      setAreaFocusOptions(areaData || []);
+      setCategoryOptions((dropdownData || []).filter(d => d.category === 'category'));
+      setGoalOptions((dropdownData || []).filter(d => d.category === 'goal'));
+      setActionPlanOptions((dropdownData || []).filter(d => d.category === 'action_plan'));
     } catch (err) {
       console.error('Failed to fetch dropdown options:', err);
       setAreaFocusOptions([]);
@@ -629,12 +641,12 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     if (formData.status === 'Not Achieved') {
       if (!gapCategory) {
         console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing gap category');
-        toast({ title: 'Missing Information', description: 'Please select a Root Cause Category.', variant: 'warning' });
+        toast({ title: 'Missing Information', description: 'Please select a Reason for Non-Achievement.', variant: 'warning' });
         return;
       }
       if (gapCategory === 'Other' && (!otherReason || otherReason.trim().length < 3)) {
         console.log('[ActionPlanModal.handleSubmit] BLOCKED: Missing other reason');
-        toast({ title: 'Missing Information', description: 'Please specify the root cause reason (at least 3 characters).', variant: 'warning' });
+        toast({ title: 'Missing Information', description: 'Please specify the reason (at least 3 characters).', variant: 'warning' });
         return;
       }
       // Determine minimum character requirement based on drop policy
@@ -1104,30 +1116,80 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                   <select
-                    value={formData.category || ''}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    value={categoryOptions.some(o => o.label === formData.category) ? formData.category : (formData.category ? '__CUSTOM__' : '')}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__CUSTOM__') {
+                        // Keep current value
+                      } else {
+                        setFormData({ ...formData, category: val });
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
                     disabled={loadingDropdowns}
                   >
                     <option value="">Select category...</option>
-                    {categoryOptions.map((opt) => (
+                    {categoryOptions.filter(o => o.label !== 'Other').map((opt) => (
                       <option key={opt.id} value={opt.label}>{opt.label}</option>
                     ))}
+                    {formData.category && !categoryOptions.some(o => o.label === formData.category) && (
+                      <option value="__CUSTOM__">📝 {formData.category}</option>
+                    )}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Area to be Focus</label>
-                  <select
-                    value={formData.area_focus || ''}
-                    onChange={(e) => setFormData({ ...formData, area_focus: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    disabled={loadingDropdowns}
-                  >
-                    <option value="">Select focus area...</option>
-                    {areaFocusOptions.map((opt) => (
-                      <option key={opt.id} value={opt.label}>{opt.label}</option>
-                    ))}
-                  </select>
+                  {isCustomAreaFocus ? (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={formData.area_focus}
+                        onChange={(e) => setFormData({ ...formData, area_focus: e.target.value })}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        placeholder="Type your custom focus area..."
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomAreaFocus(false);
+                          setFormData({ ...formData, area_focus: '' });
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                        title="Back to list"
+                      >
+                        <List className="w-4 h-4 text-gray-500" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={areaFocusOptions.some(o => o.label === formData.area_focus) ? formData.area_focus : (formData.area_focus ? '__CUSTOM__' : '')}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '__CUSTOM_ENTRY__') {
+                          setIsCustomAreaFocus(true);
+                          setFormData({ ...formData, area_focus: '' });
+                        } else if (val === '__CUSTOM__') {
+                          setIsCustomAreaFocus(true);
+                        } else {
+                          setFormData({ ...formData, area_focus: val });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                      disabled={loadingDropdowns}
+                    >
+                      <option value="">Select focus area...</option>
+                      {areaFocusOptions.filter(o => o.label !== 'Other' && (o.value || '').toUpperCase() !== 'OTHER').map((opt) => (
+                        <option key={opt.id} value={opt.label}>{opt.label}</option>
+                      ))}
+                      {formData.area_focus && !areaFocusOptions.some(o => o.label === formData.area_focus) && (
+                        <option value="__CUSTOM__">📝 {formData.area_focus}</option>
+                      )}
+                      {areaFocusOptions.some(o => o.label === 'Other' || (o.value || '').toUpperCase() === 'OTHER') && (
+                        <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Focus Area...</option>
+                      )}
+                    </select>
+                  )}
                 </div>
               </div>
 
@@ -1671,10 +1733,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 </div>
               )}
 
-              {/* Root Cause Category - Connected to Admin Settings via failureReasons */}
+              {/* Reason for Non-Achievement - Connected to Admin Settings via failureReasons */}
               <div>
                 <label className="block text-xs font-medium text-red-700 mb-1">
-                  Root Cause Category <span className="text-red-500">*</span>
+                  Reason for Non-Achievement <span className="text-red-500">*</span>
                 </label>
                 {loadingReasons ? (
                   <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
@@ -1683,7 +1745,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   </div>
                 ) : failureReasons.length === 0 ? (
                   <div className="text-amber-600 text-sm py-2">
-                    ⚠️ No root cause categories configured. Please contact admin to add options in Settings.
+                    ⚠️ No failure reasons configured. Please contact admin to add options in Settings.
                   </div>
                 ) : (
                   <>
@@ -1699,7 +1761,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                         }`}
                       required
                     >
-                      <option value="">-- Select Root Cause --</option>
+                      <option value="">-- Select Reason --</option>
                       {failureReasons.map((reason) => (
                         <option key={reason.id} value={reason.label}>{reason.label}</option>
                       ))}

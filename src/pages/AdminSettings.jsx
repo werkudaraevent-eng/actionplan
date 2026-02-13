@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
@@ -7,6 +7,7 @@ import BulkUpdateModal from '../components/action-plan/BulkUpdateModal';
 import { useToast } from '../components/common/Toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmailSettingsSection from '../components/settings/EmailSettingsSection';
+import OptionManager from '../components/settings/OptionManager';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -49,8 +50,8 @@ export default function AdminSettings({ onNavigateToUsers }) {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id
-                      ? 'border-teal-600 text-teal-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'border-teal-600 text-teal-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -248,8 +249,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
-            <div className="col-span-3 text-gray-400 text-sm italic">—</div>
-            <div className="col-span-2 text-gray-400 text-sm italic">—</div>
+            <div className="col-span-3 text-gray-400 text-sm italic">â€”</div>
+            <div className="col-span-2 text-gray-400 text-sm italic">â€”</div>
             <div className="col-span-2 flex justify-end gap-2">
               <button onClick={handleSaveNew} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -281,8 +282,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     />
                   </div>
-                  <div className="col-span-3 text-gray-400 text-sm">—</div>
-                  <div className="col-span-2 text-gray-400 text-sm">—</div>
+                  <div className="col-span-3 text-gray-400 text-sm">â€”</div>
+                  <div className="col-span-2 text-gray-400 text-sm">â€”</div>
                   <div className="col-span-2 flex justify-end gap-2">
                     <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                       {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -318,8 +319,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                       onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
                       disabled={headcount === 0}
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${headcount === 0
-                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                        ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
                         }`}
                       title={headcount > 0 ? `View ${headcount} team members` : 'No users in this department'}
                     >
@@ -738,8 +739,8 @@ function HistoricalTab() {
               onClick={handleSaveAll}
               disabled={saving || !hasChanges}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${hasChanges
-                  ? 'bg-teal-600 text-white hover:bg-teal-700'
-                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                ? 'bg-teal-600 text-white hover:bg-teal-700'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -816,7 +817,7 @@ function HistoricalTab() {
                           step="1"
                           value={value}
                           onChange={(e) => handleCellChange(dept.code, month, e.target.value)}
-                          placeholder="—"
+                          placeholder="â€”"
                           className="w-full px-1 py-1.5 border border-gray-200 rounded text-center text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
                         />
                       </td>
@@ -824,10 +825,10 @@ function HistoricalTab() {
                   })}
                   <td className="px-2 py-2 text-center bg-gray-50">
                     <span className={`font-semibold text-sm ${avg === null ? 'text-gray-300' :
-                        parseFloat(avg) >= 90 ? 'text-green-600' :
-                          parseFloat(avg) >= 70 ? 'text-amber-600' : 'text-red-600'
+                      parseFloat(avg) >= 90 ? 'text-green-600' :
+                        parseFloat(avg) >= 70 ? 'text-amber-600' : 'text-red-600'
                       }`}>
-                      {avg !== null ? `${avg}%` : '—'}
+                      {avg !== null ? `${avg}%` : 'â€”'}
                     </span>
                   </td>
                   <td className="px-2 py-1">
@@ -865,7 +866,7 @@ function HistoricalTab() {
       {/* Unsaved changes indicator */}
       {hasChanges && (
         <div className="p-3 bg-amber-50 border-t border-amber-200 text-center text-sm text-amber-700">
-          ⚠️ You have unsaved changes. Click "Save Changes" to persist your data.
+          âš ï¸ You have unsaved changes. Click "Save Changes" to persist your data.
         </div>
       )}
     </div>
@@ -873,605 +874,53 @@ function HistoricalTab() {
 }
 
 // ==================== DROPDOWN OPTIONS TAB ====================
-const DROPDOWN_CATEGORIES = [
-  { id: 'failure_reason', label: 'Failure Reasons', description: 'Options shown when marking a plan as "Not Achieved"' },
-  { id: 'delete_reason', label: 'Deletion Reasons', description: 'Options shown when deleting/cancelling a plan' },
-  { id: 'area_focus', label: 'Focus Areas', description: 'Area of focus for action plans (e.g., Workforce Optimization)' },
-  { id: 'category', label: 'Categories', description: 'Priority/category classification for action plans' },
-  { id: 'goal', label: 'Strategic Goals / Initiatives', description: 'Pre-defined goals and strategies for quick selection in forms' },
-  { id: 'action_plan', label: 'Action Plan Templates', description: 'Standard action plan templates for common tasks' },
+const ALL_DROPDOWN_SECTIONS = [
+  // System Master Data (master_options table)
+  { id: 'DEPARTMENT', label: 'Departments / Divisions', description: 'Company units (BAS, SALES, IT, etc.)', source: 'master', showValue: true },
+  { id: 'ROOT_CAUSE', label: 'Root Cause Categories', description: 'For Ishikawa/Fishbone analysis (Manpower, Method, etc.)', source: 'master', showValue: true },
+  { id: 'AREA_OF_FOCUS', label: 'Area of Focus', description: 'Strategic focus areas (Cost Reduction, Innovation, etc.)', source: 'master', showValue: false },
+  // Form Dropdown Options (dropdown_options table)
+  { id: 'category', label: 'Priority Levels', description: 'Priority classification used in action plan forms (UH, H, M, L)', source: 'dropdown' },
+  { id: 'goal', label: 'Strategic Goals / Initiatives', description: 'Pre-defined goals and strategies for quick selection', source: 'dropdown', hideCustomToggle: true, customToggleNote: 'Custom input is always enabled for Strategies via the form.' },
+  { id: 'action_plan', label: 'Action Plan Templates', description: 'Standard action plan templates for common tasks', source: 'dropdown' },
+  { id: 'failure_reason', label: 'Failure Reasons', description: 'Options shown when marking a plan as "Not Achieved"', source: 'dropdown' },
+  { id: 'delete_reason', label: 'Deletion Reasons', description: 'Options shown when deleting/cancelling a plan', source: 'dropdown' },
 ];
 
 function DropdownOptionsTab() {
-  const { toast } = useToast();
-  const [options, setOptions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [newLabels, setNewLabels] = useState({}); // { category: 'new label' }
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [optionToDelete, setOptionToDelete] = useState(null); // { id, label, category }
-  const [showArchived, setShowArchived] = useState(false); // Toggle for archived view
-
-  useEffect(() => {
-    fetchOptions();
-  }, []);
-
-  const fetchOptions = async () => {
-    // Fetch ALL options (both active and inactive) for local filtering
-    const { data, error } = await supabase
-      .from('dropdown_options')
-      .select('*')
-      .order('sort_order', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching dropdown options:', error);
-    }
-    setOptions(data || []);
-    setLoading(false);
-  };
-
-  // Separate standard options from "Other" option (sorted by sort_order)
-  // Now filters based on showArchived toggle
-  const getStandardOptions = (category) => {
-    return options
-      .filter(opt => opt.category === category && opt.label !== 'Other' && opt.is_active === !showArchived)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-  };
-
-  // Get archived count for a category
-  const getArchivedCount = (category) => {
-    return options.filter(opt => opt.category === category && opt.label !== 'Other' && !opt.is_active).length;
-  };
-
-  // Get active count for a category
-  const getActiveCount = (category) => {
-    return options.filter(opt => opt.category === category && opt.label !== 'Other' && opt.is_active).length;
-  };
-
-  const getOtherOption = (category) => {
-    return options.find(opt => opt.category === category && opt.label === 'Other');
-  };
-
-  const handleAddOption = async (category) => {
-    const rawInput = newLabels[category]?.trim();
-    if (!rawInput) return;
-
-    // 1. SPLIT & CLEAN - Split by ';', trim whitespace, and remove empty strings
-    const labelsToProcess = rawInput
-      .split(';')
-      .map(item => item.trim())
-      .filter(item => item !== '' && item.toLowerCase() !== 'other'); // Also filter out "Other"
-
-    if (labelsToProcess.length === 0) {
-      toast({ title: 'Invalid Input', description: '"Other" is a system option. Use the toggle below to enable/disable it.', variant: 'warning' });
-      return;
-    }
-
-    setSaving(true);
-
-    let addedCount = 0;
-    let restoredCount = 0;
-    let skippedCount = 0;
-    let errorCount = 0;
-    const addedLabels = [];
-    const restoredLabels = [];
-
-    // Get current max sort_order for this category
-    const allCategoryOptions = options.filter(opt => opt.category === category && opt.label !== 'Other');
-    let currentMaxSort = allCategoryOptions.length > 0
-      ? Math.max(...allCategoryOptions.map(o => o.sort_order || 0))
-      : 0;
-
-    // 2. PROCESS EACH LABEL
-    for (const label of labelsToProcess) {
-      try {
-        // A. Check if option already exists (including inactive/soft-deleted ones)
-        const { data: existing, error: checkError } = await supabase
-          .from('dropdown_options')
-          .select('*')
-          .eq('category', category)
-          .ilike('label', label) // Case-insensitive match
-          .maybeSingle();
-
-        if (checkError) throw checkError;
-
-        if (existing) {
-          if (existing.is_active) {
-            // Already active - skip
-            skippedCount++;
-          } else {
-            // B. Restore if inactive
-            const { data: restored, error: updateError } = await supabase
-              .from('dropdown_options')
-              .update({ is_active: true })
-              .eq('id', existing.id)
-              .select()
-              .single();
-
-            if (updateError) throw updateError;
-
-            // Update local state
-            if (restored) {
-              setOptions(prev => prev.map(item =>
-                item.id === existing.id ? restored : item
-              ));
-            }
-            restoredCount++;
-            restoredLabels.push(label);
-          }
-        } else {
-          // C. Insert new option
-          currentMaxSort++;
-          const { data, error } = await supabase
-            .from('dropdown_options')
-            .insert({
-              category,
-              label,
-              sort_order: currentMaxSort,
-              is_active: true
-            })
-            .select()
-            .single();
-
-          if (error) throw error;
-
-          // Update local state
-          if (data) {
-            setOptions(prev => [...prev, data]);
-          }
-          addedCount++;
-          addedLabels.push(label);
-        }
-      } catch (err) {
-        console.error(`Error processing "${label}":`, err);
-        errorCount++;
-      }
-    }
-
-    // 3. Clear input
-    setNewLabels(prev => ({ ...prev, [category]: '' }));
-    setSaving(false);
-
-    // 4. FINAL SUMMARY TOAST
-    if (errorCount > 0) {
-      toast({
-        title: 'Completed with Errors',
-        description: `Added: ${addedCount}, Restored: ${restoredCount}, Skipped: ${skippedCount}, Failed: ${errorCount}`,
-        variant: 'warning'
-      });
-    } else if (addedCount === 0 && restoredCount === 0) {
-      toast({
-        title: 'No Changes',
-        description: `All ${skippedCount} option(s) already exist and are active.`,
-        variant: 'info'
-      });
-    } else {
-      const parts = [];
-      if (addedCount > 0) parts.push(`Added ${addedCount}`);
-      if (restoredCount > 0) parts.push(`Restored ${restoredCount}`);
-      if (skippedCount > 0) parts.push(`Skipped ${skippedCount} existing`);
-
-      toast({
-        title: 'Success!',
-        description: parts.join(', '),
-        variant: 'success'
-      });
-    }
-  };
-
-  const handleToggleActive = async (option) => {
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('dropdown_options')
-        .update({ is_active: !option.is_active })
-        .eq('id', option.id);
-
-      if (error) throw error;
-
-      // Immediately update local state
-      setOptions(prev => prev.map(item =>
-        item.id === option.id ? { ...item, is_active: !item.is_active } : item
-      ));
-    } catch (error) {
-      console.error('Toggle error:', error);
-      toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
-    }
-    setSaving(false);
-  };
-
-  // Restore an archived option (set is_active = true)
-  const handleRestoreOption = async (option) => {
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('dropdown_options')
-        .update({ is_active: true })
-        .eq('id', option.id);
-
-      if (error) throw error;
-
-      // Immediately update local state
-      setOptions(prev => prev.map(item =>
-        item.id === option.id ? { ...item, is_active: true } : item
-      ));
-
-      toast({ title: 'Option Restored', description: `"${option.label}" has been restored.`, variant: 'success' });
-    } catch (error) {
-      console.error('Restore error:', error);
-      toast({ title: 'Failed to Restore', description: error.message || 'Unknown error', variant: 'error' });
-    }
-    setSaving(false);
-  };
-
-  const handleToggleOther = async (category) => {
-    const otherOption = getOtherOption(category);
-
-    setSaving(true);
-    try {
-      if (otherOption) {
-        // Toggle existing "Other" option
-        const { error } = await supabase
-          .from('dropdown_options')
-          .update({ is_active: !otherOption.is_active })
-          .eq('id', otherOption.id);
-
-        if (error) throw error;
-
-        // Immediately update local state
-        setOptions(prev => prev.map(item =>
-          item.id === otherOption.id ? { ...item, is_active: !item.is_active } : item
-        ));
-      } else {
-        // Create "Other" option if it doesn't exist
-        const { data, error } = await supabase
-          .from('dropdown_options')
-          .insert({
-            category,
-            label: 'Other',
-            sort_order: 99, // Always last
-            is_active: true
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        // Add new option to local state
-        if (data) {
-          setOptions(prev => [...prev, data]);
-        }
-      }
-    } catch (error) {
-      console.error('Toggle Other error:', error);
-      toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
-    }
-    setSaving(false);
-  };
-
-  const handleDelete = (option) => {
-    setOptionToDelete(option);
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleMove = async (category, currentIndex, direction) => {
-    const standardOptions = getStandardOptions(category);
-
-    // Calculate target index
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-    // Bounds check
-    if (targetIndex < 0 || targetIndex >= standardOptions.length) return;
-
-    const currentItem = standardOptions[currentIndex];
-    const targetItem = standardOptions[targetIndex];
-
-    // Swap sort_order values
-    const currentSortOrder = currentItem.sort_order;
-    const targetSortOrder = targetItem.sort_order;
-
-    // Optimistic UI update - swap in local state immediately
-    setOptions(prev => prev.map(item => {
-      if (item.id === currentItem.id) {
-        return { ...item, sort_order: targetSortOrder };
-      }
-      if (item.id === targetItem.id) {
-        return { ...item, sort_order: currentSortOrder };
-      }
-      return item;
-    }));
-
-    // Persist to database
-    try {
-      const [result1, result2] = await Promise.all([
-        supabase
-          .from('dropdown_options')
-          .update({ sort_order: targetSortOrder })
-          .eq('id', currentItem.id),
-        supabase
-          .from('dropdown_options')
-          .update({ sort_order: currentSortOrder })
-          .eq('id', targetItem.id)
-      ]);
-
-      if (result1.error) throw result1.error;
-      if (result2.error) throw result2.error;
-    } catch (error) {
-      console.error('Move error:', error);
-      // Revert optimistic update on error
-      setOptions(prev => prev.map(item => {
-        if (item.id === currentItem.id) {
-          return { ...item, sort_order: currentSortOrder };
-        }
-        if (item.id === targetItem.id) {
-          return { ...item, sort_order: targetSortOrder };
-        }
-        return item;
-      }));
-      toast({ title: 'Failed to Reorder', description: error.message || 'Unknown error', variant: 'error' });
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!optionToDelete) return;
-
-    setSaving(true);
-    try {
-      // Soft delete: set is_active to false instead of hard delete
-      const { error } = await supabase
-        .from('dropdown_options')
-        .update({ is_active: false })
-        .eq('id', optionToDelete.id);
-
-      if (error) {
-        console.error('Error deleting option:', error);
-        toast({ title: 'Failed to Delete', description: 'Check console for details.', variant: 'error' });
-        setSaving(false);
-        return;
-      }
-
-      // Immediately update local state to reflect the deletion
-      setOptions(prev => prev.filter(item => item.id !== optionToDelete.id));
-      toast({ title: 'Option Deleted', description: `"${optionToDelete.label}" has been removed.`, variant: 'success' });
-    } catch (error) {
-      console.error('Delete error:', error);
-      toast({ title: 'Failed to Delete', description: error.message || 'Unknown error', variant: 'error' });
-    }
-    setSaving(false);
-    setIsDeleteModalOpen(false);
-    setOptionToDelete(null);
-  };
-
-  const handleCancelDelete = () => {
-    setIsDeleteModalOpen(false);
-    setOptionToDelete(null);
-  };
-
-  if (loading) return <LoadingState />;
-
   return (
     <div className="space-y-6">
-      {/* Archive Toggle Header */}
+      {/* Intro */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-800">Dropdown Options Management</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              {showArchived
-                ? 'Viewing archived options. Click "Restore" to reactivate.'
-                : 'Manage active dropdown options for forms.'}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showArchived
-                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-          >
-            {showArchived ? (
-              <>
-                <ToggleRight className="w-5 h-5" />
-                Viewing Archived
-              </>
-            ) : (
-              <>
-                <Trash2 className="w-4 h-4" />
-                Show Archived
-              </>
-            )}
-          </button>
-        </div>
+        <h3 className="font-semibold text-gray-800">Dropdown Options Management</h3>
+        <p className="text-sm text-gray-500 mt-1">
+          Manage all system dropdowns and form options from a single control center.
+          Each card supports adding, editing, reordering, archiving, and Excel import/export.
+        </p>
       </div>
 
-      {/* Category Cards Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {DROPDOWN_CATEGORIES.map((cat) => {
-          const standardOptions = getStandardOptions(cat.id);
-          const otherOption = getOtherOption(cat.id);
-          const activeCount = getActiveCount(cat.id) + (otherOption?.is_active ? 1 : 0);
-          const archivedCount = getArchivedCount(cat.id) + (otherOption && !otherOption.is_active ? 1 : 0);
-
-          return (
-            <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100">
-              {/* Header */}
-              <div className={`p-4 border-b ${showArchived ? 'bg-amber-50 border-amber-100' : 'border-gray-100'}`}>
-                <h3 className="font-semibold text-gray-800">{cat.label}</h3>
-                <p className="text-sm text-gray-500 mt-1">{cat.description}</p>
-                <div className="flex gap-3 mt-2 text-xs">
-                  <span className={`${!showArchived ? 'text-green-600 font-medium' : 'text-gray-400'}`}>
-                    {activeCount} active
-                  </span>
-                  {archivedCount > 0 && (
-                    <span className={`${showArchived ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
-                      {archivedCount} archived
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Add New - Only show when NOT in archived view */}
-              {!showArchived && (
-                <div className="p-3 bg-gray-50 border-b border-gray-100">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newLabels[cat.id] || ''}
-                      onChange={(e) => setNewLabels(prev => ({ ...prev, [cat.id]: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddOption(cat.id)}
-                      placeholder="Add option(s)... Use ; for bulk add"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    />
-                    <button
-                      onClick={() => handleAddOption(cat.id)}
-                      disabled={saving || !newLabels[cat.id]?.trim()}
-                      className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Options List */}
-              <div className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
-                {standardOptions.length === 0 ? (
-                  <div className="p-6 text-center text-gray-400 text-sm">
-                    {showArchived
-                      ? 'No archived options in this category.'
-                      : 'No custom options yet. Add one above.'}
-                  </div>
-                ) : (
-                  standardOptions.map((option, index) => (
-                    <div
-                      key={option.id}
-                      className={`p-3 flex items-center gap-2 hover:bg-gray-50 ${showArchived ? 'bg-amber-50/50' : ''}`}
-                    >
-                      {/* Label */}
-                      <span className={`flex-1 text-sm ${showArchived ? 'text-gray-500' : 'text-gray-800'}`}>
-                        {option.label}
-                      </span>
-
-                      {showArchived ? (
-                        /* Restore Button - Show in archived view */
-                        <button
-                          onClick={() => handleRestoreOption(option)}
-                          disabled={saving}
-                          className="px-3 py-1.5 text-sm font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex items-center gap-1"
-                          title="Restore this option"
-                        >
-                          <ToggleRight className="w-4 h-4" />
-                          Restore
-                        </button>
-                      ) : (
-                        <>
-                          {/* Reorder Buttons */}
-                          <div className="flex flex-col">
-                            <button
-                              onClick={() => handleMove(cat.id, index, 'up')}
-                              disabled={saving || index === 0}
-                              className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                              title="Move up"
-                            >
-                              <ChevronUp className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleMove(cat.id, index, 'down')}
-                              disabled={saving || index === standardOptions.length - 1}
-                              className="p-0.5 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                              title="Move down"
-                            >
-                              <ChevronDown className="w-4 h-4" />
-                            </button>
-                          </div>
-
-                          {/* Archive/Delete Button */}
-                          <button
-                            onClick={() => handleDelete(option)}
-                            disabled={saving}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Archive option"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* System Option: "Other" Toggle - Only show when NOT in archived view */}
-              {!showArchived && (
-                <div className="p-4 bg-slate-50 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-700">Allow Custom Input</span>
-                        <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">System</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        When enabled, users can select "Other" and type a custom reason.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleToggleOther(cat.id)}
-                      disabled={saving}
-                      className={`p-1 rounded-lg transition-colors ${otherOption?.is_active
-                          ? 'text-teal-600 hover:bg-teal-50'
-                          : 'text-gray-400 hover:bg-gray-100'
-                        }`}
-                      title={otherOption?.is_active ? 'Click to disable "Other" option' : 'Click to enable "Other" option'}
-                    >
-                      {otherOption?.is_active ? (
-                        <ToggleRight className="w-8 h-8" />
-                      ) : (
-                        <ToggleLeft className="w-8 h-8" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* THE UNIFIED GRID */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {ALL_DROPDOWN_SECTIONS.map((section) => (
+          <OptionManager
+            key={section.id}
+            title={section.label}
+            categoryKey={section.id}
+            description={section.description}
+            showValue={section.showValue ?? false}
+            source={section.source}
+            hideCustomToggle={section.hideCustomToggle ?? false}
+            customToggleNote={section.customToggleNote ?? ''}
+          />
+        ))}
       </div>
-
-      {/* Delete Confirmation Modal */}
-      {isDeleteModalOpen && optionToDelete && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Archive Option?</h3>
-            <p className="text-gray-600 text-sm mb-4">
-              Are you sure you want to archive <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>?
-            </p>
-            <p className="text-xs text-teal-600 bg-teal-50 px-3 py-2 rounded-lg mb-4">
-              💡 You can restore this option later from the "Show Archived" view.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={handleCancelDelete}
-                disabled={saving}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                disabled={saving}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium flex items-center gap-2"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                {saving ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+
+
+
 
 // Loading State Component
 function LoadingState() {
@@ -1526,7 +975,7 @@ function DataManagementTab() {
         'PIC': plan.pic,
         'Evidence': plan.evidence || '',
         'Status': plan.status,
-        'Root Cause Category': plan.status === 'Not Achieved'
+        'Reason for Non-Achievement': plan.status === 'Not Achieved'
           ? (plan.gap_category === 'Other' && plan.specify_reason
             ? `Other: ${plan.specify_reason}`
             : (plan.gap_category || '-'))
@@ -1556,7 +1005,7 @@ function DataManagementTab() {
         { wch: 15 }, // PIC
         { wch: 25 }, // Evidence
         { wch: 12 }, // Status
-        { wch: 20 }, // Root Cause Category
+        { wch: 20 }, // Reason for Non-Achievement
         { wch: 35 }, // Failure Details
         { wch: 8 },  // Score
         { wch: 35 }, // Proof of Evidence
@@ -1696,7 +1145,7 @@ function DataManagementTab() {
             <RefreshCw className="w-6 h-6 text-purple-600" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold text-gray-800">🔄 Universal Bulk Update</h3>
+            <h3 className="text-lg font-bold text-gray-800">ðŸ”„ Universal Bulk Update</h3>
             <p className="text-sm text-gray-500 mt-1">
               Update specific columns (e.g., evidence, outcome_link, remark) for existing action plans using an Excel file.
             </p>
@@ -1713,7 +1162,7 @@ function DataManagementTab() {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Step 1: Export Template */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm font-semibold text-gray-700 mb-2">📄 Step 1: Get Template</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2">ðŸ“„ Step 1: Get Template</p>
                 <p className="text-xs text-gray-500 mb-3">
                   Download a template with IDs and reference columns. Add your update columns.
                 </p>
@@ -1729,7 +1178,7 @@ function DataManagementTab() {
 
               {/* Step 2: Upload Update File */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm font-semibold text-gray-700 mb-2">📤 Step 2: Upload Updates</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2">ðŸ“¤ Step 2: Upload Updates</p>
                 <p className="text-xs text-gray-500 mb-3">
                   Upload your filled Excel file to update matching records.
                 </p>
@@ -2198,9 +1647,9 @@ function SystemSettingsTab() {
               <div className="text-sm text-amber-800">
                 <p className="font-medium mb-1">How Unlock Requests Work</p>
                 <ul className="space-y-0.5 text-amber-700 text-xs">
-                  <li>• Users can request to unlock a locked plan by providing a reason</li>
-                  <li>• Admins review and approve/reject unlock requests</li>
-                  <li>• Approved plans can be edited until the approval expires</li>
+                  <li>â€¢ Users can request to unlock a locked plan by providing a reason</li>
+                  <li>â€¢ Admins review and approve/reject unlock requests</li>
+                  <li>â€¢ Approved plans can be edited until the approval expires</li>
                 </ul>
               </div>
             </div>
@@ -2216,8 +1665,8 @@ function SystemSettingsTab() {
                 onClick={handleToggleLock}
                 disabled={saving}
                 className={`p-1 rounded-lg transition-all flex-shrink-0 ${settings.is_lock_enabled
-                    ? 'text-teal-600 hover:bg-teal-50'
-                    : 'text-gray-400 hover:bg-gray-100'
+                  ? 'text-teal-600 hover:bg-teal-50'
+                  : 'text-gray-400 hover:bg-gray-100'
                   }`}
                 title={settings.is_lock_enabled ? 'Click to disable' : 'Click to enable'}
               >
@@ -2233,8 +1682,8 @@ function SystemSettingsTab() {
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-800">Auto-Lock</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${settings.is_lock_enabled
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-gray-200 text-gray-600'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-200 text-gray-600'
                     }`}>
                     {settings.is_lock_enabled ? 'ON' : 'OFF'}
                   </span>
@@ -2305,8 +1754,8 @@ function SystemSettingsTab() {
                   <div
                     key={month.index}
                     className={`flex items-center justify-between p-3 rounded-xl border transition-all ${isForceOpen
-                        ? 'bg-gray-50 border-gray-200'
-                        : 'bg-teal-50/50 border-teal-200'
+                      ? 'bg-gray-50 border-gray-200'
+                      : 'bg-teal-50/50 border-teal-200'
                       }`}
                   >
                     {/* Left: Month Name + Toggle */}
@@ -2315,8 +1764,8 @@ function SystemSettingsTab() {
                         onClick={() => handleToggleMonth(month.index)}
                         disabled={isSaving}
                         className={`p-0.5 rounded transition-all ${isForceOpen
-                            ? 'text-gray-400 hover:text-gray-600'
-                            : 'text-teal-600 hover:text-teal-700'
+                          ? 'text-gray-400 hover:text-gray-600'
+                          : 'text-teal-600 hover:text-teal-700'
                           }`}
                         title={isForceOpen ? 'Enable auto-lock' : 'Disable auto-lock'}
                       >
@@ -2431,7 +1880,7 @@ function SystemSettingsTab() {
           <div className="flex items-start gap-4 bg-amber-50/50 rounded-xl p-4 border border-amber-200">
             <div className="flex-1">
               <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 1 — Max Score Cap
+                Late Month 1 â€” Max Score Cap
               </label>
               <p className="text-xs text-gray-500 mb-3">
                 The maximum score a plan can achieve if carried over once (first late month).
@@ -2460,7 +1909,7 @@ function SystemSettingsTab() {
           <div className="flex items-start gap-4 bg-rose-50/50 rounded-xl p-4 border border-rose-200">
             <div className="flex-1">
               <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 2 — Max Score Cap
+                Late Month 2 â€” Max Score Cap
               </label>
               <p className="text-xs text-gray-500 mb-3">
                 The maximum score for a second carry-over. Plans exceeding this limit will be forced to Drop.
@@ -2525,8 +1974,8 @@ function SystemSettingsTab() {
               <div className="flex items-center gap-3 mb-1">
                 <label className="font-semibold text-gray-800">Strict Grading Mode</label>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${gradingSettings.is_strict_grading_enabled
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'bg-gray-200 text-gray-600'
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'bg-gray-200 text-gray-600'
                   }`}>
                   {gradingSettings.is_strict_grading_enabled ? 'STRICT' : 'FLEXIBLE'}
                 </span>
@@ -2540,8 +1989,8 @@ function SystemSettingsTab() {
             <button
               onClick={() => setGradingSettings(prev => ({ ...prev, is_strict_grading_enabled: !prev.is_strict_grading_enabled }))}
               className={`p-1 rounded-lg transition-all flex-shrink-0 ${gradingSettings.is_strict_grading_enabled
-                  ? 'text-purple-600 hover:bg-purple-100'
-                  : 'text-gray-400 hover:bg-gray-100'
+                ? 'text-purple-600 hover:bg-purple-100'
+                : 'text-gray-400 hover:bg-gray-100'
                 }`}
             >
               {gradingSettings.is_strict_grading_enabled
@@ -2550,7 +1999,7 @@ function SystemSettingsTab() {
             </button>
           </div>
 
-          {/* Passing Score Input — only meaningful when strict mode is ON */}
+          {/* Passing Score Input â€” only meaningful when strict mode is ON */}
           {/* Grid of 4 threshold inputs */}
           <div className={`grid grid-cols-2 gap-4 transition-all ${gradingSettings.is_strict_grading_enabled ? '' : 'opacity-50 pointer-events-none'
             }`}>
@@ -2585,8 +2034,8 @@ function SystemSettingsTab() {
                   </div>
                 </div>
                 <span className={`mt-1 px-2.5 py-1 text-xs font-bold rounded-full ${gradingSettings.is_strict_grading_enabled
-                    ? `bg-${color}-200 text-${color}-800`
-                    : 'bg-gray-200 text-gray-500'
+                  ? `bg-${color}-200 text-${color}-800`
+                  : 'bg-gray-200 text-gray-500'
                   }`}>{tag}</span>
               </div>
             ))}
@@ -2599,19 +2048,19 @@ function SystemSettingsTab() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-gray-700">Ultra High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_uh}%</span></span>
+                  <span className="text-gray-700">Ultra High â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_uh}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-                  <span className="text-gray-700">High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_h}%</span></span>
+                  <span className="text-gray-700">High â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_h}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span className="text-gray-700">Medium → Must score <span className="font-semibold">≥ {gradingSettings.threshold_m}%</span></span>
+                  <span className="text-gray-700">Medium â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_m}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-gray-500"></span>
-                  <span className="text-gray-700">Low → Must score <span className="font-semibold">≥ {gradingSettings.threshold_l}%</span></span>
+                  <span className="text-gray-700">Low â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_l}%</span></span>
                 </div>
               </div>
               <p className="text-xs text-gray-400 mt-2">Carry-over items: threshold is capped at the plan's max possible score.</p>
@@ -2664,14 +2113,14 @@ function SystemSettingsTab() {
               <div
                 key={key}
                 className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${dropPolicy[key]
-                    ? `border-${color}-200 bg-${color}-50/50`
-                    : 'border-gray-100 bg-gray-50/50'
+                  ? `border-${color}-200 bg-${color}-50/50`
+                  : 'border-gray-100 bg-gray-50/50'
                   }`}
               >
                 <div className="flex items-center gap-3">
                   <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${dropPolicy[key]
-                      ? `bg-${color}-200 text-${color}-800`
-                      : 'bg-gray-200 text-gray-500'
+                    ? `bg-${color}-200 text-${color}-800`
+                    : 'bg-gray-200 text-gray-500'
                     }`}>{tag}</span>
                   <div>
                     <p className="text-sm font-semibold text-gray-800">{label}</p>
@@ -2682,10 +2131,10 @@ function SystemSettingsTab() {
                   onClick={() => handleToggleDropPolicy(key)}
                   disabled={savingDropPolicy === key}
                   className={`p-1 rounded-lg transition-all flex-shrink-0 ${dropPolicy[key]
-                      ? `text-${color}-600 hover:bg-${color}-100`
-                      : 'text-gray-400 hover:bg-gray-100'
+                    ? `text-${color}-600 hover:bg-${color}-100`
+                    : 'text-gray-400 hover:bg-gray-100'
                     }`}
-                  title={dropPolicy[key] ? 'Approval required — click to disable' : 'No approval needed — click to enable'}
+                  title={dropPolicy[key] ? 'Approval required â€” click to disable' : 'No approval needed â€” click to enable'}
                 >
                   {savingDropPolicy === key ? (
                     <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
@@ -2734,7 +2183,7 @@ function DeveloperZone() {
   const [showSafeResetConfirm, setShowSafeResetConfirm] = useState(false);
   const [lastResult, setLastResult] = useState(null);
 
-  // HARD RESET: Mark & Sweep — deletes carry-over children, resets parents to Blocked
+  // HARD RESET: Mark & Sweep â€” deletes carry-over children, resets parents to Blocked
   const handleHardReset = async () => {
     setHardResetting(true);
     try {
@@ -2743,7 +2192,7 @@ function DeveloperZone() {
       setLastResult({ type: 'hard', ...data });
       setShowHardResetConfirm(false);
       toast({
-        title: '✅ Hard Reset Complete',
+        title: 'âœ… Hard Reset Complete',
         description: `Deleted ${data?.deleted_carry_over ?? 0} carry-over plans, reset ${data?.reset_parents ?? 0} parents, removed ${data?.deleted_duplicates ?? 0} duplicates.`,
         variant: 'success'
       });
@@ -2756,7 +2205,7 @@ function DeveloperZone() {
     }
   };
 
-  // SAFE RESET: UPDATE-only factory reset — no deletions, breaks carry-over links
+  // SAFE RESET: UPDATE-only factory reset â€” no deletions, breaks carry-over links
   const handleSafeReset = async () => {
     setSafeResetting(true);
     try {
@@ -2765,7 +2214,7 @@ function DeveloperZone() {
       setLastResult({ type: 'safe', ...data });
       setShowSafeResetConfirm(false);
       toast({
-        title: '✅ Safe Reset Complete',
+        title: 'âœ… Safe Reset Complete',
         description: `Reset ${data?.reset_count ?? 0} action plans to Open. No records deleted.`,
         variant: 'success'
       });
@@ -2787,7 +2236,7 @@ function DeveloperZone() {
             <AlertTriangle className="w-5 h-5 text-red-600" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800">⚠️ Developer Zone</h3>
+            <h3 className="text-lg font-bold text-gray-800">âš ï¸ Developer Zone</h3>
             <p className="text-sm text-gray-500 mt-0.5">
               UAT/Testing cleanup tools - Use with caution
             </p>
@@ -2797,21 +2246,21 @@ function DeveloperZone() {
 
       {/* Content */}
       <div className="p-5 space-y-4">
-        {/* SAFE RESET — Recommended */}
+        {/* SAFE RESET â€” Recommended */}
         <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-300">
           <div className="flex items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold text-amber-700">🔄 Safe Reset: Factory Reset (No Deletion)</h4>
+                <h4 className="font-bold text-amber-700">ðŸ”„ Safe Reset: Factory Reset (No Deletion)</h4>
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">RECOMMENDED</span>
               </div>
               <p className="text-sm text-amber-600 mt-1 mb-3">
                 Resets all statuses, scores, carry-over flags, and blocker data back to <code className="bg-amber-100 px-1 rounded">Open</code>.
-                Breaks parent-child links safely. <strong>Zero deletions</strong> — all plan definitions are preserved.
+                Breaks parent-child links safely. <strong>Zero deletions</strong> â€” all plan definitions are preserved.
               </p>
 
               <div className="text-xs text-amber-500 space-y-1 mb-4">
-                <p><strong>Resets:</strong> status → Open, scores → NULL, carry-over → Normal, blockers → cleared, audit logs → truncated</p>
+                <p><strong>Resets:</strong> status â†’ Open, scores â†’ NULL, carry-over â†’ Normal, blockers â†’ cleared, audit logs â†’ truncated</p>
                 <p><strong>Preserves:</strong> department, month, goal, action plan title, indicator, PIC, category, evidence</p>
               </div>
 
@@ -2823,19 +2272,19 @@ function DeveloperZone() {
                 {safeResetting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Resetting...</>
                 ) : (
-                  <><RefreshCw className="w-4 h-4" /> 🔄 SAFE RESET — Factory Reset</>
+                  <><RefreshCw className="w-4 h-4" /> ðŸ”„ SAFE RESET â€” Factory Reset</>
                 )}
               </button>
             </div>
           </div>
         </div>
 
-        {/* HARD RESET — Mark & Sweep */}
+        {/* HARD RESET â€” Mark & Sweep */}
         <div className="p-4 bg-red-50 rounded-xl border-2 border-red-300">
           <div className="flex items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold text-red-700">🔥 Hard Reset: Mark & Sweep</h4>
+                <h4 className="font-bold text-red-700">ðŸ”¥ Hard Reset: Mark & Sweep</h4>
                 <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">DESTRUCTIVE</span>
               </div>
               <p className="text-sm text-red-600 mt-1 mb-3">
@@ -2845,7 +2294,7 @@ function DeveloperZone() {
 
               <div className="text-xs text-red-500 space-y-1 mb-4">
                 <p><strong>Deletes:</strong> All plans where <code className="bg-red-100 px-1 rounded">origin_plan_id IS NOT NULL</code> (carry-over children)</p>
-                <p><strong>Resets:</strong> Parent plans → Blocked, scores → NULL, carry-over flags → cleared</p>
+                <p><strong>Resets:</strong> Parent plans â†’ Blocked, scores â†’ NULL, carry-over flags â†’ cleared</p>
                 <p><strong>Preserves:</strong> Recurring (native) plans with <code className="bg-red-100 px-1 rounded">origin_plan_id = NULL</code></p>
               </div>
 
@@ -2857,7 +2306,7 @@ function DeveloperZone() {
                 {hardResetting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Sweeping...</>
                 ) : (
-                  <><Shield className="w-4 h-4" /> 🔥 HARD RESET — Delete Carry-Overs</>
+                  <><Shield className="w-4 h-4" /> ðŸ”¥ HARD RESET â€” Delete Carry-Overs</>
                 )}
               </button>
             </div>
@@ -2886,8 +2335,8 @@ function DeveloperZone() {
                   <RefreshCw className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">🔄 Safe Factory Reset</h3>
-                  <p className="text-amber-100 text-sm">UPDATE only — no deletions</p>
+                  <h3 className="text-lg font-bold text-white">ðŸ”„ Safe Factory Reset</h3>
+                  <p className="text-amber-100 text-sm">UPDATE only â€” no deletions</p>
                 </div>
               </div>
             </div>
@@ -2895,10 +2344,10 @@ function DeveloperZone() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
                 <p className="text-sm text-amber-800 font-medium mb-2">This will reset ALL action plans:</p>
                 <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                  <li>Status → Open, Scores → NULL</li>
+                  <li>Status â†’ Open, Scores â†’ NULL</li>
                   <li>Carry-over links broken, flags cleared</li>
-                  <li>Blockers, remarks, unlock requests → cleared</li>
-                  <li>Audit logs, notifications, progress logs → truncated</li>
+                  <li>Blockers, remarks, unlock requests â†’ cleared</li>
+                  <li>Audit logs, notifications, progress logs â†’ truncated</li>
                 </ul>
               </div>
               <p className="text-sm text-gray-600 mb-2">Plan definitions (titles, goals, PICs, departments) stay intact.</p>
@@ -2924,19 +2373,19 @@ function DeveloperZone() {
                   <Shield className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">🔥 Hard Reset: Mark & Sweep</h3>
+                  <h3 className="text-lg font-bold text-white">ðŸ”¥ Hard Reset: Mark & Sweep</h3>
                   <p className="text-red-100 text-sm">Deletes carry-over children</p>
                 </div>
               </div>
             </div>
             <div className="p-5">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 font-medium mb-2">⚠️ DESTRUCTIVE: This will DELETE carry-over plans</p>
+                <p className="text-sm text-red-800 font-medium mb-2">âš ï¸ DESTRUCTIVE: This will DELETE carry-over plans</p>
                 <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
-                  <li>All plans with origin_plan_id → DELETED</li>
-                  <li>Parent plans → status reverted to Blocked</li>
-                  <li>Scores, carry-over flags → cleared</li>
-                  <li>Duplicates → removed</li>
+                  <li>All plans with origin_plan_id â†’ DELETED</li>
+                  <li>Parent plans â†’ status reverted to Blocked</li>
+                  <li>Scores, carry-over flags â†’ cleared</li>
+                  <li>Duplicates â†’ removed</li>
                 </ul>
               </div>
               <p className="text-sm text-gray-600 mb-2">Recurring (native) plans are preserved. Use this to re-test the Resolution Wizard.</p>

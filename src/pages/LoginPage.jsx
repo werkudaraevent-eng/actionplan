@@ -34,39 +34,39 @@ export default function LoginPage() {
         } else {
           errorMessage = signInError.message || 'Login failed. Please check your credentials.';
         }
-        
+
         // Show error in both inline message and toast
         setError(errorMessage);
-        toast({ 
-          title: 'Login Failed', 
-          description: errorMessage, 
-          variant: 'error' 
+        toast({
+          title: 'Login Failed',
+          description: errorMessage,
+          variant: 'error'
         });
-        
+
         // Shake animation for form feedback
         setShake(true);
         setTimeout(() => setShake(false), 500);
-        
+
         // Clear password field for security
         setPassword('');
         setLoading(false);
         return; // Stop execution - do NOT reload page
       }
-      
+
       // Success - show welcome toast
-      toast({ 
-        title: 'Welcome back!', 
-        description: 'Redirecting to dashboard...', 
-        variant: 'success' 
+      toast({
+        title: 'Welcome back!',
+        description: 'Redirecting to dashboard...',
+        variant: 'success'
       });
       // The AuthContext will handle the state change and App.jsx will redirect based on role
     } catch (err) {
       const errorMessage = 'An unexpected error occurred. Please try again.';
       setError(errorMessage);
-      toast({ 
-        title: 'Error', 
-        description: errorMessage, 
-        variant: 'error' 
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'error'
       });
       setLoading(false);
     }
@@ -80,7 +80,7 @@ export default function LoginPage() {
 
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/update-password`,
+        redirectTo: `${window.location.origin}/reset-password`,
       });
 
       if (resetError) throw resetError;
@@ -133,8 +133,8 @@ export default function LoginPage() {
             {isRecoveryMode ? 'Reset Password' : 'Werkudara Group'}
           </h1>
           <p className="text-gray-500 mt-2">
-            {isRecoveryMode 
-              ? 'Enter your email to receive a reset link' 
+            {isRecoveryMode
+              ? 'Enter your email to receive a reset link'
               : 'Department Action Plan Tracking System'}
           </p>
         </div>

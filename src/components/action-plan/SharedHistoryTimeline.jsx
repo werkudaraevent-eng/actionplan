@@ -51,7 +51,7 @@ export function formatDate(dateString) {
   const year = date.getFullYear();
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
-  
+
   return `${month} ${day}, ${year} • ${hours}:${minutes}`;
 }
 
@@ -81,7 +81,7 @@ export function formatRelativeTime(dateString) {
 // NOTE: We keep [BLOCKER RESOLVED] because it contains the user's resolution note
 function isSystemTaggedProgressUpdate(message) {
   if (!message) return false;
-  
+
   // Only filter out tags that are purely system-generated with no user content
   // [BLOCKER RESOLVED] contains user's resolution note, so we keep it but clean the prefix
   const systemTags = [
@@ -92,7 +92,7 @@ function isSystemTaggedProgressUpdate(message) {
     /^\[GRADE RESET\]/i,
     /^\[SUBMITTED\]/i,
   ];
-  
+
   return systemTags.some(pattern => pattern.test(message));
 }
 
@@ -100,7 +100,7 @@ function isSystemTaggedProgressUpdate(message) {
 // Also filters out hardcoded trigger messages to prioritize real user notes
 function parseDescription(description) {
   if (!description) return [];
-  
+
   // List of hardcoded trigger messages to filter out (these are not user-provided)
   const hardcodedPatterns = [
     /^✅ BLOCKER CLEARED: Issue marked as resolved/i,
@@ -112,12 +112,12 @@ function parseDescription(description) {
     /Updated Remark:.*null/i,
     /Remark.*cleared/i,
   ];
-  
+
   try {
     const parsed = typeof description === 'string' ? JSON.parse(description) : description;
     if (Array.isArray(parsed)) {
       // Filter out hardcoded messages from array
-      return parsed.filter(item => 
+      return parsed.filter(item =>
         !hardcodedPatterns.some(pattern => pattern.test(item))
       );
     }
@@ -151,7 +151,7 @@ function extractUserNote(item) {
       .trim();
     if (cleanMessage) return cleanMessage;
   }
-  
+
   // Priority 2: new_value.remark (user's note saved to remark field)
   const remark = item.new_value?.remark;
   if (remark) {
@@ -162,22 +162,22 @@ function extractUserNote(item) {
       .trim();
     if (cleanRemark) return cleanRemark;
   }
-  
+
   // Priority 3: new_value.blocker_reason (for blocker reported events)
   if (item.new_value?.blocker_reason && item.change_type === 'BLOCKER_REPORTED') {
     return item.new_value.blocker_reason;
   }
-  
+
   // Priority 4: new_value.admin_feedback (for revision requests)
   if (item.new_value?.admin_feedback) {
     return item.new_value.admin_feedback;
   }
-  
+
   // Priority 5: new_value.unlock_reason (for unlock requests)
   if (item.new_value?.unlock_reason) {
     return item.new_value.unlock_reason;
   }
-  
+
   return null;
 }
 
@@ -185,15 +185,15 @@ function extractUserNote(item) {
  * TimelineItem - Single item in the timeline
  */
 function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
-  const typeInfo = CHANGE_TYPE_LABELS[item.change_type] || { 
-    label: item.change_type || 'Update', 
-    color: 'bg-gray-100 text-gray-700' 
+  const typeInfo = CHANGE_TYPE_LABELS[item.change_type] || {
+    label: item.change_type || 'Update',
+    color: 'bg-gray-100 text-gray-700'
   };
-  
+
   // Extract the user's actual note (prioritizes real user input over hardcoded messages)
   const userNote = extractUserNote(item);
   const descriptionItems = parseDescription(item.description); // Filtered audit log descriptions
-  
+
   // Accent colors based on prop
   const dotColor = isFirst ? `bg-${accentColor}-500` : 'bg-gray-300';
   const cardBorder = isFirst ? `border-${accentColor}-200` : 'border-gray-100';
@@ -202,10 +202,9 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
   return (
     <div className="relative pl-10">
       {/* Timeline dot */}
-      <div className={`absolute left-2 top-2 w-4 h-4 rounded-full border-2 border-white shadow ${
-        isFirst ? 'bg-teal-500' : 'bg-gray-300'
-      }`} />
-      
+      <div className={`absolute left-2 top-2 w-4 h-4 rounded-full border-2 border-white shadow ${isFirst ? 'bg-teal-500' : 'bg-gray-300'
+        }`} />
+
       {/* Content card */}
       <div className={`rounded-lg p-4 border ${isFirst ? 'border-teal-200 bg-teal-50/30' : 'border-gray-100 bg-gray-50'}`}>
         {/* User info & timestamp header */}
@@ -226,14 +225,14 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
             {formatDate(item.created_at)}
           </span>
         </div>
-        
+
         {/* PRIMARY: User's Note/Message (narrative context) */}
         {userNote && (
           <p className={`text-sm leading-relaxed mb-3 ${isFirst ? 'text-gray-800' : 'text-gray-600'}`}>
             <MentionText text={userNote} />
           </p>
         )}
-        
+
         {/* Description from audit logs (if no user note) */}
         {!userNote && descriptionItems.length > 0 && (
           descriptionItems.length === 1 ? (
@@ -249,7 +248,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
             </ul>
           )
         )}
-        
+
         {/* SECONDARY: System Metadata (pills, badges) as subtle footer */}
         <div className="pt-2 border-t border-gray-100 space-y-2">
           {/* Change type pill */}
@@ -257,7 +256,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${typeInfo.color}`}>
               {typeInfo.label}
             </span>
-            
+
             {/* Latest badge for first item */}
             {isFirst && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs font-medium">
@@ -266,71 +265,68 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               </span>
             )}
           </div>
-          
+
           {/* Status transition pills */}
-          {(item.change_type === 'STATUS_UPDATE' || 
-            item.change_type === 'REVISION_REQUESTED' || 
+          {(item.change_type === 'STATUS_UPDATE' ||
+            item.change_type === 'REVISION_REQUESTED' ||
             item.change_type === 'APPROVED' ||
             item.change_type === 'GRADE_RESET') && item.previous_value && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
-                {item.previous_value.status || item.previous_value.submission_status || 'Unknown'}
-              </span>
-              <span className="text-gray-400">→</span>
-              <span className={`px-2 py-0.5 rounded ${
-                item.change_type === 'REVISION_REQUESTED' 
-                  ? 'bg-amber-100 text-amber-700'
-                  : item.change_type === 'APPROVED'
-                    ? 'bg-green-100 text-green-700'
-                    : item.change_type === 'GRADE_RESET'
-                      ? 'bg-orange-100 text-orange-700'
-                      : item.new_value?.status === 'Not Achieved'
-                        ? 'bg-red-100 text-red-700'
-                        : item.new_value?.status === 'Achieved'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-teal-100 text-teal-700'
-              }`}>
-                {item.new_value?.status || item.new_value?.submission_status || 'Unknown'}
-              </span>
-            </div>
-          )}
-          
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
+                  {item.previous_value.status || item.previous_value.submission_status || 'Unknown'}
+                </span>
+                <span className="text-gray-400">→</span>
+                <span className={`px-2 py-0.5 rounded ${item.change_type === 'REVISION_REQUESTED'
+                    ? 'bg-amber-100 text-amber-700'
+                    : item.change_type === 'APPROVED'
+                      ? 'bg-green-100 text-green-700'
+                      : item.change_type === 'GRADE_RESET'
+                        ? 'bg-orange-100 text-orange-700'
+                        : item.new_value?.status === 'Not Achieved'
+                          ? 'bg-red-100 text-red-700'
+                          : item.new_value?.status === 'Achieved'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-teal-100 text-teal-700'
+                  }`}>
+                  {item.new_value?.status || item.new_value?.submission_status || 'Unknown'}
+                </span>
+              </div>
+            )}
+
           {/* Escalation transition pills */}
           {item.change_type === 'ESCALATION_CHANGE' && item.previous_value && item.new_value && (
             <div className="flex items-center gap-2 text-xs">
-              <span className={`px-2 py-0.5 rounded ${
-                item.previous_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
-                item.previous_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
-                'bg-gray-200 text-gray-600'
-              }`}>
+              <span className={`px-2 py-0.5 rounded ${item.previous_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
+                  item.previous_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
+                    'bg-gray-200 text-gray-600'
+                }`}>
                 {item.previous_value.attention_level === 'Management_BOD' ? 'Management/BOD' :
-                 item.previous_value.attention_level === 'Leader' ? 'Leader' :
-                 item.previous_value.attention_level || 'Standard'}
+                  item.previous_value.attention_level === 'Leader' ? 'Leader' :
+                    item.previous_value.attention_level || 'Standard'}
               </span>
               <span className="text-gray-400">→</span>
-              <span className={`px-2 py-0.5 rounded ${
-                item.new_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
-                item.new_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
-                'bg-gray-200 text-gray-600'
-              }`}>
+              <span className={`px-2 py-0.5 rounded ${item.new_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
+                  item.new_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
+                    'bg-gray-200 text-gray-600'
+                }`}>
                 {item.new_value.attention_level === 'Management_BOD' ? 'Management/BOD' :
-                 item.new_value.attention_level === 'Leader' ? 'Leader' :
-                 item.new_value.attention_level || 'Standard'}
+                  item.new_value.attention_level === 'Leader' ? 'Leader' :
+                    item.new_value.attention_level || 'Standard'}
               </span>
             </div>
           )}
-          
+
           {/* RCA (Root Cause Analysis) Details - For "Not Achieved" status changes */}
           {item.change_type === 'STATUS_UPDATE' && item.new_value?.status === 'Not Achieved' && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs space-y-2">
               <div className="flex items-center gap-2 text-red-800 font-semibold">
                 <span>📋 Failure Analysis</span>
               </div>
-              
-              {/* Root Cause Category */}
+
+              {/* Reason for Non-Achievement */}
               {(item.new_value?.gap_category || item.new_value?.specify_reason) && (
                 <div>
-                  <span className="font-medium text-red-700">Root Cause: </span>
+                  <span className="font-medium text-red-700">Reason: </span>
                   <span className="text-red-600">
                     {item.new_value.gap_category === 'Other' && item.new_value.specify_reason
                       ? `Other: ${item.new_value.specify_reason}`
@@ -338,7 +334,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
                   </span>
                 </div>
               )}
-              
+
               {/* Failure Details / Gap Analysis */}
               {item.new_value?.gap_analysis && (
                 <div>
@@ -346,7 +342,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
                   <span className="text-red-600">"{item.new_value.gap_analysis}"</span>
                 </div>
               )}
-              
+
               {/* Fallback if no RCA data captured (legacy entries) */}
               {!item.new_value?.gap_category && !item.new_value?.gap_analysis && (
                 <div className="text-red-500 italic">
@@ -355,14 +351,14 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               )}
             </div>
           )}
-          
+
           {/* Score for approvals */}
           {item.change_type === 'APPROVED' && item.new_value?.quality_score != null && (
             <div className="text-xs text-gray-600">
               Verification Score: <span className="font-bold text-green-600">{item.new_value.quality_score}%</span>
             </div>
           )}
-          
+
           {/* Cleared score for grade resets */}
           {item.change_type === 'GRADE_RESET' && item.previous_value?.quality_score != null && (
             <div className="p-2 bg-orange-50 border border-orange-200 rounded text-xs">
@@ -371,7 +367,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               <span className="text-orange-600 ml-2">→ Reset to Open</span>
             </div>
           )}
-          
+
           {/* Feedback for revision requests */}
           {item.change_type === 'REVISION_REQUESTED' && item.new_value?.admin_feedback && (
             <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs">
@@ -379,7 +375,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               <span className="text-amber-700">"{item.new_value.admin_feedback}"</span>
             </div>
           )}
-          
+
           {/* Escalation/Blocker details */}
           {(item.change_type === 'ALERT_RAISED' || item.change_type === 'BLOCKER_UPDATED' || item.change_type === 'BLOCKER_REPORTED') && item.new_value && (
             <>
@@ -402,30 +398,30 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               )}
             </>
           )}
-          
+
           {/* Blocker cleared details - Show the user's resolution note */}
           {item.change_type === 'BLOCKER_CLEARED' && (
             <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-xs">
               {(() => {
                 // The resolution note should already be in userNote (extracted at top of TimelineItem)
                 // But we also check various fallback sources
-                
+
                 // Priority 1: Use the userNote already extracted (from remark, message, etc.)
                 // This is already displayed above, so we just show a simple confirmation here
                 // unless there's no userNote, then we try other sources
-                
+
                 // Priority 2: Check new_value.gap_analysis or new_value.remark for resolution details
                 const remarkNote = item.new_value?.remark;
                 const cleanRemark = remarkNote?.replace(/^\[Blocker Resolved\]\s*/i, '').trim();
-                
+
                 // Priority 3: Check description for actual user content (not hardcoded messages)
-                const descNote = item.description && 
+                const descNote = item.description &&
                   !item.description.includes('Issue marked as resolved') &&
                   !item.description.includes('BLOCKER CLEARED:') &&
                   !item.description.startsWith('✅')
-                    ? item.description 
-                    : null;
-                
+                  ? item.description
+                  : null;
+
                 // If userNote is already shown above, just show simple confirmation
                 if (userNote) {
                   return <span className="font-medium text-emerald-800">✅ Blocker resolved</span>;
@@ -450,7 +446,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               })()}
             </div>
           )}
-          
+
           {/* Carry Over details */}
           {item.change_type === 'CARRY_OVER' && item.new_value && (
             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-xs">
@@ -459,7 +455,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               <span className="text-blue-500 ml-2">• Status reset to Open</span>
             </div>
           )}
-          
+
           {/* Unlock request details */}
           {item.change_type === 'UNLOCK_REQUESTED' && item.new_value && (
             <>
@@ -476,7 +472,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               )}
             </>
           )}
-          
+
           {/* Unlock approval details */}
           {item.change_type === 'UNLOCK_APPROVED' && item.new_value && (
             <>
@@ -493,7 +489,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               )}
             </>
           )}
-          
+
           {/* Unlock rejection details */}
           {item.change_type === 'UNLOCK_REJECTED' && (
             <div className="flex items-center gap-2 text-xs">
@@ -516,8 +512,8 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
  * @param {string} emptyMessage - Message to show when no items
  * @param {string} emptySubMessage - Sub-message for empty state
  */
-export default function SharedHistoryTimeline({ 
-  items = [], 
+export default function SharedHistoryTimeline({
+  items = [],
   accentColor = 'teal',
   emptyMessage = 'No history yet',
   emptySubMessage = 'Changes will appear here when updates are made',
@@ -528,7 +524,7 @@ export default function SharedHistoryTimeline({
   const filteredItems = items.filter(item => {
     // Keep all non-progress-update items
     if (item.change_type !== 'PROGRESS_UPDATE') return true;
-    
+
     // For progress updates, filter out system-tagged ones
     const message = item.message || item.new_value?.message;
     return !isSystemTaggedProgressUpdate(message);
@@ -548,13 +544,13 @@ export default function SharedHistoryTimeline({
     <div className="relative">
       {/* Timeline line */}
       <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gray-200" />
-      
+
       {/* Timeline items */}
       <div className="space-y-4">
         {filteredItems.map((item, index) => (
-          <TimelineItem 
-            key={item.id} 
-            item={item} 
+          <TimelineItem
+            key={item.id}
+            item={item}
             index={index}
             isFirst={index === 0}
             accentColor={accentColor}

@@ -463,9 +463,9 @@ export default function ExecutiveActionCenter() {
                                                         <span className="truncate max-w-[200px]" title={item.goal_strategy}>{item.goal_strategy || '—'}</span>
                                                         <span className="text-gray-300">•</span>
                                                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge === 'Achieved' ? 'bg-green-100 text-green-700'
-                                                                : statusBadge === 'Not Achieved' ? 'bg-red-100 text-red-700'
-                                                                    : statusBadge === 'On Progress' ? 'bg-blue-100 text-blue-700'
-                                                                        : 'bg-gray-100 text-gray-600'
+                                                            : statusBadge === 'Not Achieved' ? 'bg-red-100 text-red-700'
+                                                                : statusBadge === 'On Progress' ? 'bg-blue-100 text-blue-700'
+                                                                    : 'bg-gray-100 text-gray-600'
                                                             }`}>
                                                             {statusBadge}
                                                         </span>
@@ -626,7 +626,7 @@ export default function ExecutiveActionCenter() {
                                                 </p>
                                                 {plan.gap_category && (
                                                     <div className="mb-2">
-                                                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-0.5">Root Cause Category</p>
+                                                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-0.5">Reason for Non-Achievement</p>
                                                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">{plan.gap_category}</span>
                                                     </div>
                                                 )}

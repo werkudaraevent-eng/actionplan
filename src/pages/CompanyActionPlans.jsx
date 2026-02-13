@@ -206,7 +206,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         { key: 'pic', label: 'PIC' },
         { key: 'evidence', label: 'Evidence' },
         { key: 'status', label: 'Status' },
-        { key: 'root_cause', label: 'Root Cause Category' },
+        { key: 'root_cause', label: 'Reason for Non-Achievement' },
         { key: 'failure_details', label: 'Failure Details' },
         { key: 'score', label: 'Score' },
         { key: 'outcome_link', label: 'Proof of Evidence' },

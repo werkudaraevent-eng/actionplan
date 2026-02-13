@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "supabase": {
+            "url": "https://mcp.supabase.com/mcp?project_ref=nyhopviaopkgeeznschj",
+            "headers": {
+                "Authorization": "Bearer sbp_14b1a588bb6fc09531313d3de438e17f1bd9ae87"
+            }
+        }
+    }
+}

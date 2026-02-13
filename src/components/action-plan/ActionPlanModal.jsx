@@ -1258,7 +1258,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     <textarea
                       value={formData.action_plan}
                       onChange={(e) => setFormData({ ...formData, action_plan: e.target.value })}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed"
                       placeholder="Type your custom action plan..."
                       rows={2}
                       autoFocus
@@ -1307,59 +1307,60 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 )}
               </div>
 
-              {/* Row 5: Indicator & PIC */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Indicator (KPI)</label>
-                  <input
-                    type="text"
-                    value={formData.indicator}
-                    onChange={(e) => setFormData({ ...formData, indicator: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              {/* Row 5: Indicator (KPI) — Full Width Textarea */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Indicator (KPI)</label>
+                <textarea
+                  value={formData.indicator}
+                  onChange={(e) => setFormData({ ...formData, indicator: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none leading-relaxed"
+                  rows={3}
+                  placeholder="Describe the KPI or success indicator..."
+                  required
+                />
+              </div>
+
+              {/* Row 5b: PIC (Person In Charge) — Full Width */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  PIC (Person In Charge)
+                </label>
+                <div className="relative">
+                  <select
+                    value={formData.pic}
+                    onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''
+                      }`}
                     required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    PIC (Person In Charge)
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={formData.pic}
-                      onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
-                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''
-                        }`}
-                      required
-                      disabled={!formData.department_code || loadingStaff}
-                    >
-                      <option value="">
-                        {!formData.department_code
-                          ? 'Select department first'
-                          : loadingStaff
-                            ? 'Loading...'
-                            : filteredStaff.length === 0
-                              ? 'No staff in this dept'
-                              : 'Select PIC'}
+                    disabled={!formData.department_code || loadingStaff}
+                  >
+                    <option value="">
+                      {!formData.department_code
+                        ? 'Select department first'
+                        : loadingStaff
+                          ? 'Loading...'
+                          : filteredStaff.length === 0
+                            ? 'No staff in this dept'
+                            : 'Select PIC'}
+                    </option>
+                    {filteredStaff.map((staff) => (
+                      <option key={staff.id} value={staff.full_name}>
+                        {staff.full_name}
+                        {staff.role === 'leader' ? ' (Leader)' : ''}
+                        {staff.isPrimary ? ' - Primary' : staff.isSecondary ? ' - Access Rights' : ''}
                       </option>
-                      {filteredStaff.map((staff) => (
-                        <option key={staff.id} value={staff.full_name}>
-                          {staff.full_name}
-                          {staff.role === 'leader' ? ' (Leader)' : ''}
-                          {staff.isPrimary ? ' - Primary' : staff.isSecondary ? ' - Access Rights' : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {loadingStaff && (
-                      <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
-                    )}
-                  </div>
-                  {formData.department_code && filteredStaff.length === 0 && !loadingStaff && (
-                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                      <Users className="w-3 h-3" />
-                      No team members found. Add users in Team Management.
-                    </p>
+                    ))}
+                  </select>
+                  {loadingStaff && (
+                    <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
                   )}
                 </div>
+                {formData.department_code && filteredStaff.length === 0 && !loadingStaff && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    No team members found. Add users in Team Management.
+                  </p>
+                )}
               </div>
 
               {/* Row 6: Evidence (Full Width) */}
@@ -1368,7 +1369,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <textarea
                   value={formData.evidence || ''}
                   onChange={(e) => setFormData({ ...formData, evidence: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed"
                   rows={2}
                   placeholder="Describe the expected evidence or target output..."
                 />
@@ -1410,15 +1411,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                 <span className="text-gray-500 text-sm">Action Plan:</span>
                 <p className="text-gray-800 text-sm mt-1">{editData.action_plan}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-gray-500">Indicator (KPI):</span>
-                  <p className="text-gray-800 mt-1">{editData.indicator}</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">PIC:</span>
-                  <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
-                </div>
+              <div>
+                <span className="text-gray-500 text-sm">Indicator (KPI):</span>
+                <p className="text-gray-800 text-sm mt-1 whitespace-pre-wrap">{editData.indicator}</p>
+              </div>
+              <div className="text-sm">
+                <span className="text-gray-500">PIC:</span>
+                <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
               </div>
               {editData.evidence && (
                 <div>
@@ -1541,7 +1540,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   value={blockerReason}
                   onChange={(e) => setBlockerReason(e.target.value)}
                   placeholder="What is blocking progress? Be specific about the obstacle..."
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm placeholder:text-red-300 ${!validateBlockerReason(blockerReason, formData.attention_level) ? 'border-red-400 bg-red-50' : 'border-red-300 bg-white'
+                  className={`w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 leading-relaxed placeholder:text-red-300 ${!validateBlockerReason(blockerReason, formData.attention_level) ? 'border-red-400 bg-red-50' : 'border-red-300 bg-white'
                     }`}
                   rows={3}
                   required
@@ -1580,7 +1579,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                   value={resolutionNote}
                   onChange={(e) => setResolutionNote(e.target.value)}
                   placeholder="Explain how the blocker was resolved..."
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm placeholder:text-emerald-300 ${!resolutionNote || resolutionNote.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-emerald-300 bg-white'
+                  className={`w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 leading-relaxed placeholder:text-emerald-300 ${!resolutionNote || resolutionNote.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-emerald-300 bg-white'
                     }`}
                   rows={2}
                   required
@@ -1610,7 +1609,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     value={progressUpdate}
                     onChange={(e) => setProgressUpdate(e.target.value)}
                     placeholder="Describe the current progress, what has been done, and next steps..."
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm placeholder:text-blue-300 ${!progressUpdate || progressUpdate.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-blue-300 bg-white'
+                    className={`w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 leading-relaxed placeholder:text-blue-300 ${!progressUpdate || progressUpdate.trim().length < 5 ? 'border-amber-400 bg-amber-50' : 'border-blue-300 bg-white'
                       }`}
                     rows={3}
                     required
@@ -1821,7 +1820,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                         ? 'Explain specifically why this plan cannot be executed. This reason will be reviewed by Management for approval.'
                         : 'Explain specifically why the target was missed, what factors contributed, and any lessons learned...'
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm placeholder:text-red-300 ${isTooShort ? 'border-amber-400 bg-amber-50' : 'border-red-300'}`}
+                      className={`w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 leading-relaxed placeholder:text-red-300 ${isTooShort ? 'border-amber-400 bg-amber-50' : 'border-red-300'}`}
                       rows={isStrictDrop ? 4 : 3}
                       required
                     />
@@ -1903,7 +1902,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             <textarea
               value={formData.remark || ''}
               onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+              className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed ${((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
                 }`}
               rows={3}
               placeholder="Enter your notes, analysis, or additional comments..."

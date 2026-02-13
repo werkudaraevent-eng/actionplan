@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -14,25 +14,28 @@ export default function Sidebar() {
   const { departments, loading: deptLoading } = useDepartments();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
   const { can } = usePermission();
-  
+
   // Pending unlock requests count (Admin only)
   const [pendingCount, setPendingCount] = useState(0);
-  
+
+  // Pending drop requests count (Admin + Executive)
+  const [pendingDropCount, setPendingDropCount] = useState(0);
+
   useEffect(() => {
     if (!isAdmin || !supabase) return;
-    
+
     // Fetch initial count
     const fetchCount = async () => {
       const { count, error } = await supabase
         .from('action_plans')
         .select('*', { count: 'exact', head: true })
         .eq('unlock_status', 'pending');
-      
+
       if (!error) setPendingCount(count || 0);
     };
-    
+
     fetchCount();
-    
+
     // Subscribe to changes
     const channel = supabase
       .channel('pending_unlock_count')
@@ -42,9 +45,37 @@ export default function Sidebar() {
         () => fetchCount()
       )
       .subscribe();
-    
+
     return () => supabase.removeChannel(channel);
   }, [isAdmin]);
+
+  // Fetch pending drop requests count (Admin + Executive) — from action_plans directly
+  useEffect(() => {
+    if (!isAdmin && !isExecutive) return;
+    if (!supabase) return;
+
+    const fetchDropCount = async () => {
+      const { count, error } = await supabase
+        .from('action_plans')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_drop_pending', true)
+        .is('deleted_at', null);
+      if (!error) setPendingDropCount(count || 0);
+    };
+
+    fetchDropCount();
+
+    const channel = supabase
+      .channel('pending_drop_count')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'action_plans' },
+        () => fetchDropCount()
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [isAdmin, isExecutive]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -67,6 +98,7 @@ export default function Sidebar() {
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/workspace') return location.pathname === '/workspace';
     if (path === '/approvals') return location.pathname === '/approvals';
+    if (path === '/action-center') return location.pathname === '/action-center';
     if (path === '/audit-log') return location.pathname === '/audit-log';
     // Department routes
     if (path.startsWith('/dept/')) {
@@ -109,22 +141,34 @@ export default function Sidebar() {
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Overview</p>
             <button
               onClick={() => navigate('/dashboard')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                isActive('/dashboard') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/dashboard') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-sm">Company Dashboard</span>
             </button>
-            
+
             <button
               onClick={() => navigate('/plans')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${
-                isActive('/plans') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/plans') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <ListChecks className="w-4 h-4" />
               <span className="text-sm">All Action Plans</span>
+            </button>
+
+            <button
+              onClick={() => navigate('/action-center')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/action-center') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
+            >
+              <Gavel className="w-4 h-4" />
+              <span className="text-sm flex-1">Action Center</span>
+              {pendingDropCount > 0 && (
+                <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                  {pendingDropCount > 99 ? '99+' : pendingDropCount}
+                </span>
+              )}
             </button>
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Departments</p>
@@ -138,9 +182,8 @@ export default function Sidebar() {
                   <button
                     key={dept.code}
                     onClick={() => navigate(`/dept/${dept.code}/plans`)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                      isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                    }`}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                      }`}
                   >
                     <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
                       {dept.code}
@@ -157,9 +200,8 @@ export default function Sidebar() {
                 <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
                 <button
                   onClick={() => navigate('/approvals')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                    isActive('/approvals') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/approvals') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <Inbox className="w-4 h-4" />
                   <span className="text-sm flex-1">Approvals</span>
@@ -171,52 +213,47 @@ export default function Sidebar() {
                 </button>
                 <button
                   onClick={() => navigate('/users')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                    isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <Users className="w-4 h-4" />
                   <span className="text-sm">Team Management</span>
                 </button>
                 <button
                   onClick={() => navigate('/audit-log')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                    isActive('/audit-log') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/audit-log') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <History className="w-4 h-4" />
                   <span className="text-sm">Activity Log</span>
                 </button>
                 <button
                   onClick={() => navigate('/permissions')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                    isActive('/permissions') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/permissions') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <Shield className="w-4 h-4" />
                   <span className="text-sm">Access Control</span>
                 </button>
                 <button
                   onClick={() => navigate('/settings')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                    isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <Settings className="w-4 h-4" />
                   <span className="text-sm">Admin Settings</span>
                 </button>
               </>
             )}
-            
+
             {/* Team Management for non-admin users with permission */}
             {!isAdmin && can('user', 'view') && (
               <>
                 <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
                 <button
                   onClick={() => navigate('/users')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                    isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                  }`}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                    }`}
                 >
                   <Users className="w-4 h-4" />
                   <span className="text-sm">Team Management</span>
@@ -228,7 +265,7 @@ export default function Sidebar() {
           <>
             {/* STAFF VIEW: My Tasks + Department Overview */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
-            
+
             {/* Department Switcher - Show if staff has multiple departments */}
             {hasMultipleDepts && (
               <div className="mb-3 px-2">
@@ -255,12 +292,11 @@ export default function Sidebar() {
                 </div>
               </div>
             )}
-            
+
             <button
               onClick={() => navigate('/workspace')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                isActive('/workspace') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/workspace') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <ClipboardList className="w-4 h-4" />
               <span className="text-sm">My Action Plans</span>
@@ -269,14 +305,13 @@ export default function Sidebar() {
             {/* Allow staff to view department dashboard */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-sm">Team Overview</span>
             </button>
-            
+
             {!hasMultipleDepts && (
               <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
                 {getUserDeptName()}
@@ -287,7 +322,7 @@ export default function Sidebar() {
           <>
             {/* LEADER VIEW: Dashboard + Manage */}
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
-            
+
             {/* Department Switcher - Show if leader has multiple departments */}
             {hasMultipleDepts && (
               <div className="mb-3 px-2">
@@ -314,29 +349,27 @@ export default function Sidebar() {
                 </div>
               </div>
             )}
-            
+
             {/* Dashboard Link */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${
-                isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               <span className="text-sm">Dashboard</span>
             </button>
-            
+
             {/* Manage Action Plans Link */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/plans`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${
-                isActive(`/dept/${currentDept}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-              }`}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                }`}
             >
               <Table className="w-4 h-4" />
               <span className="text-sm">Manage Action Plans</span>
             </button>
-            
+
             {!hasMultipleDepts && (
               <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
                 {getUserDeptName()}
@@ -350,9 +383,8 @@ export default function Sidebar() {
       <div className="p-3 border-t border-teal-700 flex-shrink-0 space-y-1">
         <button
           onClick={() => navigate('/profile')}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
-            isActive('/profile') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-          }`}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/profile') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+            }`}
         >
           <UserCircle className="w-4 h-4" />
           <span className="text-sm">My Profile</span>

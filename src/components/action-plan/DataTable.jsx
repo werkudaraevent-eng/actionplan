@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info, LockKeyhole, Unlock, X, XCircle, AlertTriangle, FastForward, Check, Circle, Megaphone, Flame } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info, LockKeyhole, Unlock, X, XCircle, AlertTriangle, FastForward, Check, Circle, Megaphone, Flame, Hourglass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePermission } from '../../hooks/usePermission';
 import { STATUS_OPTIONS, supabase } from '../../lib/supabase';
@@ -327,17 +328,21 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
   const isAchieved = item.status?.toLowerCase() === 'achieved';
   const isGraded = item.quality_score != null;
   const needsGrading = isAdmin && item.submission_status === 'submitted' && !isGraded;
-  
+
   // Check unlock status (pending, approved, rejected)
   const isPendingUnlock = item.unlock_status === 'pending';
   const isApprovedUnlock = item.unlock_status === 'approved';
   const isRejectedUnlock = item.unlock_status === 'rejected';
-  
+
+  // NEW: Check drop pending status
+  const isDropPending = item.is_drop_pending === true;
+
   // Combined lock check: date-based lock OR submission lock (unless admin)
   // Admins can always edit regardless of date lock
   // If unlock is approved, the item is temporarily unlocked
-  const isEffectivelyLocked = !isAdmin && (isDateLocked || isSubmissionLocked) && !isApprovedUnlock;
-  
+  // NEW: Also lock if drop request is pending - strict lock
+  const isEffectivelyLocked = (!isAdmin && (isDateLocked || isSubmissionLocked) && !isApprovedUnlock) || (!isAdmin && isDropPending);
+
   // Permission-based edit check:
   // - Full edit: needs canEditPermission
   // - Submission mode: needs canUpdateStatusPermission (can open modal to update status/evidence)
@@ -351,9 +356,9 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
   // - Additional business rules: Staff can only delete if they have explicit permission
   // DEBUG: Log delete permission check
   const canDelete = canDeletePermission && !isReadOnly && !isEffectivelyLocked;
-  
+
   // Debug logging for delete permission
-  console.log(`[ActionCell] Delete check for item ${item.id?.slice(0,8)}:`, {
+  console.log(`[ActionCell] Delete check for item ${item.id?.slice(0, 8)}:`, {
     canDeletePermission,
     isReadOnly,
     isEffectivelyLocked,
@@ -362,12 +367,12 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
     isLeader,
     result: canDelete
   });
-  
+
   // Check if user can request unlock:
   // - Only Leaders (or Admins) can request unlock, NOT staff
   // - Must be date-locked and not already pending, approved, or rejected
   const canRequestUnlock = (isLeader || isAdmin) && isDateLocked && !isPendingUnlock && !isApprovedUnlock && !isRejectedUnlock && onRequestUnlock;
-  
+
   // Staff sees "Contact your Leader" message when locked
   const isStaffLocked = isStaff && isDateLocked && !isAdmin && !isApprovedUnlock;
 
@@ -430,14 +435,18 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 }}
                 disabled={!canEdit}
                 className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canEdit
-                    ? 'text-gray-700 hover:bg-gray-50'
-                    : 'text-gray-300 cursor-not-allowed'
+                  ? 'text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-300 cursor-not-allowed'
                   }`}
-                title={isStaffLocked ? 'Locked. Contact your Leader to request unlock.' : (isDateLocked && !isAdmin && !isApprovedUnlock ? lockStatusMessage : undefined)}
+                title={isDropPending
+                  ? 'Locked. Drop request pending management review.'
+                  : isStaffLocked
+                    ? 'Locked. Contact your Leader to request unlock.'
+                    : (isDateLocked && !isAdmin && !isApprovedUnlock ? lockStatusMessage : undefined)}
               >
                 {canEdit ? (
                   <Pencil className="w-4 h-4 text-gray-400" />
-                ) : isDateLocked && !isAdmin ? (
+                ) : (isDateLocked && !isAdmin) || isDropPending ? (
                   <LockKeyhole className="w-4 h-4 text-amber-400" />
                 ) : (
                   <Lock className="w-4 h-4 text-gray-300" />
@@ -446,9 +455,9 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 {isStaffLocked && (
                   <span className="ml-auto text-[10px] text-gray-400 font-medium">Contact Leader</span>
                 )}
-                {isDateLocked && !isAdmin && !isStaffLocked && !isApprovedUnlock && !isPendingUnlock && (
+                {(isDateLocked && !isAdmin && !isStaffLocked && !isApprovedUnlock && !isPendingUnlock) || isDropPending ? (
                   <span className="ml-auto text-[10px] text-amber-500 font-medium">Locked</span>
-                )}
+                ) : null}
               </DropdownMenu.Item>
             )}
 
@@ -462,7 +471,19 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 Request Unlock
               </DropdownMenu.Item>
             )}
-            
+
+            {/* PENDING DROP REQUEST indicator - Shows for non-admins to explain lock */}
+            {!isAdmin && isDropPending && (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-amber-600 bg-amber-50 rounded-md cursor-default border border-amber-200 mb-1">
+                <LockKeyhole className="w-4 h-4 animate-pulse hidden" />
+                <Lock className="w-4 h-4" />
+                <div className="flex flex-col">
+                  <span className="font-medium text-xs uppercase tracking-wider">Awaiting Decision</span>
+                  <span className="text-[10px] opacity-80">Drop Request Pending</span>
+                </div>
+              </div>
+            )}
+
             {/* Pending Unlock Request indicator - Shows for non-admins when pending */}
             {!isAdmin && isPendingUnlock && (
               <div className="flex items-center gap-2 px-3 py-2 text-sm text-amber-600 bg-amber-50 rounded-md cursor-default">
@@ -470,7 +491,7 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 <span className="font-medium">Awaiting Approval</span>
               </div>
             )}
-            
+
             {/* Approved Unlock indicator - Shows when unlock is approved */}
             {isApprovedUnlock && !isAdmin && (
               <div className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 bg-green-50 rounded-md cursor-default">
@@ -485,7 +506,7 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 </div>
               </div>
             )}
-            
+
             {/* REJECTED Unlock indicator - Shows when unlock was rejected */}
             {isRejectedUnlock && !isAdmin && (
               <div className="group relative flex items-center gap-2 px-3 py-2 text-sm text-red-600 bg-red-50 rounded-md cursor-help">
@@ -536,8 +557,8 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
                 }}
                 disabled={!canDelete}
                 className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors ${canDelete
-                    ? 'text-red-600 hover:bg-red-50'
-                    : 'text-gray-300 cursor-not-allowed'
+                  ? 'text-red-600 hover:bg-red-50'
+                  : 'text-gray-300 cursor-not-allowed'
                   }`}
               >
                 <Trash2 className="w-4 h-4" />
@@ -554,13 +575,14 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
 export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, onRequestUnlock, onCarryOver, onRefresh, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false, showPendingOnly = false, highlightPlanId = '', onEditModalClosed }) {
   const { isAdmin, isStaff, isLeader, profile } = useAuth();
   const { departments } = useDepartments();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { can, permissions, loading: permissionsLoading } = usePermission();
-  
+
   // Permission checks for edit/delete/update_status actions
   const canEditPermission = can('action_plan', 'edit');
   const canDeletePermission = can('action_plan', 'delete');
   const canUpdateStatusPermission = can('action_plan', 'update_status');
-  
+
   // Debug: Log permission state on every render
   useEffect(() => {
     console.log('[DataTable] Permission State:', {
@@ -575,11 +597,11 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       canUpdateStatusPermission
     });
   }, [profile?.role, isAdmin, isStaff, isLeader, permissionsLoading, permissions?.length, canEditPermission, canDeletePermission, canUpdateStatusPermission]);
-  
+
   const { toast } = useToast();
   const [updatingId, setUpdatingId] = useState(null);
   const [highlightedId, setHighlightedId] = useState(highlightPlanId);
-  
+
   // Deep link: Auto-open ViewDetailModal when highlightPlanId is provided
   useEffect(() => {
     if (highlightPlanId && data?.length > 0) {
@@ -600,7 +622,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               .select('*')
               .eq('id', highlightPlanId)
               .single();
-            
+
             if (!error && plan) {
               setViewPlan(plan);
             }
@@ -610,20 +632,25 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         };
         fetchAndOpenPlan();
       }
+
+      // Clean the URL: remove 'highlight' param so filters/refresh don't re-open modal
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('highlight');
+      setSearchParams(newParams, { replace: true });
     }
   }, [highlightPlanId, data]);
-  
+
   // Ref to track mouse position for distinguishing click vs drag
   const mouseDownCoords = useRef({ x: 0, y: 0 });
   const DRAG_THRESHOLD = 5; // pixels - if mouse moves more than this, it's a drag
-  
+
   // Lock settings state
   const [lockSettings, setLockSettings] = useState({
     isLockEnabled: false,
     lockCutoffDay: 6,
     monthlyOverrides: []
   });
-  
+
   // Reusable function to fetch lock settings (deadline rules)
   const fetchLockSettings = async () => {
     try {
@@ -633,21 +660,21 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         .select('is_lock_enabled, lock_cutoff_day')
         .eq('id', 1)
         .single();
-      
+
       if (settingsError) {
         console.error('Error fetching system settings:', settingsError);
         return;
       }
-      
+
       // Fetch monthly overrides
       const { data: schedulesData, error: schedulesError } = await supabase
         .from('monthly_lock_schedules')
         .select('month_index, year, lock_date, is_force_open');
-      
+
       if (schedulesError) {
         console.error('Error fetching monthly schedules:', schedulesError);
       }
-      
+
       setLockSettings({
         isLockEnabled: settingsData?.is_lock_enabled ?? false,
         lockCutoffDay: settingsData?.lock_cutoff_day ?? 6,
@@ -657,12 +684,12 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       console.error('Error fetching lock settings:', err);
     }
   };
-  
+
   // Fetch lock settings on mount
   useEffect(() => {
     fetchLockSettings();
   }, []);
-  
+
   // Helper to get department name from code
   const getDeptName = (code) => {
     const dept = departments.find(d => d.code === code);
@@ -671,10 +698,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   const [historyModal, setHistoryModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [viewPlan, setViewPlan] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
-  
+
   // Smart modal navigation: track if we should return to view modal after edit
   const [returnToViewPlan, setReturnToViewPlan] = useState(null);
-  
+
   // Handle data refresh when edit modal closes (stacked modal pattern)
   // onEditModalClosed is a counter that increments each time the edit modal closes
   useEffect(() => {
@@ -685,7 +712,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           planId: returnToViewPlan.id,
           counter: onEditModalClosed
         });
-        
+
         try {
           const { data: freshPlan, error } = await withTimeout(
             supabase
@@ -695,7 +722,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               .single(),
             8000
           );
-          
+
           if (!error && freshPlan) {
             console.log('[DataTable] Fresh plan fetched:', {
               id: freshPlan.id,
@@ -728,7 +755,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       refreshViewModal();
     }
   }, [onEditModalClosed, returnToViewPlan, data]);
-  
+
   // ADDITIONAL FIX: Keep viewPlan in sync with data prop changes
   // This ensures ViewDetailModal updates when the underlying data changes (e.g., from real-time subscription)
   useEffect(() => {
@@ -744,24 +771,24 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       }
     }
   }, [data, viewPlan]);
-  
+
   // Progress update modal state - for "On Progress" status changes
   const [progressModal, setProgressModal] = useState({ isOpen: false, plan: null, targetStatus: null });
   const [progressUpdating, setProgressUpdating] = useState(false);
-  
+
   // Report Blocker modal state - for Staff to report issues to Leader
   const [blockerModal, setBlockerModal] = useState({ isOpen: false, plan: null });
   const [blockerReason, setBlockerReason] = useState('');
   const [blockerSubmitting, setBlockerSubmitting] = useState(false);
-  
+
   // Blocker Resolution modal state - for completing a blocked task
   // Intercepts status change to Achieved/Not Achieved when is_blocked = true
   const [blockerResolutionModal, setBlockerResolutionModal] = useState({ isOpen: false, plan: null, targetStatus: null });
   const [resolutionNote, setResolutionNote] = useState('');
   const [resolutionSubmitting, setResolutionSubmitting] = useState(false);
-  
+
   // Clear Blocker state - REMOVED: resolution now requires dedicated modal
-  
+
   // Escalation detail modal state - for viewing blocker reason
   const [escalationDetailPlan, setEscalationDetailPlan] = useState(null);
   // Resolution mode state - for resolving blocker from the details modal
@@ -821,7 +848,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     if (showPendingOnly) {
       filteredData = data.filter(item => item.unlock_status === 'pending');
     }
-    
+
     if (!sortConfig.key) return filteredData;
 
     return [...filteredData].sort((a, b) => {
@@ -892,7 +919,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   // Sort indicator component - shows direction arrows with clear visual feedback
   const SortIndicator = ({ columnKey }) => {
     const isActive = sortConfig.key === columnKey;
-    
+
     if (!isActive) {
       // Inactive: show faint up/down arrows on hover to indicate sortability
       return (
@@ -902,7 +929,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         </div>
       );
     }
-    
+
     // Active: show single arrow with teal color
     return sortConfig.direction === 'ascending'
       ? <ChevronUp className="w-4 h-4 text-teal-600 flex-shrink-0" />
@@ -915,11 +942,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     const isActive = sortConfig.key === columnKey;
     return (
       <th
-        className={`px-4 py-4 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200 select-none group border-b border-gray-200 ${
-          isActive 
-            ? 'bg-teal-50 text-teal-700' 
-            : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-700'
-        } ${className}`}
+        className={`px-4 py-4 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200 select-none group border-b border-gray-200 ${isActive
+          ? 'bg-teal-50 text-teal-700'
+          : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-700'
+          } ${className}`}
         onClick={() => requestSort(columnKey)}
       >
         <div className={`flex items-center gap-2 whitespace-nowrap ${align === 'center' ? 'justify-center' : ''}`}>
@@ -1084,12 +1110,22 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       case 'outcome':
         return (
           <td key={colId} className="px-4 py-3 border-b border-gray-100">
-            {item.outcome_link ? (
+            {Array.isArray(item.attachments) && item.attachments.length > 0 ? (
+              <span
+                className="inline-flex items-center gap-1.5 text-teal-600 text-sm cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); setViewPlan(item); }}
+                title={`${item.attachments.length} evidence attachment(s)`}
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span className="font-medium">{item.attachments.length}</span>
+                <span className="text-xs text-gray-500">{item.attachments.length === 1 ? 'file' : 'files'}</span>
+              </span>
+            ) : item.outcome_link ? (
               isUrl(item.outcome_link) ? (
-                <a 
-                  href={item.outcome_link} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                <a
+                  href={item.outcome_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm"
                 >
@@ -1127,7 +1163,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   const handleStatusChange = async (item, newStatus) => {
     // Capture old status for potential UI revert
     const oldStatus = item.status;
-    
+
     // SECURITY: Pre-flight lock validation (server-side check)
     // Prevents stale UI from bypassing lock restrictions
     if (!isAdmin) {
@@ -1136,9 +1172,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         item.month,
         item.year,
         item.unlock_status,
-        item.approved_until
+        item.approved_until,
+        item.temporary_unlock_expiry
       );
-      
+
       if (serverLockStatus.isLocked) {
         // A. Show error toast immediately (with longer duration)
         toast({
@@ -1147,10 +1184,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           variant: 'error',
           duration: 4000 // 4 seconds to ensure user reads it
         });
-        
+
         // B. Clear any loading state
         setUpdatingId(null);
-        
+
         // C. Delay the FULL refresh by 2 seconds so user can read the message
         // CRITICAL: Refresh BOTH action plans AND lock settings (deadline rules)
         // This ensures the UI shows correct locked state after admin changes deadlines
@@ -1163,14 +1200,14 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         return;
       }
     }
-    
+
     // INTERCEPT: "On Progress" status requires a progress note
     // Open modal instead of saving immediately
     if (newStatus === 'On Progress') {
       setProgressModal({ isOpen: true, plan: item, targetStatus: newStatus });
       return;
     }
-    
+
     // INTERCEPT: Completing a BLOCKED task - different flows for Achieved vs Not Achieved
     // Achieved: Show BlockerResolutionModal to explain how blocker was resolved
     // Not Achieved: Pass through to standard RCA modal with blocker_reason pre-filled
@@ -1181,7 +1218,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         setResolutionNote('');
         return;
       }
-      
+
       if (newStatus === 'Not Achieved') {
         // For failure case, pass through to standard RCA modal with blocker pre-filled
         // The blocker_reason will be injected into the remark field as initial value
@@ -1201,7 +1238,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         }
       }
     }
-    
+
     if (newStatus === 'Achieved' && !isAdmin) {
       if (onCompletionStatusChange) {
         onCompletionStatusChange(item, newStatus);
@@ -1245,15 +1282,15 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       // NOTE: The DB trigger will automatically log this status change to audit_logs
       const { error: updateError } = await supabase
         .from('action_plans')
-        .update({ 
+        .update({
           status: targetStatus
         })
         .eq('id', planId);
-      
+
       if (updateError) {
         throw updateError;
       }
-      
+
       // 2. Insert into progress_logs for detailed progress history tracking
       // This is where the progress note lives - NOT in the remark column
       // (This is separate from audit_logs - progress_logs is for user-facing progress notes)
@@ -1264,23 +1301,23 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           user_id: profile?.id,
           message: progressNote
         });
-      
+
       if (logError) {
         console.error('Failed to save progress log:', logError);
         // Don't fail - the main update succeeded
       }
-      
+
       // 3. Refresh the data
       if (onRefresh) {
         await onRefresh();
       }
-      
+
       toast({
         title: 'Status Updated',
         description: 'Progress note saved to history.',
         variant: 'success'
       });
-      
+
       // Close modal
       setProgressModal({ isOpen: false, plan: null, targetStatus: null });
     } catch (err) {
@@ -1307,12 +1344,12 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       });
       return;
     }
-    
+
     setBlockerSubmitting(true);
     try {
       const planId = blockerModal.plan.id;
       const blockerMessage = blockerReason.trim();
-      
+
       // Call RPC function that:
       // 1. Updates action_plan (is_blocked=true, blocker_reason)
       // 2. Finds department leader and creates notification
@@ -1323,30 +1360,30 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           p_blocker_reason: blockerMessage,
           p_user_id: profile?.id
         });
-      
+
       if (rpcError) {
         console.error('RPC error:', rpcError);
         throw rpcError;
       }
-      
+
       // Check RPC result
       if (data && !data.success) {
         throw new Error(data.error || 'Failed to report blocker');
       }
-      
+
       // Refresh data
       if (onRefresh) {
         await onRefresh();
       }
-      
+
       toast({
         title: '✋ Blocker Reported',
-        description: data?.leader_notified 
+        description: data?.leader_notified
           ? 'Your Leader has been notified about this issue.'
           : 'Blocker recorded. No leader found for this department.',
         variant: 'warning'
       });
-      
+
       // Close modal and reset
       setBlockerModal({ isOpen: false, plan: null });
       setBlockerReason('');
@@ -1372,25 +1409,25 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       });
       return;
     }
-    
+
     setDetailResolutionSubmitting(true);
     try {
       const planId = escalationDetailPlan.id;
       const resolutionMessage = detailResolutionNote.trim();
-      
+
       // 1. Clear blocker flags ONLY - do NOT change status
       const { error: updateError } = await supabase
         .from('action_plans')
-        .update({ 
+        .update({
           is_blocked: false,
           blocker_reason: null
         })
         .eq('id', planId);
-      
+
       if (updateError) {
         throw updateError;
       }
-      
+
       // 2. Log the resolution to progress_logs
       const { error: logError } = await supabase
         .from('progress_logs')
@@ -1399,22 +1436,22 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           user_id: profile?.id,
           message: `[BLOCKER RESOLVED] ${resolutionMessage}`
         });
-      
+
       if (logError) {
         console.error('Failed to save resolution log:', logError);
       }
-      
+
       // 3. Refresh data
       if (onRefresh) {
         await onRefresh();
       }
-      
+
       toast({
         title: '✅ Blocker Resolved',
         description: 'The blocker has been cleared. Task remains in progress.',
         variant: 'success'
       });
-      
+
       // Close modal and reset state
       setEscalationDetailPlan(null);
       setShowResolutionInput(false);
@@ -1437,7 +1474,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   const handleBlockerResolutionConfirm = async () => {
     const isAchieved = blockerResolutionModal.targetStatus === 'Achieved';
     const minLength = 10; // Always 10 chars for resolution explanation
-    
+
     if (!blockerResolutionModal.plan || resolutionNote.trim().length < minLength) {
       toast({
         title: 'Validation Error',
@@ -1446,30 +1483,30 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       });
       return;
     }
-    
+
     setResolutionSubmitting(true);
     try {
       const planId = blockerResolutionModal.plan.id;
       const targetStatus = blockerResolutionModal.targetStatus;
       const resolutionMessage = resolutionNote.trim();
-      
+
       // 1. Update status and clear blocker - do NOT touch the remark field
       // The remark column should only change when user explicitly edits it in the Edit Modal
       // The DB trigger will automatically log the status change + blocker auto-resolved
       const { error: updateError } = await supabase
         .from('action_plans')
-        .update({ 
+        .update({
           status: targetStatus,
           is_blocked: false,
           blocker_reason: null
         })
         .eq('id', planId);
-      
+
       if (updateError) {
         console.error('Supabase update error:', updateError);
         throw updateError;
       }
-      
+
       // 2. Insert into progress_logs for user-facing history
       // This is where the resolution note lives - NOT in the remark column
       const { error: logError } = await supabase
@@ -1479,22 +1516,22 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           user_id: profile?.id,
           message: `[BLOCKER RESOLVED] ${resolutionMessage} → Status: ${targetStatus}`
         });
-      
+
       if (logError) {
         console.error('Failed to save resolution log:', logError);
       }
-      
+
       // 3. Refresh data
       if (onRefresh) {
         await onRefresh();
       }
-      
+
       toast({
         title: '✅ Task Completed',
         description: 'Blocker resolved and status updated to Achieved.',
         variant: 'success'
       });
-      
+
       // Close modal and reset
       setBlockerResolutionModal({ isOpen: false, plan: null, targetStatus: null });
       setResolutionNote('');
@@ -1581,20 +1618,23 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                     item.year,
                     item.unlock_status,
                     item.approved_until,
-                    lockSettings
+                    lockSettings,
+                    item.temporary_unlock_expiry // Admin revision grace period
                   );
                   const isDateLocked = itemLockStatus.isLocked;
                   const lockMessage = getLockStatusMessage(itemLockStatus);
-                  
+                  const isDropPending = item.is_drop_pending === true;
+
                   // Determine if row should have "Ghost Style" (visually distinct locked appearance)
                   // Apply when date-locked AND not admin AND not approved for unlock
-                  const isGhostRow = isDateLocked && !isAdmin && item.unlock_status !== 'approved';
-                  
+                  // OR when drop request is pending
+                  const isGhostRow = (isDateLocked && !isAdmin && item.unlock_status !== 'approved') || (!isAdmin && isDropPending);
+
                   // Check escalation level for left-border indicator
                   const isFinalStatus = item.status === 'Achieved' || item.status === 'Not Achieved';
                   const isManagementEscalated = !isFinalStatus && item.attention_level === 'Management_BOD';
                   const isLeaderEscalated = !isFinalStatus && item.attention_level === 'Leader';
-                  
+
                   // Define row background color for sticky column consistency
                   // Clean white rows — escalation indicated by left border strip only
                   // Carry-over items get a subtle amber/rose tint
@@ -1603,414 +1643,443 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   const isLateM1 = item.carry_over_status === 'Late_Month_1';
                   const rowBgColor = isGhostRow ? 'bg-gray-100'
                     : isLateM2 ? 'bg-rose-50'
-                    : isLateM1 ? 'bg-amber-50/60'
-                    : 'bg-white';
+                      : isLateM1 ? 'bg-amber-50/60'
+                        : 'bg-white';
                   const rowHoverBgColor = isGhostRow ? 'group-hover/row:bg-gray-200'
                     : isLateM2 ? 'group-hover/row:bg-rose-100/60'
-                    : isLateM1 ? 'group-hover/row:bg-amber-100/60'
-                    : 'group-hover/row:bg-gray-50';
-                  
+                      : isLateM1 ? 'group-hover/row:bg-amber-100/60'
+                        : 'group-hover/row:bg-gray-50';
+
                   // Left-border escalation indicator class
                   const escalationBorderClass = isManagementEscalated
                     ? 'border-l-4 border-l-rose-600'
                     : isLeaderEscalated
-                    ? 'border-l-4 border-l-amber-500'
-                    : '';
-                  
+                      ? 'border-l-4 border-l-amber-500'
+                      : '';
+
                   // Check if this row should be highlighted (from notification click)
                   const isHighlighted = highlightedId === item.id;
-                  
+
                   return (
-                  <tr 
-                    key={item.id}
-                    id={`plan-row-${item.id}`}
-                    onMouseDown={(e) => {
-                      mouseDownCoords.current = { x: e.clientX, y: e.clientY };
-                    }}
-                    onClick={(e) => {
-                      // Calculate distance moved since mousedown
-                      const dx = Math.abs(e.clientX - mouseDownCoords.current.x);
-                      const dy = Math.abs(e.clientY - mouseDownCoords.current.y);
-                      // Only trigger view if it was a static click (not a drag)
-                      if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) {
-                        setViewPlan(item);
-                      }
-                    }}
-                    className={`transition-colors group/row cursor-pointer ${rowBgColor} ${
-                      isHighlighted
+                    <tr
+                      key={item.id}
+                      id={`plan-row-${item.id}`}
+                      onMouseDown={(e) => {
+                        mouseDownCoords.current = { x: e.clientX, y: e.clientY };
+                      }}
+                      onClick={(e) => {
+                        // Calculate distance moved since mousedown
+                        const dx = Math.abs(e.clientX - mouseDownCoords.current.x);
+                        const dy = Math.abs(e.clientY - mouseDownCoords.current.y);
+                        // Only trigger view if it was a static click (not a drag)
+                        if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) {
+                          setViewPlan(item);
+                        }
+                      }}
+                      className={`transition-colors group/row cursor-pointer ${rowBgColor} ${isHighlighted
                         ? 'ring-2 ring-teal-500 ring-inset bg-teal-50 animate-pulse'
-                        : isGhostRow 
-                        ? `${escalationBorderClass || 'border-l-4 border-l-amber-400'} grayscale-[40%] opacity-80 hover:opacity-95 hover:grayscale-[20%] hover:bg-gray-200` 
-                        : `${escalationBorderClass} hover:bg-gray-50`
-                    }`}
-                  >
-                    {/* First column - sticky left, z-20 (above scrolling content, below headers) */}
-                    {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
-                    <td className={`px-4 py-3 text-sm sticky left-0 z-20 border-b border-r border-gray-100 ${rowBgColor} ${rowHoverBgColor} ${
-                      isGhostRow ? 'text-gray-400' : 'text-gray-600'
-                    }`}>{indexOfFirstItem + index + 1}</td>
-                    {showDepartmentColumn && (
-                      <td className="px-4 py-3 border-b border-gray-100">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800" title={getDeptName(item.department_code)}>
-                          {item.department_code}
-                        </span>
-                      </td>
-                    )}
-                    {/* Dynamic columns based on columnOrder */}
-                    {columnOrder.map(colId => {
-                      // Status cell - Clickable Badge Pattern (Opens Edit Modal)
-                      // REMOVED: Direct dropdown that caused "Update Failed" errors
-                      // All status changes now go through ActionPlanModal for proper validation
-                      if (colId === 'status' && visibleColumns.status) {
-                        // Determine lock states
-                        const isStatusLocked = !isAdmin && (isDateLocked || item.submission_status === 'submitted');
-                        const isAdminDateLocked = isAdmin && isDateLocked && item.submission_status !== 'submitted';
-                        
-                        // Check if plan has progress logs (for pulse indicator)
-                        const hasProgressLogs = item.remark && item.status === 'On Progress';
-                        
-                        // Blocked duration & severity
-                        const blockedDays = getBlockedDays(item);
-                        const blockedSeverity = getBlockedSeverity(blockedDays);
-                        const blockedLabel = getBlockedDaysLabel(blockedDays);
-                        const isBlocked = item.status === 'Blocked';
-                        
-                        // Status display text — append age counter for Blocked items
-                        const statusDisplayText = isBlocked ? `Blocked (${blockedLabel})` : item.status;
-                        
-                        // Severity-based badge colors for Blocked status
-                        const blockedBadgeColor = isBlocked
-                          ? blockedSeverity === 'critical' ? 'bg-rose-200 text-rose-900'
-                          : blockedSeverity === 'warning' ? 'bg-red-200 text-red-800'
-                          : 'bg-red-100 text-red-700' // normal
-                          : null;
-                        
-                        // Use severity color for Blocked, otherwise default STATUS_COLORS
-                        const badgeColor = blockedBadgeColor || STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700';
-                        
-                        // Handler for clicking status badge - opens Edit Modal
-                        const handleStatusBadgeClick = (e) => {
-                          e.stopPropagation();
-                          if (isReadOnly) {
-                            // Read-only users can only view
-                            setViewPlan(item);
-                            return;
-                          }
-                          if (isStatusLocked && !isAdmin) {
-                            // Show lock message for non-admins
-                            toast({
-                              title: '🔒 Period Locked',
-                              description: lockMessage || 'This reporting period is locked.',
-                              variant: 'warning',
-                              duration: 3000
-                            });
-                            return;
-                          }
-                          // Open Edit Modal for status change
-                          if (onEdit) {
-                            onEdit(item);
-                          }
-                        };
-                        
-                        // Handler for admin clicking on locked status
-                        const handleAdminLockedClick = (e) => {
-                          e.stopPropagation();
-                          // Admin can still edit - open the modal
-                          if (onEdit) {
-                            onEdit(item);
-                          }
-                        };
-                        
-                        return (
-                          <td key={colId} className="px-4 py-3 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
-                            {/* Status cell: badge row + optional resolution metadata */}
-                            <div className="flex flex-col items-start">
-                            <div className="relative flex items-center gap-2 h-8">
-                              {/* Loading overlay */}
-                              {updatingId === item.id && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
-                                  <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                        : isGhostRow
+                          ? `${escalationBorderClass || 'border-l-4 border-l-amber-400'} grayscale-[40%] opacity-80 hover:opacity-95 hover:grayscale-[20%] hover:bg-gray-200`
+                          : `${escalationBorderClass} hover:bg-gray-50`
+                        }`}
+                    >
+                      {/* First column - sticky left, z-20 (above scrolling content, below headers) */}
+                      {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
+                      <td className={`px-4 py-3 text-sm sticky left-0 z-20 border-b border-r border-gray-100 ${rowBgColor} ${rowHoverBgColor} ${isGhostRow ? 'text-gray-400' : 'text-gray-600'
+                        }`}>{indexOfFirstItem + index + 1}</td>
+                      {showDepartmentColumn && (
+                        <td className="px-4 py-3 border-b border-gray-100">
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800" title={getDeptName(item.department_code)}>
+                            {item.department_code}
+                          </span>
+                        </td>
+                      )}
+                      {/* Dynamic columns based on columnOrder */}
+                      {columnOrder.map(colId => {
+                        // Status cell - Clickable Badge Pattern (Opens Edit Modal)
+                        // REMOVED: Direct dropdown that caused "Update Failed" errors
+                        // All status changes now go through ActionPlanModal for proper validation
+                        if (colId === 'status' && visibleColumns.status) {
+                          // Determine lock states
+                          const isStatusLocked = !isAdmin && (isDateLocked || item.submission_status === 'submitted');
+                          const isAdminDateLocked = isAdmin && isDateLocked && item.submission_status !== 'submitted';
+
+                          // === REVISION MODE: Active grace period from admin "Request Revision" ===
+                          const isRevisionMode = item.temporary_unlock_expiry
+                            && new Date() < new Date(item.temporary_unlock_expiry)
+                            && item.status === 'On Progress'
+                            && item.submission_status === 'draft';
+                          const revisionDaysLeft = isRevisionMode
+                            ? Math.max(0, Math.ceil((new Date(item.temporary_unlock_expiry) - new Date()) / (1000 * 60 * 60 * 24)))
+                            : 0;
+
+                          // Check if plan has progress logs (for pulse indicator)
+                          const hasProgressLogs = item.remark && item.status === 'On Progress';
+
+                          // Blocked duration & severity
+                          const blockedDays = getBlockedDays(item);
+                          const blockedSeverity = getBlockedSeverity(blockedDays);
+                          const blockedLabel = getBlockedDaysLabel(blockedDays);
+                          const isBlocked = item.status === 'Blocked';
+
+                          // Status display text — revision mode overrides, then blocked appends age
+                          const statusDisplayText = isRevisionMode
+                            ? `⏳ Revision: ${revisionDaysLeft}d`
+                            : isBlocked ? `Blocked (${blockedLabel})` : item.status;
+
+                          // Severity-based badge colors for Blocked status
+                          const blockedBadgeColor = isBlocked
+                            ? blockedSeverity === 'critical' ? 'bg-rose-200 text-rose-900'
+                              : blockedSeverity === 'warning' ? 'bg-red-200 text-red-800'
+                                : 'bg-red-100 text-red-700' // normal
+                            : null;
+
+                          // Revision mode gets amber badge treatment; blocked gets severity color; else default
+                          const badgeColor = isRevisionMode
+                            ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300'
+                            : blockedBadgeColor || STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700';
+
+                          // Handler for clicking status badge - opens Edit Modal
+                          const handleStatusBadgeClick = (e) => {
+                            e.stopPropagation();
+                            if (isReadOnly) {
+                              // Read-only users can only view
+                              setViewPlan(item);
+                              return;
+                            }
+                            if (isStatusLocked && !isAdmin) {
+                              // Show lock message for non-admins
+                              toast({
+                                title: '🔒 Period Locked',
+                                description: lockMessage || 'This reporting period is locked.',
+                                variant: 'warning',
+                                duration: 3000
+                              });
+                              return;
+                            }
+                            // Open Edit Modal for status change
+                            if (onEdit) {
+                              onEdit(item);
+                            }
+                          };
+
+                          // Handler for admin clicking on locked status
+                          const handleAdminLockedClick = (e) => {
+                            e.stopPropagation();
+                            // Admin can still edit - open the modal
+                            if (onEdit) {
+                              onEdit(item);
+                            }
+                          };
+
+                          return (
+                            <td key={colId} className="px-4 py-3 border-b border-gray-100" onClick={(e) => e.stopPropagation()}>
+                              {/* Status cell: badge row + optional resolution metadata */}
+                              <div className="flex flex-col items-start">
+                                <div className="relative flex items-center gap-2 h-8">
+                                  {/* Loading overlay */}
+                                  {updatingId === item.id && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
+                                      <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                                    </div>
+                                  )}
+
+                                  {/* === STATUS BADGE (Clickable - Opens Edit Modal) === */}
+                                  {/* REMOVED: Direct dropdown that caused "Update Failed" errors */}
+                                  {/* All status changes now go through ActionPlanModal for proper validation */}
+                                  {/* LAYOUT: justify-between pushes text LEFT and icon RIGHT for perfect alignment */}
+                                  {isRevisionMode ? (
+                                    <span
+                                      className="group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer bg-amber-100 text-amber-800 hover:ring-2 hover:ring-amber-400 transition-all whitespace-nowrap select-none"
+                                      title={`Admin requested revision. Access open until: ${new Date(item.temporary_unlock_expiry).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}`}
+                                      onClick={handleStatusBadgeClick}
+                                    >
+                                      {/* Left: Icon + Text */}
+                                      <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
+                                        <Clock className="w-3 h-3 flex-shrink-0" />
+                                        <span>Revision: {revisionDaysLeft}d</span>
+                                      </div>
+
+                                      {/* Right: Divider + Icon */}
+                                      <div className="pr-2 flex items-center gap-2">
+                                        <div className="w-px h-4 bg-amber-400/30" />
+                                        <Hourglass className="w-3.5 h-3.5 text-amber-600 opacity-70" />
+                                      </div>
+                                    </span>
+                                  ) : isReadOnly ? (
+                                    /* Read-only: Static badge - click opens view modal */
+                                    <div
+                                      className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer hover:ring-2 hover:ring-gray-300 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
+                                      onClick={() => setViewPlan(item)}
+                                      title="Click to view details"
+                                    >
+                                      {/* Left: Lock icon + Status text */}
+                                      <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
+                                        <Lock className="w-3 h-3 opacity-60 flex-shrink-0" />
+                                        <span>{statusDisplayText}</span>
+                                        {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
+                                      </div>
+                                      {/* Right: Divider + Status icon */}
+                                      <div className="pr-2 flex items-center gap-2">
+                                        <div className={`w-px h-4 ${item.status === 'Achieved' ? 'bg-green-400/30' :
+                                          item.status === 'Not Achieved' ? 'bg-red-400/30' :
+                                            item.status === 'Blocked' ? 'bg-red-400/30' :
+                                              item.status === 'On Progress' ? 'bg-yellow-500/30' :
+                                                'bg-gray-400/30'
+                                          }`} />
+                                        {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
+                                          item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
+                                            item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
+                                              item.status === 'On Progress' ? (
+                                                <span className="relative flex h-2.5 w-2.5">
+                                                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
+                                                </span>
+                                              ) :
+                                                <Circle className="w-2.5 h-2.5 opacity-50" />}
+                                      </div>
+                                    </div>
+                                  ) : isAdminDateLocked ? (
+                                    /* Admin + Date Locked: Clickable badge - opens edit modal */
+                                    <button
+                                      type="button"
+                                      className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer opacity-75 hover:opacity-100 hover:ring-2 hover:ring-amber-400 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
+                                      onClick={handleAdminLockedClick}
+                                      title="Click to edit (Admin override)"
+                                    >
+                                      {/* Left: Lock icon + Status text + Pencil on hover */}
+                                      <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
+                                        <LockKeyhole className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                                        <span>{statusDisplayText}</span>
+                                        {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
+                                        <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0" />
+                                      </div>
+                                      {/* Right: Divider + Status icon */}
+                                      <div className="pr-2 flex items-center gap-2">
+                                        <div className={`w-px h-4 ${item.status === 'Achieved' ? 'bg-green-400/30' :
+                                          item.status === 'Not Achieved' ? 'bg-red-400/30' :
+                                            item.status === 'Blocked' ? 'bg-red-400/30' :
+                                              item.status === 'On Progress' ? 'bg-yellow-500/30' :
+                                                'bg-gray-400/30'
+                                          }`} />
+                                        {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
+                                          item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
+                                            item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
+                                              item.status === 'On Progress' ? (
+                                                <span className="relative flex h-2.5 w-2.5">
+                                                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
+                                                </span>
+                                              ) :
+                                                <Circle className="w-2.5 h-2.5 opacity-50" />}
+                                      </div>
+                                    </button>
+                                  ) : isStatusLocked ? (
+                                    /* Non-admin + Locked: Show lock icon, click shows toast */
+                                    <div
+                                      className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer opacity-75 hover:opacity-90 transition-opacity whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
+                                      onClick={handleStatusBadgeClick}
+                                      title={isDateLocked ? lockMessage : (item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading.")}
+                                    >
+                                      {/* Left: Lock icon + Status text */}
+                                      <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
+                                        {isDateLocked ? <LockKeyhole className="w-3 h-3 text-amber-500 flex-shrink-0" /> : <Lock className="w-3 h-3 flex-shrink-0" />}
+                                        <span>{statusDisplayText}</span>
+                                        {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
+                                      </div>
+                                      {/* Right: Divider + Status icon */}
+                                      <div className="pr-2 flex items-center gap-2">
+                                        <div className={`w-px h-4 ${item.status === 'Achieved' ? 'bg-green-400/30' :
+                                          item.status === 'Not Achieved' ? 'bg-red-400/30' :
+                                            item.status === 'Blocked' ? 'bg-red-400/30' :
+                                              item.status === 'On Progress' ? 'bg-yellow-500/30' :
+                                                'bg-gray-400/30'
+                                          }`} />
+                                        {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
+                                          item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
+                                            item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
+                                              item.status === 'On Progress' ? (
+                                                <span className="relative flex h-2.5 w-2.5">
+                                                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
+                                                </span>
+                                              ) :
+                                                <Circle className="w-2.5 h-2.5 opacity-50" />}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Editable: Clickable badge that opens Edit Modal */
+                                    <button
+                                      type="button"
+                                      onClick={handleStatusBadgeClick}
+                                      disabled={updatingId === item.id}
+                                      className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''} ${isRevisionMode ? 'hover:ring-amber-400' :
+                                        item.status === 'Achieved' ? 'hover:ring-green-400' :
+                                          item.status === 'Not Achieved' ? 'hover:ring-red-400' :
+                                            item.status === 'Blocked' ? 'hover:ring-red-400' :
+                                              item.status === 'On Progress' ? 'hover:ring-yellow-400' :
+                                                'hover:ring-gray-400'
+                                        }`}
+                                      title={isRevisionMode ? `Revision mode: ${revisionDaysLeft} day${revisionDaysLeft !== 1 ? 's' : ''} left to edit` : 'Click to update status'}
+                                    >
+                                      {/* Left: Status text + Pencil on hover */}
+                                      <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
+                                        <span>{statusDisplayText}</span>
+                                        {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
+                                        <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0" />
+                                      </div>
+                                      {/* Right: Divider + Status icon */}
+                                      <div className="pr-2 flex items-center gap-2">
+                                        <div className={`w-px h-4 ${isRevisionMode ? 'bg-amber-400/30' :
+                                          item.status === 'Achieved' ? 'bg-green-400/30' :
+                                            item.status === 'Not Achieved' ? 'bg-red-400/30' :
+                                              item.status === 'Blocked' ? 'bg-red-400/30' :
+                                                item.status === 'On Progress' ? 'bg-yellow-500/30' :
+                                                  'bg-gray-400/30'
+                                          }`} />
+                                        {isRevisionMode ? <Hourglass className="w-3.5 h-3.5 text-amber-600 opacity-70" /> :
+                                          item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
+                                            item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
+                                              item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
+                                                item.status === 'On Progress' ? (
+                                                  hasProgressLogs ? (
+                                                    <span className="relative flex h-2.5 w-2.5">
+                                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-600 opacity-75"></span>
+                                                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
+                                                    </span>
+                                                  ) : (
+                                                    <span className="relative flex h-2.5 w-2.5">
+                                                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
+                                                    </span>
+                                                  )
+                                                ) :
+                                                  <Circle className="w-2.5 h-2.5 opacity-50" />}
+                                      </div>
+                                    </button>
+                                  )}
+
+                                  {/* === INLINE INDICATORS (Right side of badge) === */}
+
+                                  {/* Escalation Icon - Shows next to Blocked badge based on attention_level */}
+                                  {!isFinalStatus && item.status === 'Blocked' && item.attention_level === 'Management_BOD' && (
+                                    <span className="flex-shrink-0" title="Management / BOD Escalation">
+                                      <Megaphone size={14} className="text-red-600" />
+                                    </span>
+                                  )}
+                                  {!isFinalStatus && item.status === 'Blocked' && item.attention_level === 'Leader' && (
+                                    <span className="flex-shrink-0" title="Leader Escalation">
+                                      <AlertTriangle size={14} className="text-amber-500" />
+                                    </span>
+                                  )}
+
+                                  {/* BLOCKED Badge - Shows when is_blocked=true AND status is not already "Blocked" and not a final status */}
+                                  {item.is_blocked && item.status !== 'Blocked' && !isFinalStatus && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEscalationDetailPlan(item);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2 h-6 bg-red-100 text-red-700 rounded-full text-[10px] font-medium cursor-pointer hover:bg-red-200 transition-colors flex-shrink-0"
+                                      title={`Blocker reported: ${item.blocker_reason || 'No reason provided'}`}
+                                    >
+                                      <AlertTriangle className="w-3 h-3" />
+                                      BLOCKED
+                                    </button>
+                                  )}
+
+                                  {/* Resolution Outcome — subtle metadata below the badge row */}
+                                  {/* (Moved outside the horizontal flex into the vertical wrapper) */}
                                 </div>
-                              )}
-                              
-                              {/* === STATUS BADGE (Clickable - Opens Edit Modal) === */}
-                              {/* REMOVED: Direct dropdown that caused "Update Failed" errors */}
-                              {/* All status changes now go through ActionPlanModal for proper validation */}
-                              {/* LAYOUT: justify-between pushes text LEFT and icon RIGHT for perfect alignment */}
-                              {isReadOnly ? (
-                                /* Read-only: Static badge - click opens view modal */
-                                <div 
-                                  className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer hover:ring-2 hover:ring-gray-300 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
-                                  onClick={() => setViewPlan(item)}
-                                  title="Click to view details"
+                                {/* Resolution metadata line — sits below the status badge row */}
+                                {/* Temporary Unlock Timer — shows when admin approved with expiry */}
+                                {item.unlock_status === 'approved' && item.approved_until && new Date(item.approved_until) > new Date() && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded mt-0.5 cursor-help"
+                                    title="Admin granted temporary access. Please update status and submit before this time."
+                                  >
+                                    <Unlock className="w-3 h-3" />
+                                    🔓 Until {new Date(item.approved_until).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                                  </span>
+                                )}
+                                {/* Revision Grace Period Countdown — shows when admin requested revision */}
+
+                                {item.status === 'Not Achieved' && item.resolution_type === 'carried_over' && (
+                                  <span
+                                    className="text-[10px] text-blue-600 mt-0.5 cursor-help"
+                                    title={`This item was carried over to ${item.carried_to_month || 'next month'} with a penalty score cap.`}
+                                  >
+                                    ↳ Moved to {item.carried_to_month || 'next month'}
+                                  </span>
+                                )}
+                                {item.status === 'Not Achieved' && item.resolution_type === 'dropped' && (
+                                  <span
+                                    className="text-[10px] text-gray-500 mt-0.5 cursor-help"
+                                    title="This item was dropped via the monthly resolution wizard."
+                                  >
+                                    ❌ Closed / Dropped
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        }
+                        // Score cell
+                        if (colId === 'score' && visibleColumns.score) {
+                          const hasCap = item.max_possible_score != null && item.max_possible_score < 100;
+                          return (
+                            <td key={colId} className="px-4 py-3 text-center border-b border-gray-100">
+                              {item.quality_score != null ? (
+                                <span
+                                  className={`px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 ${item.quality_score >= 80 ? 'bg-green-500 text-white' :
+                                    item.quality_score >= 60 ? 'bg-amber-500 text-white' :
+                                      item.quality_score > 0 ? 'bg-red-500 text-white' :
+                                        'bg-gray-400 text-white'
+                                    }`}
+                                  title={`Verification Score: ${item.quality_score}/${item.max_possible_score ?? 100}`}
                                 >
-                                  {/* Left: Lock icon + Status text */}
-                                  <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
-                                    <Lock className="w-3 h-3 opacity-60 flex-shrink-0" />
-                                    <span>{statusDisplayText}</span>
-                                    {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
-                                  </div>
-                                  {/* Right: Divider + Status icon */}
-                                  <div className="pr-2 flex items-center gap-2">
-                                    <div className={`w-px h-4 ${
-                                      item.status === 'Achieved' ? 'bg-green-400/30' :
-                                      item.status === 'Not Achieved' ? 'bg-red-400/30' :
-                                      item.status === 'Blocked' ? 'bg-red-400/30' :
-                                      item.status === 'On Progress' ? 'bg-yellow-500/30' :
-                                      'bg-gray-400/30'
-                                    }`} />
-                                    {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
-                                     item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
-                                     item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
-                                     item.status === 'On Progress' ? (
-                                       <span className="relative flex h-2.5 w-2.5">
-                                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
-                                       </span>
-                                     ) :
-                                     <Circle className="w-2.5 h-2.5 opacity-50" />}
-                                  </div>
-                                </div>
-                              ) : isAdminDateLocked ? (
-                                /* Admin + Date Locked: Clickable badge - opens edit modal */
-                                <button
-                                  type="button"
-                                  className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer opacity-75 hover:opacity-100 hover:ring-2 hover:ring-amber-400 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
-                                  onClick={handleAdminLockedClick}
-                                  title="Click to edit (Admin override)"
-                                >
-                                  {/* Left: Lock icon + Status text + Pencil on hover */}
-                                  <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
-                                    <LockKeyhole className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                    <span>{statusDisplayText}</span>
-                                    {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
-                                    <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0" />
-                                  </div>
-                                  {/* Right: Divider + Status icon */}
-                                  <div className="pr-2 flex items-center gap-2">
-                                    <div className={`w-px h-4 ${
-                                      item.status === 'Achieved' ? 'bg-green-400/30' :
-                                      item.status === 'Not Achieved' ? 'bg-red-400/30' :
-                                      item.status === 'Blocked' ? 'bg-red-400/30' :
-                                      item.status === 'On Progress' ? 'bg-yellow-500/30' :
-                                      'bg-gray-400/30'
-                                    }`} />
-                                    {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
-                                     item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
-                                     item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
-                                     item.status === 'On Progress' ? (
-                                       <span className="relative flex h-2.5 w-2.5">
-                                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
-                                       </span>
-                                     ) :
-                                     <Circle className="w-2.5 h-2.5 opacity-50" />}
-                                  </div>
-                                </button>
-                              ) : isStatusLocked ? (
-                                /* Non-admin + Locked: Show lock icon, click shows toast */
-                                <div 
-                                  className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer opacity-75 hover:opacity-90 transition-opacity whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''}`}
-                                  onClick={handleStatusBadgeClick}
-                                  title={isDateLocked ? lockMessage : (item.quality_score != null ? "Finalized & Graded" : "Locked. Waiting for Management Grading.")}
-                                >
-                                  {/* Left: Lock icon + Status text */}
-                                  <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
-                                    {isDateLocked ? <LockKeyhole className="w-3 h-3 text-amber-500 flex-shrink-0" /> : <Lock className="w-3 h-3 flex-shrink-0" />}
-                                    <span>{statusDisplayText}</span>
-                                    {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
-                                  </div>
-                                  {/* Right: Divider + Status icon */}
-                                  <div className="pr-2 flex items-center gap-2">
-                                    <div className={`w-px h-4 ${
-                                      item.status === 'Achieved' ? 'bg-green-400/30' :
-                                      item.status === 'Not Achieved' ? 'bg-red-400/30' :
-                                      item.status === 'Blocked' ? 'bg-red-400/30' :
-                                      item.status === 'On Progress' ? 'bg-yellow-500/30' :
-                                      'bg-gray-400/30'
-                                    }`} />
-                                    {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
-                                     item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
-                                     item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
-                                     item.status === 'On Progress' ? (
-                                       <span className="relative flex h-2.5 w-2.5">
-                                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
-                                       </span>
-                                     ) :
-                                     <Circle className="w-2.5 h-2.5 opacity-50" />}
-                                  </div>
-                                </div>
+                                  <Star className={`w-3 h-3 ${item.quality_score === 0 ? 'opacity-60' : ''}`} />
+                                  {item.quality_score}{hasCap ? `/${item.max_possible_score}` : ''}
+                                </span>
+                              ) : hasCap ? (
+                                <span className="text-xs text-gray-400" title={`Score capped at ${item.max_possible_score}% due to carry-over penalty`}>
+                                  Max {item.max_possible_score}
+                                </span>
                               ) : (
-                                /* Editable: Clickable badge that opens Edit Modal */
-                                <button
-                                  type="button"
-                                  onClick={handleStatusBadgeClick}
-                                  disabled={updatingId === item.id}
-                                  className={`group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer hover:ring-2 hover:ring-offset-1 transition-all whitespace-nowrap ${badgeColor} ${isBlocked && blockedSeverity === 'critical' ? 'animate-pulse' : ''} ${
-                                    item.status === 'Achieved' ? 'hover:ring-green-400' :
-                                    item.status === 'Not Achieved' ? 'hover:ring-red-400' :
-                                    item.status === 'Blocked' ? 'hover:ring-red-400' :
-                                    item.status === 'On Progress' ? 'hover:ring-yellow-400' :
-                                    'hover:ring-gray-400'
-                                  }`}
-                                  title="Click to update status"
-                                >
-                                  {/* Left: Status text + Pencil on hover */}
-                                  <div className="pl-3 flex items-center gap-1.5 whitespace-nowrap">
-                                    <span>{statusDisplayText}</span>
-                                    {isBlocked && blockedSeverity === 'critical' && <Flame className="w-3 h-3 text-orange-500 flex-shrink-0" />}
-                                    <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0" />
-                                  </div>
-                                  {/* Right: Divider + Status icon */}
-                                  <div className="pr-2 flex items-center gap-2">
-                                    <div className={`w-px h-4 ${
-                                      item.status === 'Achieved' ? 'bg-green-400/30' :
-                                      item.status === 'Not Achieved' ? 'bg-red-400/30' :
-                                      item.status === 'Blocked' ? 'bg-red-400/30' :
-                                      item.status === 'On Progress' ? 'bg-yellow-500/30' :
-                                      'bg-gray-400/30'
-                                    }`} />
-                                    {item.status === 'Achieved' ? <Check className="w-3.5 h-3.5 text-emerald-700 opacity-70" /> :
-                                     item.status === 'Not Achieved' ? <X className="w-3.5 h-3.5 text-rose-700 opacity-70" /> :
-                                     item.status === 'Blocked' ? <AlertTriangle className="w-3.5 h-3.5 text-red-700 opacity-70" /> :
-                                     item.status === 'On Progress' ? (
-                                       hasProgressLogs ? (
-                                         <span className="relative flex h-2.5 w-2.5">
-                                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-600 opacity-75"></span>
-                                           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
-                                         </span>
-                                       ) : (
-                                         <span className="relative flex h-2.5 w-2.5">
-                                           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-600"></span>
-                                         </span>
-                                       )
-                                     ) :
-                                     <Circle className="w-2.5 h-2.5 opacity-50" />}
-                                  </div>
-                                </button>
+                                <span className="text-gray-400 text-sm">—</span>
                               )}
-                              
-                              {/* === INLINE INDICATORS (Right side of badge) === */}
-                              
-                              {/* Escalation Icon - Shows next to Blocked badge based on attention_level */}
-                              {!isFinalStatus && item.status === 'Blocked' && item.attention_level === 'Management_BOD' && (
-                                <span className="flex-shrink-0" title="Management / BOD Escalation">
-                                  <Megaphone size={14} className="text-red-600" />
-                                </span>
-                              )}
-                              {!isFinalStatus && item.status === 'Blocked' && item.attention_level === 'Leader' && (
-                                <span className="flex-shrink-0" title="Leader Escalation">
-                                  <AlertTriangle size={14} className="text-amber-500" />
-                                </span>
-                              )}
-                              
-                              {/* BLOCKED Badge - Shows when is_blocked=true AND status is not already "Blocked" and not a final status */}
-                              {item.is_blocked && item.status !== 'Blocked' && !isFinalStatus && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEscalationDetailPlan(item);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 h-6 bg-red-100 text-red-700 rounded-full text-[10px] font-medium cursor-pointer hover:bg-red-200 transition-colors flex-shrink-0" 
-                                  title={`Blocker reported: ${item.blocker_reason || 'No reason provided'}`}
-                                >
-                                  <AlertTriangle className="w-3 h-3" />
-                                  BLOCKED
-                                </button>
-                              )}
-                              
-                              {/* Resolution Outcome — subtle metadata below the badge row */}
-                              {/* (Moved outside the horizontal flex into the vertical wrapper) */}
-                            </div>
-                            {/* Resolution metadata line — sits below the status badge row */}
-                            {/* Temporary Unlock Timer — shows when admin approved with expiry */}
-                            {item.unlock_status === 'approved' && item.approved_until && new Date(item.approved_until) > new Date() && (
-                              <span 
-                                className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded mt-0.5 cursor-help"
-                                title="Admin granted temporary access. Please update status and submit before this time."
-                              >
-                                <Unlock className="w-3 h-3" />
-                                🔓 Until {new Date(item.approved_until).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
-                              </span>
-                            )}
-                            {item.status === 'Not Achieved' && item.resolution_type === 'carried_over' && (
-                              <span 
-                                className="text-[10px] text-blue-600 mt-0.5 cursor-help" 
-                                title={`This item was carried over to ${item.carried_to_month || 'next month'} with a penalty score cap.`}
-                              >
-                                ↳ Moved to {item.carried_to_month || 'next month'}
-                              </span>
-                            )}
-                            {item.status === 'Not Achieved' && item.resolution_type === 'dropped' && (
-                              <span 
-                                className="text-[10px] text-gray-500 mt-0.5 cursor-help" 
-                                title="This item was dropped via the monthly resolution wizard."
-                              >
-                                ❌ Closed / Dropped
-                              </span>
-                            )}
-                            </div>
-                          </td>
-                        );
-                      }
-                      // Score cell
-                      if (colId === 'score' && visibleColumns.score) {
-                        const hasCap = item.max_possible_score != null && item.max_possible_score < 100;
-                        return (
-                          <td key={colId} className="px-4 py-3 text-center border-b border-gray-100">
-                            {item.quality_score != null ? (
-                              <span
-                                className={`px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 ${item.quality_score >= 80 ? 'bg-green-500 text-white' :
-                                  item.quality_score >= 60 ? 'bg-amber-500 text-white' :
-                                    item.quality_score > 0 ? 'bg-red-500 text-white' :
-                                      'bg-gray-400 text-white'
-                                  }`}
-                                title={`Verification Score: ${item.quality_score}/${item.max_possible_score ?? 100}`}
-                              >
-                                <Star className={`w-3 h-3 ${item.quality_score === 0 ? 'opacity-60' : ''}`} />
-                                {item.quality_score}{hasCap ? `/${item.max_possible_score}` : ''}
-                              </span>
-                            ) : hasCap ? (
-                              <span className="text-xs text-gray-400" title={`Score capped at ${item.max_possible_score}% due to carry-over penalty`}>
-                                Max {item.max_possible_score}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400 text-sm">—</span>
-                            )}
-                          </td>
-                        );
-                      }
-                      // Other columns use the renderer
-                      return renderColumnCell(colId, item);
-                    })}
-                    {/* Last column - sticky right, z-20 (above scrolling content, below headers) */}
-                    {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
-                    <td className={`px-4 py-3 sticky right-0 z-20 border-b border-l border-gray-100 ${rowBgColor} ${rowHoverBgColor}`} onClick={(e) => e.stopPropagation()}>
-                      <ActionCell
-                        item={item}
-                        isAdmin={isAdmin}
-                        isStaff={isStaff}
-                        isLeader={isLeader}
-                        profile={profile}
-                        onGrade={onGrade}
-                        onQuickReset={onQuickReset}
-                        onEdit={onEdit}
-                        onDelete={onDelete}
-                        onRequestUnlock={onRequestUnlock}
-                        onCarryOver={onCarryOver}
-                        onReportBlocker={(item) => {
-                          setBlockerModal({ isOpen: true, plan: item });
-                          setBlockerReason('');
-                        }}
-                        openHistory={openHistory}
-                        isReadOnly={isReadOnly}
-                        isDateLocked={isDateLocked}
-                        lockStatusMessage={lockMessage}
-                        canEditPermission={canEditPermission}
-                        canDeletePermission={canDeletePermission}
-                        canUpdateStatusPermission={canUpdateStatusPermission}
-                      />
-                    </td>
-                  </tr>
+                            </td>
+                          );
+                        }
+                        // Other columns use the renderer
+                        return renderColumnCell(colId, item);
+                      })}
+                      {/* Last column - sticky right, z-20 (above scrolling content, below headers) */}
+                      {/* CRITICAL: Must have explicit background color to prevent transparency overlap */}
+                      <td className={`px-4 py-3 sticky right-0 z-20 border-b border-l border-gray-100 ${rowBgColor} ${rowHoverBgColor}`} onClick={(e) => e.stopPropagation()}>
+                        <ActionCell
+                          item={item}
+                          isAdmin={isAdmin}
+                          isStaff={isStaff}
+                          isLeader={isLeader}
+                          profile={profile}
+                          onGrade={onGrade}
+                          onQuickReset={onQuickReset}
+                          onEdit={onEdit}
+                          onDelete={onDelete}
+                          onRequestUnlock={onRequestUnlock}
+                          onCarryOver={onCarryOver}
+                          onReportBlocker={(item) => {
+                            setBlockerModal({ isOpen: true, plan: item });
+                            setBlockerReason('');
+                          }}
+                          openHistory={openHistory}
+                          isReadOnly={isReadOnly}
+                          isDateLocked={isDateLocked}
+                          lockStatusMessage={lockMessage}
+                          canEditPermission={canEditPermission}
+                          canDeletePermission={canDeletePermission}
+                          canUpdateStatusPermission={canUpdateStatusPermission}
+                        />
+                      </td>
+                    </tr>
                   );
                 })
               )}
@@ -2067,9 +2136,9 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       </div>
 
       <HistoryModal isOpen={historyModal.isOpen} onClose={closeHistory} actionPlanId={historyModal.planId} actionPlanTitle={historyModal.planTitle} />
-      <ViewDetailModal 
-        plan={viewPlan} 
-        onClose={() => setViewPlan(null)} 
+      <ViewDetailModal
+        plan={viewPlan}
+        onClose={() => setViewPlan(null)}
         onEscalate={(plan) => {
           // Escalation now goes through ActionPlanModal (set status to Blocked with attention_level)
           setViewPlan(null);
@@ -2106,19 +2175,19 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         targetStatus={progressModal.targetStatus}
         isLoading={progressUpdating}
       />
-      
+
       {/* Blocker Details Modal - Centered modal to view blocker reason with resolution option */}
       {escalationDetailPlan && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center">
-          <div 
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => {
               if (!detailResolutionSubmitting) {
                 setEscalationDetailPlan(null);
                 setShowResolutionInput(false);
                 setDetailResolutionNote('');
               }
-            }} 
+            }}
           />
           <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
             {/* Header */}
@@ -2144,7 +2213,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 </button>
               </div>
             </div>
-            
+
             {/* Body */}
             <div className="p-6 space-y-4">
               {/* Action Plan Info */}
@@ -2154,7 +2223,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   {escalationDetailPlan.action_plan || escalationDetailPlan.goal_strategy || 'N/A'}
                 </p>
               </div>
-              
+
               {/* Blocker Reason */}
               <div>
                 <p className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-2">Current Obstacle</p>
@@ -2164,7 +2233,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   </p>
                 </div>
               </div>
-              
+
               {/* Resolution Input - Shows when "Mark as Resolved" is clicked */}
               {showResolutionInput && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
@@ -2182,11 +2251,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                     }}
                     placeholder="e.g., Internet restored, vendor responded, resource allocated..."
                     rows={3}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 ${
-                      detailResolutionNote.length > 0 && detailResolutionNote.length < 5 
-                        ? 'border-red-300 bg-red-50' 
-                        : 'border-gray-300 bg-white'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 ${detailResolutionNote.length > 0 && detailResolutionNote.length < 5
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-gray-300 bg-white'
+                      }`}
                     disabled={detailResolutionSubmitting}
                     autoFocus
                   />
@@ -2195,7 +2263,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   </p>
                 </div>
               )}
-              
+
               {/* Meta Info */}
               <div className="flex items-center gap-4 text-xs text-gray-500 pt-2 border-t border-gray-100">
                 <span>Department: <strong className="text-gray-700">{escalationDetailPlan.department_code}</strong></span>
@@ -2203,7 +2271,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 <span>Status: <strong className="text-gray-700">{escalationDetailPlan.status}</strong></span>
               </div>
             </div>
-            
+
             {/* Footer */}
             <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
               {!showResolutionInput ? (
@@ -2268,7 +2336,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           </div>
         </div>
       )}
-      
+
       {/* Report Blocker Modal - Staff reports issue to Leader */}
       {blockerModal.isOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center">
@@ -2288,16 +2356,16 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 </div>
               </div>
             </div>
-            
+
             {/* Body */}
             <div className="p-6 space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> This will notify your Department Leader about the issue. 
+                  <strong>Note:</strong> This will notify your Department Leader about the issue.
                   They will decide whether to escalate to Management or resolve it internally.
                 </p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Describe the issue: <span className="text-red-500">*</span>
@@ -2313,11 +2381,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   }}
                   placeholder="e.g., Waiting for vendor response, need budget approval, resource unavailable..."
                   rows={4}
-                  className={`w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${
-                    blockerReason.length > 0 && blockerReason.length < 10 
-                      ? 'border-red-300 bg-red-50' 
-                      : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${blockerReason.length > 0 && blockerReason.length < 10
+                    ? 'border-red-300 bg-red-50'
+                    : 'border-gray-300'
+                    }`}
                   disabled={blockerSubmitting}
                 />
                 <p className={`text-xs mt-1 ${blockerReason.length > 0 && blockerReason.length < 10 ? 'text-red-500' : 'text-gray-400'}`}>
@@ -2325,7 +2392,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 </p>
               </div>
             </div>
-            
+
             {/* Footer */}
             <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
               <button
@@ -2358,7 +2425,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           </div>
         </div>
       )}
-      
+
       {/* Blocker Resolution Modal - For completing blocked tasks as Achieved */}
       {/* Note: "Not Achieved" on blocked items goes through standard RCA modal with blocker prefill */}
       {blockerResolutionModal.isOpen && (
@@ -2379,7 +2446,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 </div>
               </div>
             </div>
-            
+
             {/* Body */}
             <div className="p-6 space-y-4">
               {/* Info box showing the blocker that was reported */}
@@ -2389,15 +2456,15 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   "{blockerResolutionModal.plan?.blocker_reason || 'No reason recorded'}"
                 </p>
               </div>
-              
+
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> This task was marked as blocked. Before marking it as 
-                  <span className="font-semibold text-emerald-700"> "Achieved"</span>, 
+                  <strong>Note:</strong> This task was marked as blocked. Before marking it as
+                  <span className="font-semibold text-emerald-700"> "Achieved"</span>,
                   please explain how the blocker was resolved.
                 </p>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   How was this blocker resolved? <span className="text-red-500">*</span>
@@ -2413,11 +2480,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   }}
                   placeholder="e.g., Vendor responded with approval, budget was allocated, found alternative resource..."
                   rows={4}
-                  className={`w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 ${
-                    resolutionNote.length > 0 && resolutionNote.length < 10 
-                      ? 'border-red-300 bg-red-50' 
-                      : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 ${resolutionNote.length > 0 && resolutionNote.length < 10
+                    ? 'border-red-300 bg-red-50'
+                    : 'border-gray-300'
+                    }`}
                   disabled={resolutionSubmitting}
                 />
                 <p className={`text-xs mt-1 ${resolutionNote.length > 0 && resolutionNote.length < 10 ? 'text-red-500' : 'text-gray-400'}`}>
@@ -2425,7 +2491,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 </p>
               </div>
             </div>
-            
+
             {/* Footer */}
             <div className="bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
               <button

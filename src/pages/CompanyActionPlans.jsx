@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Building2, ClipboardCheck, PartyPopper, FileSpreadsheet, FileText, RotateCcw, Loader2, AlertTriangle, ArrowRight, XCircle, User, Megaphone, CheckCircle, Eye } from 'lucide-react';
+import { Building2, FileSpreadsheet, FileText, RotateCcw, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -7,7 +7,6 @@ import { useAuth } from '../context/AuthContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
 import { usePermission } from '../hooks/usePermission';
-import { supabase, withTimeout } from '../lib/supabase';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
 import UnifiedPageHeader from '../components/layout/UnifiedPageHeader';
 import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
@@ -15,8 +14,6 @@ import ActionPlanModal from '../components/action-plan/ActionPlanModal';
 import ConfirmationModal from '../components/common/ConfirmationModal';
 import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
 import ExportConfigModal from '../components/action-plan/ExportConfigModal';
-import ResolutionModal from '../components/action-plan/ResolutionModal';
-import ViewDetailModal from '../components/action-plan/ViewDetailModal';
 import { useToast } from '../components/common/Toast';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -38,12 +35,9 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  
+
   // Smart modal navigation: counter to signal when edit modal closes
   const [editModalClosedCounter, setEditModalClosedCounter] = useState(0);
-
-  // Tab state for Admin Grading Inbox - use initialActiveTab prop
-  const [activeTab, setActiveTab] = useState(initialActiveTab);
 
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
@@ -84,89 +78,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     }
   }, [initialDeptFilter]);
 
-  // Update active tab when prop changes (from dashboard navigation)
-  useEffect(() => {
-    if (initialActiveTab) {
-      setActiveTab(initialActiveTab);
-    }
-  }, [initialActiveTab]);
 
-  // Count items needing grading (submitted but not yet graded)
-  const needsGradingCount = useMemo(() => {
-    return plans.filter(p =>
-      p.submission_status === 'submitted' && p.quality_score == null
-    ).length;
-  }, [plans]);
 
-  // Department filter for grading tab
-  const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
-
-  // Items needing grading - sorted by department then month, with optional dept filter
-  const needsGradingPlans = useMemo(() => {
-    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return plans
-      .filter(p => {
-        // Must be submitted and not yet graded
-        if (p.submission_status !== 'submitted' || p.quality_score != null) return false;
-        // Apply department filter if set - STRICT CODE COMPARISON
-        if (gradingDeptFilter && gradingDeptFilter !== 'all') {
-          const filterCode = gradingDeptFilter.trim().toUpperCase();
-          const planCode = (p.department_code || '').trim().toUpperCase();
-          
-          if (planCode !== filterCode) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        // First sort by department
-        if (a.department_code !== b.department_code) {
-          return a.department_code.localeCompare(b.department_code);
-        }
-        // Then by month (oldest first)
-        return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
-      });
-  }, [plans, gradingDeptFilter]);
-
-  // Escalation department filter
-  const [escalationDeptFilter, setEscalationDeptFilter] = useState('all');
-
-  // Count escalated items (Management/BOD level only)
-  const escalationCount = useMemo(() => {
-    return plans.filter(p => p.status === 'Blocked' && p.attention_level === 'Management_BOD').length;
-  }, [plans]);
-
-  // Escalated items - sorted by department then month, with optional dept filter
-  const escalationPlans = useMemo(() => {
-    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return plans
-      .filter(p => {
-        // Must be Management/BOD escalation only
-        if (p.status !== 'Blocked' || p.attention_level !== 'Management_BOD') return false;
-        // Apply department filter if set
-        if (escalationDeptFilter && escalationDeptFilter !== 'all') {
-          const filterCode = escalationDeptFilter.trim().toUpperCase();
-          const planCode = (p.department_code || '').trim().toUpperCase();
-          if (planCode !== filterCode) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        // First sort by department
-        if (a.department_code !== b.department_code) {
-          return a.department_code.localeCompare(b.department_code);
-        }
-        // Then by month (oldest first)
-        return monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month);
-      });
-  }, [plans, escalationDeptFilter]);
-
-  // Combined filter logic - respects active tab
+  // Combined filter logic
   const filteredPlans = useMemo(() => {
-    // If on "needs_grading" tab, use the pre-filtered list
-    if (activeTab === 'needs_grading') {
-      return needsGradingPlans;
-    }
-
     const startIdx = MONTH_INDEX[startMonth] ?? 0;
     const endIdx = MONTH_INDEX[endMonth] ?? 11;
 
@@ -176,7 +91,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       if (selectedDept && selectedDept !== 'all' && selectedDept !== 'All' && selectedDept !== 'All Departments') {
         const filterCode = selectedDept.trim().toUpperCase();
         const planCode = (plan.department_code || '').trim().toUpperCase();
-        
+
         if (planCode !== filterCode) {
           return false;
         }
@@ -226,7 +141,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     });
 
     return filtered;
-  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, activeTab, needsGradingPlans]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation
@@ -303,7 +218,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         const row = {};
         columns.forEach(col => {
           let value = plan[col.key] ?? '';
-          
+
           // Handle special computed columns
           if (col.key === 'root_cause') {
             // Only populate for "Not Achieved" status
@@ -320,7 +235,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           } else if (col.key === 'created_at' && value) {
             value = new Date(value).toLocaleDateString();
           }
-          
+
           row[col.label] = value;
         });
         return row;
@@ -348,22 +263,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   // Export PDF handler - Mirrors current table state (WYSIWYG)
   const handleExportPDF = async (config = {}) => {
     const { includesSummary = true, isConsolidated = false } = config;
-    
+
     setExportingPdf(true);
     setShowExportModal(false);
-    
+
     try {
       // Month order for chronological sorting
       const monthMap = {
         'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
         'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
       };
-      
+
       // Consolidation helper - merges duplicate plans into single rows with grouped months
       // CRITICAL: Uses strict string sanitization to ensure proper matching
       const consolidateData = (data) => {
         const grouped = {};
-        
+
         data.forEach(row => {
           // Create a strict content fingerprint
           // ONLY include fields that define the "same" action plan
@@ -379,7 +294,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             row.evidence,
             row.pic
           ].map(val => String(val || '').trim().toLowerCase()).join('|');
-          
+
           if (!grouped[fingerprint]) {
             // First occurrence: Clone row and init months array
             grouped[fingerprint] = { ...row, _monthsList: [row.month] };
@@ -390,13 +305,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             }
           }
         });
-        
+
         // Convert back to array and format the 'Month' column
         return Object.values(grouped).map(item => {
           // Remove duplicate months and sort chronologically
           const uniqueMonths = [...new Set(item._monthsList)];
           uniqueMonths.sort((a, b) => (monthMap[a] || 99) - (monthMap[b] || 99));
-          
+
           // Format month label based on count
           let monthLabel = '';
           if (uniqueMonths.length === 12) {
@@ -410,13 +325,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           } else {
             monthLabel = uniqueMonths[0] || '-';
           }
-          
+
           // Clean up internal property and return
           const { _monthsList, ...cleanItem } = item;
           return { ...cleanItem, month: monthLabel };
         });
       };
-      
+
       // Use filteredPlans directly - already filtered by current UI filters
       // Apply multi-level sorting: Department (Primary) -> Month (Secondary, chronological)
       let sortedData = [...filteredPlans].sort((a, b) => {
@@ -425,22 +340,22 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         const deptB = (b.department_code || '').toLowerCase();
         const deptCompare = deptA.localeCompare(deptB);
         if (deptCompare !== 0) return deptCompare;
-        
+
         // Secondary: Sort by month (chronological)
         const monthA = monthMap[a.month] || 99;
         const monthB = monthMap[b.month] || 99;
         return monthA - monthB;
       });
-      
+
       // Apply consolidation if enabled
       const dataToExport = isConsolidated ? consolidateData(sortedData) : sortedData;
-      
+
       if (dataToExport.length === 0) {
         toast({ title: 'No Data', description: 'No action plans to export.', variant: 'warning' });
         setExportingPdf(false);
         return;
       }
-      
+
       // Column definitions - maps table column IDs to PDF labels and data accessors
       // Adjust month column width when consolidated (needs more space for ranges)
       const COLUMN_DEFS = {
@@ -458,17 +373,17 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         outcome: { label: 'Proof', fixedWidth: null, align: 'left', getValue: (p) => String(p.outcome_link || '-') },
         remark: { label: 'Remark', fixedWidth: null, align: 'left', getValue: (p) => String(p.remark || '-') },
       };
-      
+
       // Build active columns from table's columnOrder and visibleColumns state
       // Always include Dept at start for company-wide view
       const tableCols = columnOrder.filter(colId => visibleColumns[colId] && COLUMN_DEFS[colId]);
       const finalCols = ['dept', ...tableCols];
-      
+
       // Build table headers and row builder
       const tableHead = [finalCols.map(c => COLUMN_DEFS[c]?.label || c)];
       const buildRow = (p) => finalCols.map(c => COLUMN_DEFS[c]?.getValue(p) || '-');
       const statusColIdx = finalCols.indexOf('status');
-      
+
       // Build column styles
       const colStyles = {};
       finalCols.forEach((colId, idx) => {
@@ -479,16 +394,16 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           colStyles[idx] = { halign: def?.align || 'left' };
         }
       });
-      
+
       // Create PDF document - LANDSCAPE A4
       const doc = new jsPDF('landscape', 'mm', 'a4');
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 12;
-      const generatedDate = new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+      const generatedDate = new Date().toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
       });
-      
+
       // Helper: Add header
       const addHeader = () => {
         doc.setFillColor(13, 148, 136);
@@ -501,7 +416,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         doc.setFont('helvetica', 'normal');
         doc.text(`Company-Wide | FY ${CURRENT_YEAR}`, pageWidth - margin, 12, { align: 'right' });
       };
-      
+
       // Helper: Add footer
       const addFooter = (pageNum, totalPages) => {
         doc.setFontSize(8);
@@ -512,10 +427,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         doc.setDrawColor(200, 200, 200);
         doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
       };
-      
+
       // Add first page header
       addHeader();
-      
+
       // Report info
       let yPosition = 26;
       doc.setFontSize(10);
@@ -523,10 +438,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       doc.setTextColor(100, 100, 100);
       doc.text(`Total: ${dataToExport.length} Action Plans | ${finalCols.length} Columns`, margin, yPosition);
       yPosition += 6;
-      
+
       // Build table body
       const tableBody = dataToExport.map(buildRow);
-      
+
       // Generate table
       autoTable(doc, {
         startY: yPosition,
@@ -564,19 +479,19 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         },
         didDrawCell: () => { doc.setTextColor(0, 0, 0); }
       });
-      
+
       // Add Summary Page (optional)
       if (includesSummary) {
         doc.addPage();
         addHeader();
-        
+
         doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(31, 41, 55);
         doc.text('Executive Summary', margin, 32);
-        
+
         let summaryY = 45;
-        
+
         const priorityConfig = {
           'UH (Ultra High)': { color: [220, 38, 38], shortLabel: 'Ultra High' },
           'H (High)': { color: [234, 88, 12], shortLabel: 'High' },
@@ -585,7 +500,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           'Uncategorized': { color: [107, 114, 128], shortLabel: 'Uncategorized' }
         };
         const priorityOrder = ['UH (Ultra High)', 'H (High)', 'M (Medium)', 'L (Low)', 'Uncategorized'];
-        
+
         const categoryToBucket = (category) => {
           if (!category || typeof category !== 'string') return 'Uncategorized';
           const normalized = category.trim();
@@ -595,12 +510,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           if (normalized.includes('Low') || normalized === 'L') return 'L (Low)';
           return 'Uncategorized';
         };
-        
+
         const drawBullet = (x, y, color) => {
           doc.setFillColor(color[0], color[1], color[2]);
           doc.circle(x, y - 1.5, 2, 'F');
         };
-        
+
         // Priority Breakdown
         doc.setFillColor(248, 250, 252);
         doc.roundedRect(margin, summaryY - 5, 120, 60, 3, 3, 'F');
@@ -608,15 +523,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(31, 41, 55);
         doc.text('Priority Distribution', margin + 5, summaryY + 3);
-        
+
         summaryY += 12;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
-        
+
         const priorityCounts = {};
         priorityOrder.forEach(k => { priorityCounts[k] = 0; });
         dataToExport.forEach(p => { priorityCounts[categoryToBucket(p.category)]++; });
-        
+
         priorityOrder.forEach(priorityKey => {
           const count = priorityCounts[priorityKey];
           if (count > 0) {
@@ -630,12 +545,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             summaryY += 7;
           }
         });
-        
+
         summaryY += 3;
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(13, 148, 136);
         doc.text(`Total: ${dataToExport.length} action plans`, margin + 5, summaryY);
-        
+
         // Status Breakdown
         summaryY = 45;
         doc.setFillColor(248, 250, 252);
@@ -644,19 +559,19 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(31, 41, 55);
         doc.text('Status Breakdown', margin + 135, summaryY + 3);
-        
+
         summaryY += 12;
         doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
-        
+
         const statusCounts = {};
         const statusColors = { 'Achieved': [22, 163, 74], 'On Progress': [37, 99, 235], 'Open': [107, 114, 128], 'Not Achieved': [220, 38, 38] };
-        
+
         dataToExport.forEach(p => {
           const status = p.status || 'Unknown';
           statusCounts[status] = (statusCounts[status] || 0) + 1;
         });
-        
+
         Object.entries(statusCounts).forEach(([status, count]) => {
           const percentage = ((count / dataToExport.length) * 100).toFixed(1);
           const color = statusColors[status] || [107, 114, 128];
@@ -667,18 +582,18 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           summaryY += 7;
         });
       }
-      
+
       // Add page numbers
       const totalPages = doc.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         addFooter(i, totalPages);
       }
-      
+
       // Save
       const timestamp = new Date().toISOString().split('T')[0];
       doc.save(`Werkudara_Action_Plans_${CURRENT_YEAR}_${timestamp}.pdf`);
-      
+
       toast({ title: 'PDF Exported', description: 'Report generated successfully.', variant: 'success' });
     } catch (error) {
       console.error('PDF Export failed:', error);
@@ -695,7 +610,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         const originalPlan = plans.find(p => p.id === editData.id);
         const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
         const blockerWasAutoResolved = isCompletionStatus && originalPlan?.is_blocked === true;
-        
+
         await updatePlan(editData.id, {
           month: formData.month,
           goal_strategy: formData.goal_strategy,
@@ -706,10 +621,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           status: formData.status,
           outcome_link: formData.outcome_link,
           remark: formData.remark,
+          // Multi-file evidence attachments
+          ...(formData.attachments !== undefined && { attachments: formData.attachments }),
           // Gap analysis fields for "Not Achieved" status
           gap_category: formData.gap_category,
           gap_analysis: formData.gap_analysis,
           specify_reason: formData.specify_reason,
+          // Follow-up action fields (Carry Over / Drop)
+          ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
+          ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
           // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
           ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
           ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
@@ -717,13 +637,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           ...(formData.blocker_category !== undefined && { blocker_category: formData.blocker_category }),
           ...(formData.attention_level !== undefined && { attention_level: formData.attention_level }),
         }, originalPlan);
-        
+
         // Show toast if blocker was auto-resolved
         if (blockerWasAutoResolved) {
-          toast({ 
-            title: 'Plan Completed', 
-            description: 'Blocker has been automatically cleared.', 
-            variant: 'success' 
+          toast({
+            title: 'Plan Completed',
+            description: 'Blocker has been automatically cleared.',
+            variant: 'success'
           });
         }
       }
@@ -825,90 +745,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     }
   };
 
-  // Escalation action state
-  const [escalationUpdating, setEscalationUpdating] = useState(null);
-  
-  // Resolution modal state
-  const [resolutionModal, setResolutionModal] = useState({ isOpen: false, item: null });
 
-  // View detail modal state (for escalation cards)
-  const [viewPlan, setViewPlan] = useState(null);
-
-  // Track which escalation plans have management instructions
-  const [instructedPlanIds, setInstructedPlanIds] = useState(new Set());
-
-  // Fetch instruction status when escalation plans change
-  useEffect(() => {
-    if (escalationPlans.length === 0) {
-      setInstructedPlanIds(new Set());
-      return;
-    }
-    const ids = escalationPlans.map(p => p.id);
-    (async () => {
-      try {
-        const { data } = await withTimeout(
-          supabase
-            .from('progress_logs')
-            .select('action_plan_id, message')
-            .in('action_plan_id', ids)
-            .like('message', '%[MANAGEMENT INSTRUCTION]%'),
-          5000
-        );
-        if (data) {
-          setInstructedPlanIds(new Set(data.map(r => r.action_plan_id)));
-        }
-      } catch {
-        // Non-critical — cards just won't show instructed state
-      }
-    })();
-  }, [escalationPlans]);
-
-  // Handle escalation resolution - Opens the resolution modal
-  const handleMarkResolved = (item) => {
-    setResolutionModal({ isOpen: true, item });
-  };
-  
-  // Handle confirmed resolution from modal
-  const handleConfirmResolution = async (itemId, payload) => {
-    setEscalationUpdating(itemId);
-    try {
-      // Use updatePlan to update all fields at once (status, remark, action_plan, indicator, etc.)
-      await updatePlan(itemId, payload, null, true); // skipLockCheck = true for admin operations
-      
-      toast({ 
-        title: 'Escalation Resolved', 
-        description: payload.action_plan || payload.indicator 
-          ? 'Item resolved with plan adjustments. The team can continue working on it.'
-          : 'Item returned to "On Progress". The team can continue working on it.', 
-        variant: 'success' 
-      });
-      
-      setResolutionModal({ isOpen: false, item: null });
-    } catch (error) {
-      console.error('Resolution failed:', error);
-      toast({ title: 'Update Failed', description: 'Failed to resolve escalation.', variant: 'error' });
-    } finally {
-      setEscalationUpdating(null);
-    }
-  };
-
-  // Handle escalation closure - Close as Not Achieved
-  const handleCloseAsFailed = async (item) => {
-    setEscalationUpdating(item.id);
-    try {
-      await updateStatus(item.id, 'Not Achieved');
-      toast({ 
-        title: 'Escalation Closed', 
-        description: 'Item marked as "Not Achieved". It will appear in the grading queue.', 
-        variant: 'success' 
-      });
-    } catch (error) {
-      console.error('Close as failed failed:', error);
-      toast({ title: 'Update Failed', description: 'Failed to close escalation.', variant: 'error' });
-    } finally {
-      setEscalationUpdating(null);
-    }
-  };
 
   return (
     <div className="flex-1 bg-gray-50 min-h-full">
@@ -929,7 +766,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         setSelectedCategory={setSelectedCategory}
         columnVisibility={{ visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns }}
         onClear={clearAllFilters}
-        withDeptFilter={activeTab === 'all_records'}
+        withDeptFilter={true}
         selectedDept={selectedDept}
         setSelectedDept={setSelectedDept}
         departments={departments}
@@ -968,328 +805,67 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             )}
           </>
         }
-        filterActions={
-          <div className="flex items-center gap-3">
-            {/* Tab Toggle */}
-            <div className="flex items-center bg-gray-100 p-1 rounded-lg">
-              <button
-                onClick={() => setActiveTab('needs_grading')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'needs_grading'
-                  ? 'bg-white shadow text-purple-700'
-                  : 'text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                <ClipboardCheck className="w-4 h-4" />
-                Grading
-                {needsGradingCount > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${activeTab === 'needs_grading'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'bg-orange-500 text-white'
-                    }`}>
-                    {needsGradingCount}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('escalations')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'escalations'
-                  ? 'bg-white shadow text-amber-700'
-                  : 'text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-                Escalations
-                {escalationCount > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${activeTab === 'escalations'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-red-500 text-white'
-                    }`}>
-                    {escalationCount}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTab('all_records')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'all_records'
-                  ? 'bg-white shadow text-gray-800'
-                  : 'text-gray-500 hover:text-gray-700'
-                  }`}
-              >
-                All
-                <span className={`px-1.5 py-0.5 rounded-full text-xs ${activeTab === 'all_records' ? 'bg-gray-200 text-gray-700' : 'bg-gray-200 text-gray-500'}`}>
-                  {plans.length}
-                </span>
-              </button>
-            </div>
 
-            {/* Department Filter for Grading Tab */}
-            {activeTab === 'needs_grading' && needsGradingCount > 0 && (
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
-                <Building2 className="w-4 h-4 text-purple-500" />
-                <select
-                  value={gradingDeptFilter}
-                  onChange={(e) => setGradingDeptFilter(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">All Depts</option>
-                  {departments.map((dept) => (
-                    <option key={dept.code} value={dept.code}>{dept.code}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Department Filter for Escalations Tab */}
-            {activeTab === 'escalations' && escalationCount > 0 && (
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
-                <Building2 className="w-4 h-4 text-amber-500" />
-                <select
-                  value={escalationDeptFilter}
-                  onChange={(e) => setEscalationDeptFilter(e.target.value)}
-                  className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">All Depts</option>
-                  {departments.map((dept) => (
-                    <option key={dept.code} value={dept.code}>{dept.code}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        }
       />
 
       {/* Scrollable Content Area */}
       <main className="p-6 space-y-6">
-        {/* KPI Cards - Only show on All Records tab */}
-        {activeTab === 'all_records' && (
-          <GlobalStatsGrid
-            plans={filteredPlans}
-            scope="company"
-            loading={loading}
-            dateContext={startMonth === 'Jan' && endMonth === 'Dec' ? `FY ${CURRENT_YEAR}` : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
-            periodLabel={startMonth === 'Jan' && endMonth === 'Dec' ? '' : ` (${startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`})`}
-            activeFilter={selectedStatus !== 'all' ? (() => {
-              // Map status back to card filter key
-              const reverseMap = {
-                'Achieved': 'achieved',
-                'On Progress': 'in-progress',
-                'Open': 'open',
-                'Not Achieved': 'not-achieved'
-              };
-              return reverseMap[selectedStatus] || null;
-            })() : null}
-            onCardClick={(cardType) => {
-              // cardType is null when toggling off, or the filter key when toggling on
-              if (cardType === null) {
-                setSelectedStatus('all');
-                return;
-              }
-              const statusMap = {
-                'all': 'all',
-                'achieved': 'Achieved',
-                'in-progress': 'On Progress',
-                'open': 'Open',
-                'not-achieved': 'Not Achieved',
-                'completion': 'all',
-                'verification': 'all'
-              };
-              const newStatus = statusMap[cardType] || 'all';
-              setSelectedStatus(newStatus);
-            }}
-          />
-        )}
+        {/* KPI Cards */}
+        <GlobalStatsGrid
+          plans={filteredPlans}
+          scope="company"
+          loading={loading}
+          dateContext={startMonth === 'Jan' && endMonth === 'Dec' ? `FY ${CURRENT_YEAR}` : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
+          periodLabel={startMonth === 'Jan' && endMonth === 'Dec' ? '' : ` (${startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`})`}
+          activeFilter={selectedStatus !== 'all' ? (() => {
+            // Map status back to card filter key
+            const reverseMap = {
+              'Achieved': 'achieved',
+              'On Progress': 'in-progress',
+              'Open': 'open',
+              'Not Achieved': 'not-achieved'
+            };
+            return reverseMap[selectedStatus] || null;
+          })() : null}
+          onCardClick={(cardType) => {
+            // cardType is null when toggling off, or the filter key when toggling on
+            if (cardType === null) {
+              setSelectedStatus('all');
+              return;
+            }
+            const statusMap = {
+              'all': 'all',
+              'achieved': 'Achieved',
+              'in-progress': 'On Progress',
+              'open': 'Open',
+              'not-achieved': 'Not Achieved',
+              'completion': 'all',
+              'verification': 'all'
+            };
+            const newStatus = statusMap[cardType] || 'all';
+            setSelectedStatus(newStatus);
+          }}
+        />
 
-        {/* Empty State for Needs Grading Tab */}
-        {activeTab === 'needs_grading' && needsGradingCount === 0 && !loading && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
-                <PartyPopper className="w-10 h-10 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">All Caught Up!</h3>
-                <p className="text-gray-500 mt-1">No pending items to grade. Great work!</p>
-              </div>
-              <button
-                onClick={() => setActiveTab('all_records')}
-                className="mt-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
-              >
-                View All Records →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Empty State for Escalations Tab */}
-        {activeTab === 'escalations' && escalationCount === 0 && !loading && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
-                <PartyPopper className="w-10 h-10 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-gray-800">No Escalations</h3>
-                <p className="text-gray-500 mt-1">All teams are progressing smoothly. No blockers reported.</p>
-              </div>
-              <button
-                onClick={() => setActiveTab('all_records')}
-                className="mt-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
-              >
-                View All Records →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Escalation List View - Card-based layout */}
-        {activeTab === 'escalations' && escalationCount > 0 && (
-          <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-800">Management Escalations</h2>
-                  <p className="text-sm text-gray-500">{escalationPlans.length} item{escalationPlans.length !== 1 ? 's' : ''} requiring attention</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Escalation Cards */}
-            <div className="grid gap-3">
-              {escalationPlans.map((item) => {
-                const isInstructed = instructedPlanIds.has(item.id);
-                return (
-                <div 
-                  key={item.id} 
-                  className={`rounded-xl shadow-sm border overflow-hidden hover:shadow-md transition-shadow ${
-                    isInstructed ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-4 px-5 py-4">
-                    {/* Left: Avatar + PIC Info */}
-                    <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${
-                        isInstructed ? 'bg-gradient-to-br from-gray-400 to-gray-600' : 'bg-gradient-to-br from-slate-600 to-slate-800'
-                      }`}>
-                        {(item.pic || 'U').charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-800 truncate">{item.pic || 'Unknown'}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">
-                            {item.department_code}
-                          </span>
-                          <span className="text-xs text-gray-400">{item.month}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Middle: Plan Name + Reason + Status Badge */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{item.action_plan || 'Untitled Plan'}</p>
-                        {isInstructed ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">
-                            <CheckCircle className="w-3 h-3" />
-                            Instruction Sent
-                          </span>
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Pending review" />
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1 line-clamp-1">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 inline-block mr-1 -mt-0.5" />
-                        {item.blocker_reason || 'No reason provided'}
-                      </p>
-                    </div>
-
-                    {/* Right: Action Area */}
-                    <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {isExecutive ? (
-                        isInstructed ? (
-                          <button
-                            onClick={() => setViewPlan(item)}
-                            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium"
-                          >
-                            <Eye className="w-4 h-4" />
-                            View Progress
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setViewPlan(item)}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-medium shadow-sm"
-                          >
-                            <Megaphone className="w-4 h-4" />
-                            Review & Instruct
-                          </button>
-                        )
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => setViewPlan(item)}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-                          >
-                            View
-                          </button>
-                          <button
-                            onClick={() => handleMarkResolved(item)}
-                            disabled={escalationUpdating === item.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                          >
-                            {escalationUpdating === item.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <ArrowRight className="w-4 h-4" />
-                            )}
-                            Resolve
-                          </button>
-                          <button
-                            onClick={() => handleCloseAsFailed(item)}
-                            disabled={escalationUpdating === item.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
-                          >
-                            {escalationUpdating === item.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <XCircle className="w-4 h-4" />
-                            )}
-                            Failed
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Data Table with Department Column */}
-        {(activeTab === 'all_records' || (activeTab === 'needs_grading' && needsGradingCount > 0)) && (
-          <DataTable
-            data={filteredPlans}
-            loading={loading}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onStatusChange={handleStatusChange}
-            onCompletionStatusChange={handleCompletionStatusChange}
-            onGrade={handleOpenGradeModal}
-            onQuickReset={handleQuickReset}
-            onRefresh={refetch}
-            showDepartmentColumn={true}
-            visibleColumns={visibleColumns}
-            columnOrder={columnOrder}
-            isReadOnly={isExecutive}
-            highlightPlanId={highlightPlanId}
-            onEditModalClosed={editModalClosedCounter}
-          />
-        )}
+        <DataTable
+          data={filteredPlans}
+          loading={loading}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onStatusChange={handleStatusChange}
+          onCompletionStatusChange={handleCompletionStatusChange}
+          onGrade={handleOpenGradeModal}
+          onQuickReset={handleQuickReset}
+          onRefresh={refetch}
+          showDepartmentColumn={true}
+          visibleColumns={visibleColumns}
+          columnOrder={columnOrder}
+          isReadOnly={isExecutive}
+          highlightPlanId={highlightPlanId}
+          onEditModalClosed={editModalClosedCounter}
+        />
       </main>
 
       <ActionPlanModal
@@ -1336,43 +912,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         onGrade={handleGrade}
         plan={gradeModal.plan}
       />
-
-      {/* Escalation Resolution Modal */}
-      <ResolutionModal
-        isOpen={resolutionModal.isOpen}
-        onClose={() => !escalationUpdating && setResolutionModal({ isOpen: false, item: null })}
-        onResolve={handleConfirmResolution}
-        item={resolutionModal.item}
-        isLoading={escalationUpdating === resolutionModal.item?.id}
-      />
-
-      {/* View Detail Modal (for escalation cards) */}
-      {viewPlan && (
-        <ViewDetailModal
-          plan={viewPlan}
-          onClose={() => {
-            setViewPlan(null);
-            // Re-fetch instruction status so cards update after executive sends instruction
-            if (escalationPlans.length > 0) {
-              const ids = escalationPlans.map(p => p.id);
-              withTimeout(
-                supabase
-                  .from('progress_logs')
-                  .select('action_plan_id, message')
-                  .in('action_plan_id', ids)
-                  .like('message', '%[MANAGEMENT INSTRUCTION]%'),
-                5000
-              ).then(({ data }) => {
-                if (data) setInstructedPlanIds(new Set(data.map(r => r.action_plan_id)));
-              }).catch(() => {});
-            }
-          }}
-          onEdit={canEdit ? (plan) => { setViewPlan(null); handleEdit(plan); } : undefined}
-          onUpdateStatus={canEdit ? (plan) => { setViewPlan(null); handleEdit(plan); } : undefined}
-          onEscalate={undefined}
-          onRefresh={refetch}
-        />
-      )}
 
       {/* Quick Reset Confirmation Modal (Individual Item) */}
       {quickResetItem && (

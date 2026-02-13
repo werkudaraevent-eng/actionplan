@@ -23,14 +23,14 @@ const CURRENT_YEAR = new Date().getFullYear();
  * @param {boolean} isLeader - Whether current user is a leader
  * @param {string} currentViewedMonth - Currently filtered month (to exclude from display)
  */
-export default function LockedMonthsSummary({ 
-  departmentCode, 
-  year, 
+export default function LockedMonthsSummary({
+  departmentCode,
+  year,
   onMonthClick,
   onRequestUnlock,
   onViewPending,
   isLeader,
-  currentViewedMonth = null 
+  currentViewedMonth = null
 }) {
   const [lockSettings, setLockSettings] = useState({
     isLockEnabled: false,
@@ -39,7 +39,7 @@ export default function LockedMonthsSummary({
   });
   const [monthData, setMonthData] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Modal state
   const [selectedMonth, setSelectedMonth] = useState(null);
 
@@ -52,11 +52,11 @@ export default function LockedMonthsSummary({
           .select('is_lock_enabled, lock_cutoff_day')
           .eq('id', 1)
           .single();
-        
+
         const { data: schedulesData } = await supabase
           .from('monthly_lock_schedules')
           .select('month_index, year, lock_date, is_force_open');
-        
+
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
           lockCutoffDay: settingsData?.lock_cutoff_day ?? 6,
@@ -66,7 +66,7 @@ export default function LockedMonthsSummary({
         console.error('Error fetching lock settings:', err);
       }
     };
-    
+
     fetchLockSettings();
   }, []);
 
@@ -82,7 +82,7 @@ export default function LockedMonthsSummary({
       try {
         const { data: plans, error } = await supabase
           .from('action_plans')
-          .select('id, month, year, status, unlock_status, approved_until, deleted_at')
+          .select('id, month, year, status, unlock_status, approved_until, temporary_unlock_expiry, deleted_at')
           .eq('department_code', departmentCode)
           .eq('year', year)
           .is('deleted_at', null);
@@ -95,7 +95,7 @@ export default function LockedMonthsSummary({
 
         // Group by month and calculate lock status
         const monthGroups = {};
-        
+
         plans?.forEach(plan => {
           if (!monthGroups[plan.month]) {
             monthGroups[plan.month] = {
@@ -107,22 +107,23 @@ export default function LockedMonthsSummary({
               activeCount: 0 // Items that need attention (Open/On Progress)
             };
           }
-          
+
           const group = monthGroups[plan.month];
           group.totalCount++;
-          
+
           // Check if this item is in an active (unfinished) state
           const isActiveStatus = activeStatuses.includes(plan.status);
-          
+
           // Check lock status
           const isLocked = isPlanLocked(
-            plan.month, 
-            plan.year, 
-            plan.unlock_status, 
-            plan.approved_until, 
-            lockSettings
+            plan.month,
+            plan.year,
+            plan.unlock_status,
+            plan.approved_until,
+            lockSettings,
+            plan.temporary_unlock_expiry
           );
-          
+
           if (plan.unlock_status === 'pending') {
             group.pendingCount++;
           } else if (plan.unlock_status === 'approved') {
@@ -157,7 +158,7 @@ export default function LockedMonthsSummary({
       if (currentViewedMonth && group.month === currentViewedMonth) {
         return;
       }
-      
+
       // REFINED LOGIC: Only show "Action Required" if there are ACTIVE items
       // 'Achieved' and 'Not Achieved' are final states - no action needed
       // Only show banner if activeCount > 0 (items with Open/On Progress status)
@@ -189,14 +190,14 @@ export default function LockedMonthsSummary({
     if (!selectedMonth) return null;
     const data = visibleLockedMonths.find(m => m.month === selectedMonth);
     if (!data) return null;
-    
+
     const deadline = getLockDeadline(
-      selectedMonth, 
-      year, 
-      lockSettings.lockCutoffDay, 
+      selectedMonth,
+      year,
+      lockSettings.lockCutoffDay,
       lockSettings.monthlyOverrides
     );
-    
+
     return {
       ...data,
       deadline
@@ -253,8 +254,8 @@ export default function LockedMonthsSummary({
       <div className="flex flex-col gap-2">
         {/* Locked Months - Action Required */}
         {visibleLockedMonths.map(({ month, count }) => (
-          <div 
-            key={`locked-${month}`} 
+          <div
+            key={`locked-${month}`}
             className="flex items-center justify-between p-3 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg shadow-sm cursor-pointer hover:bg-amber-100 transition-colors"
             onClick={() => handleAlertClick(month)}
           >
@@ -265,7 +266,7 @@ export default function LockedMonthsSummary({
                 <span className="text-amber-700 ml-1">({count} item{count !== 1 ? 's' : ''} need attention)</span>
               </p>
             </div>
-            <button 
+            <button
               className="flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900 px-3 py-1.5 rounded-md hover:bg-amber-200 transition-colors"
             >
               Review & Fix
@@ -276,8 +277,8 @@ export default function LockedMonthsSummary({
 
         {/* Pending Months - Awaiting Approval */}
         {visiblePendingMonths.map(({ month, count }) => (
-          <div 
-            key={`pending-${month}`} 
+          <div
+            key={`pending-${month}`}
             className="flex items-center justify-between p-3 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg shadow-sm"
           >
             <div className="flex items-center gap-3">
@@ -287,7 +288,7 @@ export default function LockedMonthsSummary({
                 <span className="text-blue-700 ml-1">({count} item{count !== 1 ? 's' : ''} pending)</span>
               </p>
             </div>
-            <button 
+            <button
               onClick={() => handleViewPendingClick(month)}
               className="flex items-center gap-1 text-sm font-medium text-blue-700 hover:text-blue-900 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors"
             >

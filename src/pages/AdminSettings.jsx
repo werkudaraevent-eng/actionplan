@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, Lock, Calendar, RefreshCw, Mail, Star } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import ImportModal from '../components/action-plan/ImportModal';
@@ -22,7 +22,7 @@ const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
 
 export default function AdminSettings({ onNavigateToUsers }) {
   const [activeTab, setActiveTab] = useState('departments');
-  
+
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">
       {/* Header - Sticky with high z-index */}
@@ -48,11 +48,10 @@ export default function AdminSettings({ onNavigateToUsers }) {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                    activeTab === tab.id
+                  className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id
                       ? 'border-teal-600 text-teal-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   {tab.label}
@@ -99,10 +98,10 @@ function DepartmentsTab({ onNavigateToUsers }) {
       supabase.from('departments').select('*').order('code'),
       supabase.from('profiles').select('id, full_name, role, department_code')
     ]);
-    
+
     if (deptResult.error) console.error('Error fetching departments:', deptResult.error);
     if (profileResult.error) console.error('Error fetching profiles:', profileResult.error);
-    
+
     setDepartments(deptResult.data || []);
     setProfiles(profileResult.data || []);
     setLoading(false);
@@ -126,9 +125,9 @@ function DepartmentsTab({ onNavigateToUsers }) {
       const { error } = await supabase
         .from('departments')
         .insert({ code: newCode.toUpperCase().trim(), name: newName.trim() });
-      
+
       if (error) throw error;
-      
+
       await fetchData();
       setIsAdding(false);
       setNewCode('');
@@ -150,9 +149,9 @@ function DepartmentsTab({ onNavigateToUsers }) {
         .from('departments')
         .update({ name: editName.trim() })
         .eq('code', code);
-      
+
       if (error) throw error;
-      
+
       await fetchData();
       setEditingCode(null);
       setEditName('');
@@ -170,9 +169,9 @@ function DepartmentsTab({ onNavigateToUsers }) {
         .from('departments')
         .delete()
         .eq('code', code);
-      
+
       if (error) throw error;
-      
+
       await fetchData();
       toast({ title: 'Department Deleted', description: `${code} has been removed.`, variant: 'success' });
     } catch (error) {
@@ -266,7 +265,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
         {departments.map((dept) => {
           const leader = getLeader(dept.code);
           const headcount = getHeadcount(dept.code);
-          
+
           return (
             <div key={dept.code} className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50">
               {editingCode === dept.code ? (
@@ -318,11 +317,10 @@ function DepartmentsTab({ onNavigateToUsers }) {
                     <button
                       onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
                       disabled={headcount === 0}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${
-                        headcount === 0 
-                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed' 
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${headcount === 0
+                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
                           : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
-                      }`}
+                        }`}
                       title={headcount > 0 ? `View ${headcount} team members` : 'No users in this department'}
                     >
                       <Users className="w-3.5 h-3.5" />
@@ -392,11 +390,11 @@ function TargetsTab() {
   const handleSave = async (year) => {
     setSaving(year);
     const value = targets[year] ?? 80;
-    
+
     const { error } = await supabase
       .from('annual_targets')
       .upsert({ year, target_percentage: value }, { onConflict: 'year' });
-    
+
     if (error) {
       toast({ title: 'Failed to Save', description: 'Could not save target', variant: 'error' });
     } else {
@@ -468,7 +466,7 @@ function HistoricalTab() {
 
   const fetchData = async () => {
     setLoading(true);
-    
+
     // Fetch departments
     const { data: depts } = await supabase.from('departments').select('*').order('code');
     setDepartments(depts || []);
@@ -478,7 +476,7 @@ function HistoricalTab() {
       .from('historical_stats')
       .select('*')
       .eq('year', selectedYear);
-    
+
     // Build grid data structure
     const grid = {};
     (depts || []).forEach(dept => {
@@ -487,14 +485,14 @@ function HistoricalTab() {
         grid[dept.code][m] = '';
       }
     });
-    
+
     // Populate with existing data
     (stats || []).forEach(s => {
       if (grid[s.department_code]) {
         grid[s.department_code][s.month] = s.completion_rate;
       }
     });
-    
+
     setGridData(grid);
     setQuickFill({});
     setHasChanges(false);
@@ -504,7 +502,7 @@ function HistoricalTab() {
   const handleCellChange = (deptCode, month, value) => {
     const num = parseFloat(value);
     if (value !== '' && (isNaN(num) || num < 0 || num > 100)) return;
-    
+
     setGridData(prev => ({
       ...prev,
       [deptCode]: {
@@ -518,12 +516,12 @@ function HistoricalTab() {
   const handleQuickFill = (deptCode) => {
     const value = parseFloat(quickFill[deptCode]);
     if (isNaN(value) || value < 0 || value > 100) return;
-    
+
     const newRow = {};
     for (let m = 1; m <= 12; m++) {
       newRow[m] = value;
     }
-    
+
     setGridData(prev => ({
       ...prev,
       [deptCode]: newRow
@@ -535,21 +533,21 @@ function HistoricalTab() {
   const calculateAverage = (deptCode) => {
     const row = gridData[deptCode];
     if (!row) return null;
-    
+
     const values = Object.values(row).filter(v => v !== '' && v !== null && v !== undefined);
     if (values.length === 0) return null;
-    
+
     const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
     return avg.toFixed(1);
   };
 
   const handleSaveAll = async () => {
     setSaving(true);
-    
+
     try {
       // Collect all non-empty values for upsert
       const records = [];
-      
+
       Object.entries(gridData).forEach(([deptCode, months]) => {
         Object.entries(months).forEach(([month, value]) => {
           if (value !== '' && value !== null && value !== undefined) {
@@ -574,21 +572,21 @@ function HistoricalTab() {
         const { error } = await supabase
           .from('historical_stats')
           .insert(records);
-        
+
         if (error) throw error;
       }
 
       setHasChanges(false);
-      toast({ 
-        title: 'Data Saved Successfully', 
-        description: `Saved ${records.length} records for ${selectedYear}. Dashboard updated.`, 
-        variant: 'success' 
+      toast({
+        title: 'Data Saved Successfully',
+        description: `Saved ${records.length} records for ${selectedYear}. Dashboard updated.`,
+        variant: 'success'
       });
     } catch (error) {
       console.error('Save error:', error);
       toast({ title: 'Failed to Save', description: error.message || 'Unknown error', variant: 'error' });
     }
-    
+
     setSaving(false);
   };
 
@@ -603,7 +601,7 @@ function HistoricalTab() {
       }
       return row;
     });
-    
+
     const csv = Papa.unparse({ fields: headers, data: rows });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -619,7 +617,7 @@ function HistoricalTab() {
     if (!file) return;
 
     setImporting(true);
-    
+
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -633,7 +631,7 @@ function HistoricalTab() {
           results.data.forEach((row) => {
             const deptCode = (row.department_code || '').trim().toUpperCase();
             const year = parseInt(row.year, 10);
-            
+
             // Validate department exists
             if (!validDeptCodes.has(deptCode)) {
               if (deptCode) skippedDepts.push(deptCode);
@@ -647,7 +645,7 @@ function HistoricalTab() {
             CSV_MONTH_HEADERS.forEach((monthKey, idx) => {
               const monthNum = idx + 1;
               const value = parseFloat(row[monthKey]);
-              
+
               if (!isNaN(value) && value >= 0 && value <= 100) {
                 records.push({
                   department_code: deptCode,
@@ -701,7 +699,7 @@ function HistoricalTab() {
           console.error('Import error:', error);
           toast({ title: 'Import Failed', description: error.message || 'Unknown error', variant: 'error' });
         }
-        
+
         setImporting(false);
         // Reset file input
         if (fileInputRef.current) {
@@ -739,18 +737,17 @@ function HistoricalTab() {
             <button
               onClick={handleSaveAll}
               disabled={saving || !hasChanges}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                hasChanges 
-                  ? 'bg-teal-600 text-white hover:bg-teal-700' 
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${hasChanges
+                  ? 'bg-teal-600 text-white hover:bg-teal-700'
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              }`}
+                }`}
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>
-        
+
         {/* Import/Export buttons */}
         <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
           <span className="text-xs text-gray-500">Bulk Actions:</span>
@@ -826,11 +823,10 @@ function HistoricalTab() {
                     );
                   })}
                   <td className="px-2 py-2 text-center bg-gray-50">
-                    <span className={`font-semibold text-sm ${
-                      avg === null ? 'text-gray-300' :
-                      parseFloat(avg) >= 90 ? 'text-green-600' :
-                      parseFloat(avg) >= 70 ? 'text-amber-600' : 'text-red-600'
-                    }`}>
+                    <span className={`font-semibold text-sm ${avg === null ? 'text-gray-300' :
+                        parseFloat(avg) >= 90 ? 'text-green-600' :
+                          parseFloat(avg) >= 70 ? 'text-amber-600' : 'text-red-600'
+                      }`}>
                       {avg !== null ? `${avg}%` : '—'}
                     </span>
                   </td>
@@ -906,7 +902,7 @@ function DropdownOptionsTab() {
       .from('dropdown_options')
       .select('*')
       .order('sort_order', { ascending: true });
-    
+
     if (error) {
       console.error('Error fetching dropdown options:', error);
     }
@@ -939,7 +935,7 @@ function DropdownOptionsTab() {
   const handleAddOption = async (category) => {
     const rawInput = newLabels[category]?.trim();
     if (!rawInput) return;
-    
+
     // 1. SPLIT & CLEAN - Split by ';', trim whitespace, and remove empty strings
     const labelsToProcess = rawInput
       .split(';')
@@ -952,7 +948,7 @@ function DropdownOptionsTab() {
     }
 
     setSaving(true);
-    
+
     let addedCount = 0;
     let restoredCount = 0;
     let skippedCount = 0;
@@ -962,8 +958,8 @@ function DropdownOptionsTab() {
 
     // Get current max sort_order for this category
     const allCategoryOptions = options.filter(opt => opt.category === category && opt.label !== 'Other');
-    let currentMaxSort = allCategoryOptions.length > 0 
-      ? Math.max(...allCategoryOptions.map(o => o.sort_order || 0)) 
+    let currentMaxSort = allCategoryOptions.length > 0
+      ? Math.max(...allCategoryOptions.map(o => o.sort_order || 0))
       : 0;
 
     // 2. PROCESS EACH LABEL
@@ -996,7 +992,7 @@ function DropdownOptionsTab() {
 
             // Update local state
             if (restored) {
-              setOptions(prev => prev.map(item => 
+              setOptions(prev => prev.map(item =>
                 item.id === existing.id ? restored : item
               ));
             }
@@ -1008,11 +1004,11 @@ function DropdownOptionsTab() {
           currentMaxSort++;
           const { data, error } = await supabase
             .from('dropdown_options')
-            .insert({ 
-              category, 
-              label, 
+            .insert({
+              category,
+              label,
               sort_order: currentMaxSort,
-              is_active: true 
+              is_active: true
             })
             .select()
             .single();
@@ -1038,27 +1034,27 @@ function DropdownOptionsTab() {
 
     // 4. FINAL SUMMARY TOAST
     if (errorCount > 0) {
-      toast({ 
-        title: 'Completed with Errors', 
-        description: `Added: ${addedCount}, Restored: ${restoredCount}, Skipped: ${skippedCount}, Failed: ${errorCount}`, 
-        variant: 'warning' 
+      toast({
+        title: 'Completed with Errors',
+        description: `Added: ${addedCount}, Restored: ${restoredCount}, Skipped: ${skippedCount}, Failed: ${errorCount}`,
+        variant: 'warning'
       });
     } else if (addedCount === 0 && restoredCount === 0) {
-      toast({ 
-        title: 'No Changes', 
-        description: `All ${skippedCount} option(s) already exist and are active.`, 
-        variant: 'info' 
+      toast({
+        title: 'No Changes',
+        description: `All ${skippedCount} option(s) already exist and are active.`,
+        variant: 'info'
       });
     } else {
       const parts = [];
       if (addedCount > 0) parts.push(`Added ${addedCount}`);
       if (restoredCount > 0) parts.push(`Restored ${restoredCount}`);
       if (skippedCount > 0) parts.push(`Skipped ${skippedCount} existing`);
-      
-      toast({ 
-        title: 'Success!', 
-        description: parts.join(', '), 
-        variant: 'success' 
+
+      toast({
+        title: 'Success!',
+        description: parts.join(', '),
+        variant: 'success'
       });
     }
   };
@@ -1072,9 +1068,9 @@ function DropdownOptionsTab() {
         .eq('id', option.id);
 
       if (error) throw error;
-      
+
       // Immediately update local state
-      setOptions(prev => prev.map(item => 
+      setOptions(prev => prev.map(item =>
         item.id === option.id ? { ...item, is_active: !item.is_active } : item
       ));
     } catch (error) {
@@ -1094,12 +1090,12 @@ function DropdownOptionsTab() {
         .eq('id', option.id);
 
       if (error) throw error;
-      
+
       // Immediately update local state
-      setOptions(prev => prev.map(item => 
+      setOptions(prev => prev.map(item =>
         item.id === option.id ? { ...item, is_active: true } : item
       ));
-      
+
       toast({ title: 'Option Restored', description: `"${option.label}" has been restored.`, variant: 'success' });
     } catch (error) {
       console.error('Restore error:', error);
@@ -1110,7 +1106,7 @@ function DropdownOptionsTab() {
 
   const handleToggleOther = async (category) => {
     const otherOption = getOtherOption(category);
-    
+
     setSaving(true);
     try {
       if (otherOption) {
@@ -1121,26 +1117,26 @@ function DropdownOptionsTab() {
           .eq('id', otherOption.id);
 
         if (error) throw error;
-        
+
         // Immediately update local state
-        setOptions(prev => prev.map(item => 
+        setOptions(prev => prev.map(item =>
           item.id === otherOption.id ? { ...item, is_active: !item.is_active } : item
         ));
       } else {
         // Create "Other" option if it doesn't exist
         const { data, error } = await supabase
           .from('dropdown_options')
-          .insert({ 
-            category, 
-            label: 'Other', 
+          .insert({
+            category,
+            label: 'Other',
             sort_order: 99, // Always last
-            is_active: true 
+            is_active: true
           })
           .select()
           .single();
 
         if (error) throw error;
-        
+
         // Add new option to local state
         if (data) {
           setOptions(prev => [...prev, data]);
@@ -1160,20 +1156,20 @@ function DropdownOptionsTab() {
 
   const handleMove = async (category, currentIndex, direction) => {
     const standardOptions = getStandardOptions(category);
-    
+
     // Calculate target index
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    
+
     // Bounds check
     if (targetIndex < 0 || targetIndex >= standardOptions.length) return;
-    
+
     const currentItem = standardOptions[currentIndex];
     const targetItem = standardOptions[targetIndex];
-    
+
     // Swap sort_order values
     const currentSortOrder = currentItem.sort_order;
     const targetSortOrder = targetItem.sort_order;
-    
+
     // Optimistic UI update - swap in local state immediately
     setOptions(prev => prev.map(item => {
       if (item.id === currentItem.id) {
@@ -1184,7 +1180,7 @@ function DropdownOptionsTab() {
       }
       return item;
     }));
-    
+
     // Persist to database
     try {
       const [result1, result2] = await Promise.all([
@@ -1197,7 +1193,7 @@ function DropdownOptionsTab() {
           .update({ sort_order: currentSortOrder })
           .eq('id', targetItem.id)
       ]);
-      
+
       if (result1.error) throw result1.error;
       if (result2.error) throw result2.error;
     } catch (error) {
@@ -1233,7 +1229,7 @@ function DropdownOptionsTab() {
         setSaving(false);
         return;
       }
-      
+
       // Immediately update local state to reflect the deletion
       setOptions(prev => prev.filter(item => item.id !== optionToDelete.id));
       toast({ title: 'Option Deleted', description: `"${optionToDelete.label}" has been removed.`, variant: 'success' });
@@ -1261,18 +1257,17 @@ function DropdownOptionsTab() {
           <div>
             <h3 className="font-semibold text-gray-800">Dropdown Options Management</h3>
             <p className="text-sm text-gray-500 mt-1">
-              {showArchived 
-                ? 'Viewing archived options. Click "Restore" to reactivate.' 
+              {showArchived
+                ? 'Viewing archived options. Click "Restore" to reactivate.'
                 : 'Manage active dropdown options for forms.'}
             </p>
           </div>
           <button
             onClick={() => setShowArchived(!showArchived)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              showArchived 
-                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showArchived
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+              }`}
           >
             {showArchived ? (
               <>
@@ -1343,14 +1338,14 @@ function DropdownOptionsTab() {
               <div className="divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
                 {standardOptions.length === 0 ? (
                   <div className="p-6 text-center text-gray-400 text-sm">
-                    {showArchived 
-                      ? 'No archived options in this category.' 
+                    {showArchived
+                      ? 'No archived options in this category.'
                       : 'No custom options yet. Add one above.'}
                   </div>
                 ) : (
                   standardOptions.map((option, index) => (
-                    <div 
-                      key={option.id} 
+                    <div
+                      key={option.id}
                       className={`p-3 flex items-center gap-2 hover:bg-gray-50 ${showArchived ? 'bg-amber-50/50' : ''}`}
                     >
                       {/* Label */}
@@ -1423,11 +1418,10 @@ function DropdownOptionsTab() {
                     <button
                       onClick={() => handleToggleOther(cat.id)}
                       disabled={saving}
-                      className={`p-1 rounded-lg transition-colors ${
-                        otherOption?.is_active 
-                          ? 'text-teal-600 hover:bg-teal-50' 
+                      className={`p-1 rounded-lg transition-colors ${otherOption?.is_active
+                          ? 'text-teal-600 hover:bg-teal-50'
                           : 'text-gray-400 hover:bg-gray-100'
-                      }`}
+                        }`}
                       title={otherOption?.is_active ? 'Click to disable "Other" option' : 'Click to enable "Other" option'}
                     >
                       {otherOption?.is_active ? (
@@ -1450,7 +1444,7 @@ function DropdownOptionsTab() {
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Archive Option?</h3>
             <p className="text-gray-600 text-sm mb-4">
-              Are you sure you want to archive <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>? 
+              Are you sure you want to archive <span className="font-semibold text-gray-800">"{optionToDelete.label}"</span>?
             </p>
             <p className="text-xs text-teal-600 bg-teal-50 px-3 py-2 rounded-lg mb-4">
               💡 You can restore this option later from the "Show Archived" view.
@@ -1511,7 +1505,7 @@ function DataManagementTab() {
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
-    
+
     if (error) console.error('Error fetching plans:', error);
     setPlans(data || []);
     setLoading(false);
@@ -1532,10 +1526,10 @@ function DataManagementTab() {
         'PIC': plan.pic,
         'Evidence': plan.evidence || '',
         'Status': plan.status,
-        'Root Cause Category': plan.status === 'Not Achieved' 
-          ? (plan.gap_category === 'Other' && plan.specify_reason 
-              ? `Other: ${plan.specify_reason}` 
-              : (plan.gap_category || '-'))
+        'Root Cause Category': plan.status === 'Not Achieved'
+          ? (plan.gap_category === 'Other' && plan.specify_reason
+            ? `Other: ${plan.specify_reason}`
+            : (plan.gap_category || '-'))
           : '-',
         'Failure Details': plan.status === 'Not Achieved' ? (plan.gap_analysis || '-') : '-',
         'Score': plan.score || '',
@@ -1543,12 +1537,12 @@ function DataManagementTab() {
         'Remarks': plan.remark || '',
         'Created At': plan.created_at,
       }));
-      
+
       // Create worksheet and workbook
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
-      
+
       // Set column widths
       ws['!cols'] = [
         { wch: 8 },  // Year
@@ -1569,7 +1563,7 @@ function DataManagementTab() {
         { wch: 30 }, // Remarks
         { wch: 20 }, // Created At
       ];
-      
+
       // Download
       XLSX.writeFile(wb, `action_plans_export_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast({ title: 'Export Complete', description: `Exported ${exportData.length} records.`, variant: 'success' });
@@ -1615,11 +1609,11 @@ function DataManagementTab() {
 
       const timestamp = new Date().toISOString().split('T')[0];
       XLSX.writeFile(wb, `Bulk_Update_Template_${timestamp}.xlsx`);
-      
-      toast({ 
-        title: 'Template Downloaded', 
-        description: 'Fill in the columns you want to update, then upload using Step 2.', 
-        variant: 'success' 
+
+      toast({
+        title: 'Template Downloaded',
+        description: 'Fill in the columns you want to update, then upload using Step 2.',
+        variant: 'success'
       });
     } catch (error) {
       console.error('Export template failed:', error);
@@ -1665,7 +1659,7 @@ function DataManagementTab() {
             <p className="text-sm text-gray-500 mt-1">
               Bulk upload action plans using an Excel file (.xlsx). Please ensure your file follows the standard template.
             </p>
-            
+
             {/* Warning Box */}
             <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-3">
               <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
@@ -1673,7 +1667,7 @@ function DataManagementTab() {
                 <strong>Warning:</strong> Importing data may add new records to the database. Please double-check your file before uploading.
               </p>
             </div>
-            
+
             {/* Upload Button */}
             <div className="mt-4">
               <button
@@ -1706,15 +1700,15 @@ function DataManagementTab() {
             <p className="text-sm text-gray-500 mt-1">
               Update specific columns (e.g., evidence, outcome_link, remark) for existing action plans using an Excel file.
             </p>
-            
+
             {/* Info Box */}
             <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
               <p className="text-xs text-purple-700">
-                <strong>How it works:</strong> Your Excel file must have an <code className="bg-purple-100 px-1 rounded">id</code> column (UUID). 
+                <strong>How it works:</strong> Your Excel file must have an <code className="bg-purple-100 px-1 rounded">id</code> column (UUID).
                 Any other column names will be matched to database columns and updated.
               </p>
             </div>
-            
+
             {/* Two-Step Process */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Step 1: Export Template */}
@@ -1732,7 +1726,7 @@ function DataManagementTab() {
                   Export IDs Template
                 </button>
               </div>
-              
+
               {/* Step 2: Upload Update File */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <p className="text-sm font-semibold text-gray-700 mb-2">📤 Step 2: Upload Updates</p>
@@ -1790,11 +1784,20 @@ function SystemSettingsTab() {
   });
   const [savingGrading, setSavingGrading] = useState(false);
 
+  // Drop approval policy settings (per-priority)
+  const [dropPolicy, setDropPolicy] = useState({
+    drop_approval_req_uh: false,
+    drop_approval_req_h: false,
+    drop_approval_req_m: false,
+    drop_approval_req_l: false,
+  });
+  const [savingDropPolicy, setSavingDropPolicy] = useState(null); // which key is being saved
+
   const LOCK_YEARS_RANGE = [2025, 2026, 2027, 2028, 2029, 2030];
   const LOCK_MONTHS = Array.from({ length: 12 }, (_, i) => ({
     index: i,
-    name: ['January', 'February', 'March', 'April', 'May', 'June', 
-           'July', 'August', 'September', 'October', 'November', 'December'][i]
+    name: ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'][i]
   }));
 
   useEffect(() => {
@@ -1811,7 +1814,7 @@ function SystemSettingsTab() {
         supabase.from('system_settings').select('*').eq('id', 1).single(),
         supabase.rpc('get_carry_over_settings')
       ]);
-      
+
       if (settingsResult.error) throw settingsResult.error;
       if (settingsResult.data) {
         setSettings({
@@ -1825,6 +1828,13 @@ function SystemSettingsTab() {
           threshold_h: settingsResult.data.threshold_h ?? 100,
           threshold_m: settingsResult.data.threshold_m ?? 80,
           threshold_l: settingsResult.data.threshold_l ?? 70,
+        });
+        // Load drop approval policy from the same row
+        setDropPolicy({
+          drop_approval_req_uh: settingsResult.data.drop_approval_req_uh ?? false,
+          drop_approval_req_h: settingsResult.data.drop_approval_req_h ?? false,
+          drop_approval_req_m: settingsResult.data.drop_approval_req_m ?? false,
+          drop_approval_req_l: settingsResult.data.drop_approval_req_l ?? false,
         });
       }
 
@@ -1844,20 +1854,20 @@ function SystemSettingsTab() {
   const handleToggleLock = async () => {
     setSaving(true);
     const newValue = !settings.is_lock_enabled;
-    
+
     try {
       const { error } = await supabase
         .from('system_settings')
         .update({ is_lock_enabled: newValue })
         .eq('id', 1);
-      
+
       if (error) throw error;
-      
+
       setSettings(prev => ({ ...prev, is_lock_enabled: newValue }));
-      toast({ 
-        title: 'Settings Updated', 
-        description: `Auto-lock has been ${newValue ? 'enabled' : 'disabled'}.`, 
-        variant: 'success' 
+      toast({
+        title: 'Settings Updated',
+        description: `Auto-lock has been ${newValue ? 'enabled' : 'disabled'}.`,
+        variant: 'success'
       });
     } catch (error) {
       console.error('Error updating lock setting:', error);
@@ -1878,7 +1888,7 @@ function SystemSettingsTab() {
         .from('monthly_lock_schedules')
         .select('*')
         .eq('year', selectedYear);
-      
+
       if (error) throw error;
       setSchedules(data || []);
     } catch (error) {
@@ -1916,19 +1926,19 @@ function SystemSettingsTab() {
 
   const handleSaveCutoffDay = async () => {
     setSaving(true);
-    
+
     try {
       const { error } = await supabase
         .from('system_settings')
         .update({ lock_cutoff_day: settings.lock_cutoff_day })
         .eq('id', 1);
-      
+
       if (error) throw error;
-      
-      toast({ 
-        title: 'Settings Updated', 
-        description: `Default cutoff day set to the ${getOrdinal(settings.lock_cutoff_day)}.`, 
-        variant: 'success' 
+
+      toast({
+        title: 'Settings Updated',
+        description: `Default cutoff day set to the ${getOrdinal(settings.lock_cutoff_day)}.`,
+        variant: 'success'
       });
     } catch (error) {
       console.error('Error updating cutoff day:', error);
@@ -1941,7 +1951,7 @@ function SystemSettingsTab() {
   const handleToggleMonth = async (monthIndex) => {
     const schedule = getSchedule(monthIndex);
     const isCurrentlyForceOpen = schedule?.is_force_open === true;
-    
+
     setSavingMonth(monthIndex);
     try {
       if (isCurrentlyForceOpen) {
@@ -1953,10 +1963,10 @@ function SystemSettingsTab() {
             .eq('id', schedule.id);
           if (error) throw error;
         }
-        toast({ 
-          title: 'Auto-Lock Enabled', 
-          description: `${LOCK_MONTHS[monthIndex].name} will now follow the lock schedule.`, 
-          variant: 'success' 
+        toast({
+          title: 'Auto-Lock Enabled',
+          description: `${LOCK_MONTHS[monthIndex].name} will now follow the lock schedule.`,
+          variant: 'success'
         });
       } else {
         // Turn OFF: Set force-open flag
@@ -1969,12 +1979,12 @@ function SystemSettingsTab() {
             lock_date: schedule?.lock_date || defaultDeadline.toISOString(),
             is_force_open: true
           }, { onConflict: 'month_index,year' });
-        
+
         if (error) throw error;
-        toast({ 
-          title: 'Auto-Lock Disabled', 
-          description: `${LOCK_MONTHS[monthIndex].name} is now always open.`, 
-          variant: 'success' 
+        toast({
+          title: 'Auto-Lock Disabled',
+          description: `${LOCK_MONTHS[monthIndex].name} is now always open.`,
+          variant: 'success'
         });
       }
       await fetchSchedules();
@@ -1996,12 +2006,12 @@ function SystemSettingsTab() {
   // Save custom date
   const handleSaveDate = async (monthIndex) => {
     if (!editDate) return;
-    
+
     setSavingMonth(monthIndex);
     try {
       const lockDate = new Date(editDate);
       lockDate.setSeconds(59, 999);
-      
+
       const { error } = await supabase
         .from('monthly_lock_schedules')
         .upsert({
@@ -2010,16 +2020,16 @@ function SystemSettingsTab() {
           lock_date: lockDate.toISOString(),
           is_force_open: false
         }, { onConflict: 'month_index,year' });
-      
+
       if (error) throw error;
-      
+
       await fetchSchedules();
       setEditingMonth(null);
       setEditDate('');
-      toast({ 
-        title: 'Deadline Updated', 
-        description: `${LOCK_MONTHS[monthIndex].name} deadline set to ${formatDeadline(lockDate)}.`, 
-        variant: 'success' 
+      toast({
+        title: 'Deadline Updated',
+        description: `${LOCK_MONTHS[monthIndex].name} deadline set to ${formatDeadline(lockDate)}.`,
+        variant: 'success'
       });
     } catch (error) {
       console.error('Error saving date:', error);
@@ -2032,21 +2042,21 @@ function SystemSettingsTab() {
   const handleResetMonth = async (monthIndex) => {
     const schedule = getSchedule(monthIndex);
     if (!schedule) return;
-    
+
     setSavingMonth(monthIndex);
     try {
       const { error } = await supabase
         .from('monthly_lock_schedules')
         .delete()
         .eq('id', schedule.id);
-      
+
       if (error) throw error;
-      
+
       await fetchSchedules();
-      toast({ 
-        title: 'Reset to Default', 
-        description: `${LOCK_MONTHS[monthIndex].name} will use the global default.`, 
-        variant: 'success' 
+      toast({
+        title: 'Reset to Default',
+        description: `${LOCK_MONTHS[monthIndex].name} will use the global default.`,
+        variant: 'success'
       });
     } catch (error) {
       console.error('Error resetting month:', error);
@@ -2120,6 +2130,35 @@ function SystemSettingsTab() {
     setSavingGrading(false);
   };
 
+  // Toggle individual drop approval policy
+  const handleToggleDropPolicy = async (key) => {
+    const newValue = !dropPolicy[key];
+    setSavingDropPolicy(key);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({ [key]: newValue })
+        .eq('id', 1);
+      if (error) throw error;
+      setDropPolicy(prev => ({ ...prev, [key]: newValue }));
+      const labels = {
+        drop_approval_req_uh: 'Ultra High (UH)',
+        drop_approval_req_h: 'High (H)',
+        drop_approval_req_m: 'Medium (M)',
+        drop_approval_req_l: 'Low (L)',
+      };
+      toast({
+        title: 'Drop Policy Updated',
+        description: `${labels[key]}: Approval ${newValue ? 'required' : 'not required'}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating drop policy:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to update drop policy.', variant: 'error' });
+    }
+    setSavingDropPolicy(null);
+  };
+
   if (loading) return <LoadingState />;
 
   return (
@@ -2176,11 +2215,10 @@ function SystemSettingsTab() {
               <button
                 onClick={handleToggleLock}
                 disabled={saving}
-                className={`p-1 rounded-lg transition-all flex-shrink-0 ${
-                  settings.is_lock_enabled 
-                    ? 'text-teal-600 hover:bg-teal-50' 
+                className={`p-1 rounded-lg transition-all flex-shrink-0 ${settings.is_lock_enabled
+                    ? 'text-teal-600 hover:bg-teal-50'
                     : 'text-gray-400 hover:bg-gray-100'
-                }`}
+                  }`}
                 title={settings.is_lock_enabled ? 'Click to disable' : 'Click to enable'}
               >
                 {saving ? (
@@ -2194,11 +2232,10 @@ function SystemSettingsTab() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-800">Auto-Lock</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    settings.is_lock_enabled 
-                      ? 'bg-green-100 text-green-700' 
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${settings.is_lock_enabled
+                      ? 'bg-green-100 text-green-700'
                       : 'bg-gray-200 text-gray-600'
-                  }`}>
+                    }`}>
                     {settings.is_lock_enabled ? 'ON' : 'OFF'}
                   </span>
                 </div>
@@ -2258,31 +2295,29 @@ function SystemSettingsTab() {
                 const schedule = getSchedule(month.index);
                 const isForceOpen = schedule?.is_force_open === true;
                 const hasCustomDate = schedule && !schedule.is_force_open && schedule.lock_date;
-                const deadline = hasCustomDate 
-                  ? new Date(schedule.lock_date) 
+                const deadline = hasCustomDate
+                  ? new Date(schedule.lock_date)
                   : getDefaultDeadline(month.index);
                 const isEditing = editingMonth === month.index;
                 const isSaving = savingMonth === month.index;
 
                 return (
-                  <div 
+                  <div
                     key={month.index}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                      isForceOpen 
-                        ? 'bg-gray-50 border-gray-200' 
+                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${isForceOpen
+                        ? 'bg-gray-50 border-gray-200'
                         : 'bg-teal-50/50 border-teal-200'
-                    }`}
+                      }`}
                   >
                     {/* Left: Month Name + Toggle */}
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => handleToggleMonth(month.index)}
                         disabled={isSaving}
-                        className={`p-0.5 rounded transition-all ${
-                          isForceOpen 
-                            ? 'text-gray-400 hover:text-gray-600' 
+                        className={`p-0.5 rounded transition-all ${isForceOpen
+                            ? 'text-gray-400 hover:text-gray-600'
                             : 'text-teal-600 hover:text-teal-700'
-                        }`}
+                          }`}
                         title={isForceOpen ? 'Enable auto-lock' : 'Disable auto-lock'}
                       >
                         {isSaving ? (
@@ -2489,11 +2524,10 @@ function SystemSettingsTab() {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-1">
                 <label className="font-semibold text-gray-800">Strict Grading Mode</label>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  gradingSettings.is_strict_grading_enabled
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${gradingSettings.is_strict_grading_enabled
                     ? 'bg-purple-100 text-purple-700'
                     : 'bg-gray-200 text-gray-600'
-                }`}>
+                  }`}>
                   {gradingSettings.is_strict_grading_enabled ? 'STRICT' : 'FLEXIBLE'}
                 </span>
               </div>
@@ -2505,11 +2539,10 @@ function SystemSettingsTab() {
             </div>
             <button
               onClick={() => setGradingSettings(prev => ({ ...prev, is_strict_grading_enabled: !prev.is_strict_grading_enabled }))}
-              className={`p-1 rounded-lg transition-all flex-shrink-0 ${
-                gradingSettings.is_strict_grading_enabled
+              className={`p-1 rounded-lg transition-all flex-shrink-0 ${gradingSettings.is_strict_grading_enabled
                   ? 'text-purple-600 hover:bg-purple-100'
                   : 'text-gray-400 hover:bg-gray-100'
-              }`}
+                }`}
             >
               {gradingSettings.is_strict_grading_enabled
                 ? <ToggleRight className="w-9 h-9" />
@@ -2519,9 +2552,8 @@ function SystemSettingsTab() {
 
           {/* Passing Score Input — only meaningful when strict mode is ON */}
           {/* Grid of 4 threshold inputs */}
-          <div className={`grid grid-cols-2 gap-4 transition-all ${
-            gradingSettings.is_strict_grading_enabled ? '' : 'opacity-50 pointer-events-none'
-          }`}>
+          <div className={`grid grid-cols-2 gap-4 transition-all ${gradingSettings.is_strict_grading_enabled ? '' : 'opacity-50 pointer-events-none'
+            }`}>
             {[
               { key: 'threshold_uh', label: 'Ultra High', tag: 'UH', color: 'red', desc: 'Threshold for Ultra High priority plans' },
               { key: 'threshold_h', label: 'High', tag: 'H', color: 'orange', desc: 'Threshold for High priority plans' },
@@ -2552,11 +2584,10 @@ function SystemSettingsTab() {
                     <span className="text-gray-500 font-medium">%</span>
                   </div>
                 </div>
-                <span className={`mt-1 px-2.5 py-1 text-xs font-bold rounded-full ${
-                  gradingSettings.is_strict_grading_enabled
+                <span className={`mt-1 px-2.5 py-1 text-xs font-bold rounded-full ${gradingSettings.is_strict_grading_enabled
                     ? `bg-${color}-200 text-${color}-800`
                     : 'bg-gray-200 text-gray-500'
-                }`}>{tag}</span>
+                  }`}>{tag}</span>
               </div>
             ))}
           </div>
@@ -2604,6 +2635,90 @@ function SystemSettingsTab() {
         </div>
       </div>
 
+      {/* Drop Approval Policy */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-100 rounded-lg">
+              <ShieldAlert className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Drop Approval Policy</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Toggle which priority levels require Management Approval to be dropped (marked Not Achieved). If OFF, plans can be dropped immediately.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Toggle Grid */}
+        <div className="p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {[
+              { key: 'drop_approval_req_uh', label: 'Ultra High (UH)', description: 'Mission-critical tasks', color: 'red', tag: 'UH' },
+              { key: 'drop_approval_req_h', label: 'High (H)', description: 'Important strategic items', color: 'orange', tag: 'H' },
+              { key: 'drop_approval_req_m', label: 'Medium (M)', description: 'Standard operational plans', color: 'blue', tag: 'M' },
+              { key: 'drop_approval_req_l', label: 'Low (L)', description: 'Low-impact or optional tasks', color: 'gray', tag: 'L' },
+            ].map(({ key, label, description, color, tag }) => (
+              <div
+                key={key}
+                className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${dropPolicy[key]
+                    ? `border-${color}-200 bg-${color}-50/50`
+                    : 'border-gray-100 bg-gray-50/50'
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${dropPolicy[key]
+                      ? `bg-${color}-200 text-${color}-800`
+                      : 'bg-gray-200 text-gray-500'
+                    }`}>{tag}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{label}</p>
+                    <p className="text-xs text-gray-500">{description}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleToggleDropPolicy(key)}
+                  disabled={savingDropPolicy === key}
+                  className={`p-1 rounded-lg transition-all flex-shrink-0 ${dropPolicy[key]
+                      ? `text-${color}-600 hover:bg-${color}-100`
+                      : 'text-gray-400 hover:bg-gray-100'
+                    }`}
+                  title={dropPolicy[key] ? 'Approval required — click to disable' : 'No approval needed — click to enable'}
+                >
+                  {savingDropPolicy === key ? (
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                  ) : dropPolicy[key] ? (
+                    <ToggleRight className="w-8 h-8" />
+                  ) : (
+                    <ToggleLeft className="w-8 h-8" />
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Summary */}
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-700">Current policy: </span>
+              {Object.values(dropPolicy).every(v => !v)
+                ? 'All priorities can be dropped immediately (self-service).'
+                : Object.values(dropPolicy).every(v => v)
+                  ? 'All priorities require Management Approval to drop.'
+                  : `Approval required for: ${[
+                    dropPolicy.drop_approval_req_uh && 'UH',
+                    dropPolicy.drop_approval_req_h && 'H',
+                    dropPolicy.drop_approval_req_m && 'M',
+                    dropPolicy.drop_approval_req_l && 'L',
+                  ].filter(Boolean).join(', ')}. Others are self-service.`
+              }
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Developer Zone - UAT/Testing Cleanup Tools */}
       <DeveloperZone />
     </div>
@@ -2627,10 +2742,10 @@ function DeveloperZone() {
       if (error) throw error;
       setLastResult({ type: 'hard', ...data });
       setShowHardResetConfirm(false);
-      toast({ 
-        title: '✅ Hard Reset Complete', 
-        description: `Deleted ${data?.deleted_carry_over ?? 0} carry-over plans, reset ${data?.reset_parents ?? 0} parents, removed ${data?.deleted_duplicates ?? 0} duplicates.`, 
-        variant: 'success' 
+      toast({
+        title: '✅ Hard Reset Complete',
+        description: `Deleted ${data?.deleted_carry_over ?? 0} carry-over plans, reset ${data?.reset_parents ?? 0} parents, removed ${data?.deleted_duplicates ?? 0} duplicates.`,
+        variant: 'success'
       });
       setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
@@ -2649,10 +2764,10 @@ function DeveloperZone() {
       if (error) throw error;
       setLastResult({ type: 'safe', ...data });
       setShowSafeResetConfirm(false);
-      toast({ 
-        title: '✅ Safe Reset Complete', 
-        description: `Reset ${data?.reset_count ?? 0} action plans to Open. No records deleted.`, 
-        variant: 'success' 
+      toast({
+        title: '✅ Safe Reset Complete',
+        description: `Reset ${data?.reset_count ?? 0} action plans to Open. No records deleted.`,
+        variant: 'success'
       });
       setTimeout(() => window.location.reload(), 2000);
     } catch (err) {
@@ -2691,10 +2806,10 @@ function DeveloperZone() {
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">RECOMMENDED</span>
               </div>
               <p className="text-sm text-amber-600 mt-1 mb-3">
-                Resets all statuses, scores, carry-over flags, and blocker data back to <code className="bg-amber-100 px-1 rounded">Open</code>. 
+                Resets all statuses, scores, carry-over flags, and blocker data back to <code className="bg-amber-100 px-1 rounded">Open</code>.
                 Breaks parent-child links safely. <strong>Zero deletions</strong> — all plan definitions are preserved.
               </p>
-              
+
               <div className="text-xs text-amber-500 space-y-1 mb-4">
                 <p><strong>Resets:</strong> status → Open, scores → NULL, carry-over → Normal, blockers → cleared, audit logs → truncated</p>
                 <p><strong>Preserves:</strong> department, month, goal, action plan title, indicator, PIC, category, evidence</p>
@@ -2724,10 +2839,10 @@ function DeveloperZone() {
                 <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">DESTRUCTIVE</span>
               </div>
               <p className="text-sm text-red-600 mt-1 mb-3">
-                Deletes all carry-over child plans, resets parent plans to <code className="bg-red-100 px-1 rounded">Blocked</code>, 
+                Deletes all carry-over child plans, resets parent plans to <code className="bg-red-100 px-1 rounded">Blocked</code>,
                 removes duplicates. Use when you need to re-test the Resolution Wizard from scratch.
               </p>
-              
+
               <div className="text-xs text-red-500 space-y-1 mb-4">
                 <p><strong>Deletes:</strong> All plans where <code className="bg-red-100 px-1 rounded">origin_plan_id IS NOT NULL</code> (carry-over children)</p>
                 <p><strong>Resets:</strong> Parent plans → Blocked, scores → NULL, carry-over flags → cleared</p>
@@ -2753,7 +2868,7 @@ function DeveloperZone() {
         {lastResult && (
           <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-600">
             <span className="font-semibold">Last {lastResult.type === 'hard' ? 'Hard' : 'Safe'} Reset:</span>{' '}
-            {lastResult.type === 'hard' 
+            {lastResult.type === 'hard'
               ? `${lastResult.deleted_carry_over} children deleted, ${lastResult.reset_parents} parents reset, ${lastResult.deleted_duplicates} duplicates removed`
               : `${lastResult.reset_count} plans reset to Open`
             }

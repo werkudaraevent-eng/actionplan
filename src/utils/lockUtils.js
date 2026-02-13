@@ -98,28 +98,28 @@ export function isMonthForceOpen(monthIndex, year, monthlyOverrides = []) {
 export function getLockDeadline(planMonth, planYear, cutoffDay = DEFAULT_LOCK_SETTINGS.lockCutoffDay, monthlyOverrides = []) {
   const monthIndex = parseMonthName(planMonth);
   if (monthIndex === -1 || !planYear) return null;
-  
+
   // Check if month is force-open (auto-lock disabled)
   if (isMonthForceOpen(monthIndex, planYear, monthlyOverrides)) {
     return null;
   }
-  
+
   // Check for monthly override with custom lock_date
   const override = findMonthlyOverride(monthIndex, planYear, monthlyOverrides);
   if (override && override.lock_date && !override.is_force_open) {
     return new Date(override.lock_date);
   }
-  
+
   // Fall back to default calculation
   // Ensure cutoff day is valid (1-28)
   const day = Math.max(1, Math.min(28, cutoffDay || DEFAULT_LOCK_SETTINGS.lockCutoffDay));
-  
+
   // Create date for the cutoff day of the next month
   // Note: If month is December (11), next month is January of next year
   const nextMonth = monthIndex + 1;
   const year = nextMonth > 11 ? planYear + 1 : planYear;
   const month = nextMonth > 11 ? 0 : nextMonth;
-  
+
   const deadline = new Date(year, month, day, 23, 59, 59, 999);
   return deadline;
 }
@@ -134,21 +134,22 @@ export function getLockDeadline(planMonth, planYear, cutoffDay = DEFAULT_LOCK_SE
  * @param {boolean} settings.isLockEnabled - Whether lock feature is enabled
  * @param {number} settings.lockCutoffDay - Day of month for cutoff
  * @param {Array} settings.monthlyOverrides - Array of monthly override objects
+ * @param {string|null} temporaryUnlockExpiry - ISO timestamp for admin revision grace period (optional)
  * @returns {boolean} True if plan is locked
  */
-export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedUntil = null, settings = DEFAULT_LOCK_SETTINGS) {
+export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedUntil = null, settings = DEFAULT_LOCK_SETTINGS, temporaryUnlockExpiry = null) {
   // If lock feature is disabled globally, nothing is locked
   if (!settings?.isLockEnabled) {
     return false;
   }
-  
+
   // Check if this specific month is force-open
   const monthIndex = parseMonthName(planMonth);
   const monthlyOverrides = settings?.monthlyOverrides || [];
   if (isMonthForceOpen(monthIndex, planYear, monthlyOverrides)) {
     return false;
   }
-  
+
   // If admin approved and approval hasn't expired, plan is unlocked
   if (unlockStatus === 'approved') {
     if (approvedUntil) {
@@ -161,12 +162,21 @@ export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedU
       return false; // Approved with no expiry
     }
   }
-  
+
+  // GRACE PERIOD: If admin granted a temporary unlock (e.g., revision verdict),
+  // bypass the date lock until the grace period expires
+  if (temporaryUnlockExpiry) {
+    const graceExpiry = new Date(temporaryUnlockExpiry);
+    if (new Date() < graceExpiry) {
+      return false; // Within admin revision grace period
+    }
+  }
+
   // Calculate deadline using configurable cutoff day and monthly overrides
   const cutoffDay = settings?.lockCutoffDay || DEFAULT_LOCK_SETTINGS.lockCutoffDay;
   const deadline = getLockDeadline(planMonth, planYear, cutoffDay, monthlyOverrides);
   if (!deadline) return false; // Invalid input or force-open, don't lock
-  
+
   const now = new Date();
   return now > deadline;
 }
@@ -178,28 +188,32 @@ export function isPlanLocked(planMonth, planYear, unlockStatus = null, approvedU
  * @param {string|null} unlockStatus - Current unlock status
  * @param {string|null} approvedUntil - Approval expiry timestamp
  * @param {Object} settings - Lock settings from system_settings
+ * @param {string|null} temporaryUnlockExpiry - Admin revision grace period expiry (optional)
  * @returns {Object} Lock status details
  */
-export function getLockStatus(planMonth, planYear, unlockStatus = null, approvedUntil = null, settings = DEFAULT_LOCK_SETTINGS) {
+export function getLockStatus(planMonth, planYear, unlockStatus = null, approvedUntil = null, settings = DEFAULT_LOCK_SETTINGS, temporaryUnlockExpiry = null) {
   const cutoffDay = settings?.lockCutoffDay || DEFAULT_LOCK_SETTINGS.lockCutoffDay;
   const monthlyOverrides = settings?.monthlyOverrides || [];
   const deadline = getLockDeadline(planMonth, planYear, cutoffDay, monthlyOverrides);
-  const isLocked = isPlanLocked(planMonth, planYear, unlockStatus, approvedUntil, settings);
+  const isLocked = isPlanLocked(planMonth, planYear, unlockStatus, approvedUntil, settings, temporaryUnlockExpiry);
   const now = new Date();
-  
+
   // Check if this month has an override
   const monthIndex = parseMonthName(planMonth);
   const override = findMonthlyOverride(monthIndex, planYear, monthlyOverrides);
   const hasOverride = override !== null;
   const isForceOpen = override?.is_force_open === true;
-  
+
+  // Check active grace period
+  const hasActiveGracePeriod = temporaryUnlockExpiry && new Date(temporaryUnlockExpiry) > now;
+
   // Calculate days until/since lock
   let daysUntilLock = null;
   if (deadline) {
     const diffMs = deadline.getTime() - now.getTime();
     daysUntilLock = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
   }
-  
+
   return {
     isLocked,
     isLockEnabled: settings?.isLockEnabled ?? true,
@@ -212,7 +226,9 @@ export function getLockStatus(planMonth, planYear, unlockStatus = null, approved
     hasPendingRequest: unlockStatus === 'pending',
     isApproved: unlockStatus === 'approved',
     isRejected: unlockStatus === 'rejected',
-    approvedUntil: approvedUntil ? new Date(approvedUntil) : null
+    approvedUntil: approvedUntil ? new Date(approvedUntil) : null,
+    hasActiveGracePeriod: !!hasActiveGracePeriod,
+    temporaryUnlockExpiry: temporaryUnlockExpiry ? new Date(temporaryUnlockExpiry) : null,
   };
 }
 
@@ -240,13 +256,19 @@ export function getLockStatusMessage(lockStatus) {
   if (!lockStatus.isLockEnabled) {
     return 'Lock feature disabled';
   }
-  
+
   // If month is force-open
   if (lockStatus.isForceOpen) {
     return 'Always open (lock disabled for this month)';
   }
-  
+
   if (!lockStatus.isLocked) {
+    if (lockStatus.hasActiveGracePeriod) {
+      // Admin revision grace period active
+      const graceExpiry = lockStatus.temporaryUnlockExpiry;
+      const daysLeft = graceExpiry ? Math.ceil((graceExpiry.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
+      return `Revision grace period (${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining)`;
+    }
     if (lockStatus.daysUntilLock !== null && lockStatus.daysUntilLock > 0) {
       const suffix = lockStatus.hasOverride ? ' (custom deadline)' : '';
       return `Editable for ${lockStatus.daysUntilLock} more day${lockStatus.daysUntilLock === 1 ? '' : 's'}${suffix}`;
@@ -256,15 +278,15 @@ export function getLockStatusMessage(lockStatus) {
     }
     return 'Editable';
   }
-  
+
   if (lockStatus.hasPendingRequest) {
     return 'Locked - Unlock request pending';
   }
-  
+
   if (lockStatus.isRejected) {
     return 'Locked - Unlock request rejected';
   }
-  
+
   const suffix = lockStatus.hasOverride ? ' (custom deadline)' : '';
   return `Locked since ${formatLockDeadline(lockStatus.deadline)}${suffix}`;
 }
@@ -304,9 +326,10 @@ export function getDefaultDeadline(monthIndex, year, cutoffDay = 6) {
  * @param {number} planYear - Year (e.g., 2026)
  * @param {string|null} unlockStatus - Current unlock status of the plan
  * @param {string|null} approvedUntil - Approval expiry timestamp
+ * @param {string|null} temporaryUnlockExpiry - Admin revision grace period (optional)
  * @returns {Promise<Object>} Fresh lock status from server
  */
-export async function checkLockStatusServerSide(supabase, planMonth, planYear, unlockStatus = null, approvedUntil = null) {
+export async function checkLockStatusServerSide(supabase, planMonth, planYear, unlockStatus = null, approvedUntil = null, temporaryUnlockExpiry = null) {
   try {
     // Fetch fresh settings from database
     const [settingsResult, schedulesResult] = await Promise.all([
@@ -326,8 +349,8 @@ export async function checkLockStatusServerSide(supabase, planMonth, planYear, u
       monthlyOverrides: schedulesResult.data || []
     };
 
-    // Calculate lock status with fresh settings
-    const isLocked = isPlanLocked(planMonth, planYear, unlockStatus, approvedUntil, settings);
+    // Calculate lock status with fresh settings (including grace period)
+    const isLocked = isPlanLocked(planMonth, planYear, unlockStatus, approvedUntil, settings, temporaryUnlockExpiry);
     const deadline = getLockDeadline(planMonth, planYear, settings.lockCutoffDay, settings.monthlyOverrides);
     const monthIndex = parseMonthName(planMonth);
     const isForceOpen = isMonthForceOpen(monthIndex, planYear, settings.monthlyOverrides);

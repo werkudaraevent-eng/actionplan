@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, Lock, Clock, Loader2, History, ShieldAlert, ArrowUpCircle, Edit3, Send, MoreHorizontal, Pencil, List, Hourglass, Megaphone } from 'lucide-react';
+import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, Lock, Clock, Loader2, History, ShieldAlert, ArrowUpCircle, Edit3, Send, MoreHorizontal, Pencil, List, Hourglass, Megaphone, Image, FileSpreadsheet, Download, Link2 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { supabase, withTimeout } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -43,21 +43,39 @@ const isUrl = (string) => {
   }
 };
 
+// Helper: file type icon for attachments
+const getAttachmentIcon = (item) => {
+  if (item.type === 'link') return <Link2 className="w-4 h-4 text-indigo-500" />;
+  const mime = item.mime || '';
+  if (mime.startsWith('image/')) return <Image className="w-4 h-4 text-blue-500" />;
+  if (mime === 'application/pdf') return <FileText className="w-4 h-4 text-red-500" />;
+  if (mime.includes('spreadsheet') || mime.includes('csv')) return <FileSpreadsheet className="w-4 h-4 text-green-600" />;
+  return <FileText className="w-4 h-4 text-orange-500" />;
+};
+
+// Helper: format file size
+const formatFileSize = (bytes) => {
+  if (!bytes || typeof bytes !== 'number') return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate, onEdit, onUpdateStatus, onRefresh }) {
   const { profile, isAdmin, isLeader, isExecutive, isStaff } = useAuth();
   const { toast } = useToast();
-  
+
   // Local plan state to reflect updates without closing modal
   const [plan, setPlan] = useState(initialPlan);
   const [copied, setCopied] = useState(false);
   const [unifiedTimeline, setUnifiedTimeline] = useState([]); // Combined progress + audit logs
   const [logsLoading, setLogsLoading] = useState(false);
-  
+
   // Post update state
   const [newMessage, setNewMessage] = useState('');
   const [posting, setPosting] = useState(false);
   const commentRef = useRef(null);
-  
+
   // Executive decision panel state
   const [execInstruction, setExecInstruction] = useState('');
   const execInstructionRef = useRef(null);
@@ -193,7 +211,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
 
       // Merge both arrays
       const allLogs = [...transformedProgressLogs, ...(auditResult.data || [])];
-      
+
       // Sort by created_at descending (most recent first)
       allLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -210,7 +228,19 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
 
   const priorityCode = getPriorityCode(plan.category);
   const priorityColor = priorityCode ? PRIORITY_COLORS[priorityCode] : 'bg-gray-100 text-gray-700 border-gray-200';
-  const statusColor = STATUS_COLORS[plan.status] || 'bg-gray-100 text-gray-700';
+
+  // Revision mode logic
+  const isRevisionMode = plan.temporary_unlock_expiry
+    && new Date() < new Date(plan.temporary_unlock_expiry)
+    && plan.status === 'On Progress'
+    && plan.submission_status === 'draft';
+
+  const revisionDaysLeft = isRevisionMode
+    ? Math.max(0, Math.ceil((new Date(plan.temporary_unlock_expiry) - new Date()) / (1000 * 60 * 60 * 24)))
+    : 0;
+
+  const displayStatus = isRevisionMode ? `⏳ Revision: ${revisionDaysLeft}d` : (plan.status || 'Open');
+  const statusColor = isRevisionMode ? 'bg-amber-100 text-amber-800 border-amber-200' : (STATUS_COLORS[plan.status] || 'bg-gray-100 text-gray-700');
 
   const handleCopy = async () => {
     try {
@@ -225,11 +255,11 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
   // Post a new progress update (comment only — blocker resolution uses dedicated modal)
   const handlePostUpdate = async () => {
     if (!newMessage.trim()) return;
-    
+
     setPosting(true);
     try {
       const messageText = newMessage.trim();
-      
+
       const { data: insertedLog, error: logError } = await supabase
         .from('progress_logs')
         .insert({
@@ -327,7 +357,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
         description: 'Your progress update has been recorded.',
         variant: 'success'
       });
-      
+
     } catch (err) {
       console.error('Failed to post update:', err);
       toast({
@@ -343,11 +373,11 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
   // Post executive instruction (from sticky decision panel)
   const handlePostInstruction = async () => {
     if (!execInstruction.trim()) return;
-    
+
     setPosting(true);
     try {
       const instructionText = `[MANAGEMENT INSTRUCTION] ${execInstruction.trim()}`;
-      
+
       const { data: insertedLog, error: logError } = await supabase
         .from('progress_logs')
         .insert({
@@ -453,23 +483,23 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                   {priorityCode}
                 </span>
               )}
-              
+
               {/* Click-to-Edit Status Badge */}
               {canTakeAction && onUpdateStatus ? (
                 <button
                   onClick={() => onUpdateStatus(plan)}
                   className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${statusColor} border border-transparent hover:border-gray-300 hover:shadow-sm cursor-pointer`}
-                  title="Click to update status"
+                  title={isRevisionMode ? `Revision mode: ${revisionDaysLeft} days left` : "Click to update status"}
                 >
-                  {plan.status || 'Open'}
+                  {displayStatus}
                   <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
               ) : (
                 <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${statusColor}`}>
-                  {plan.status || 'Open'}
+                  {displayStatus}
                 </span>
               )}
-              
+
               {plan.submission_status === 'submitted' && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
                   <Lock className="w-3 h-3" />
@@ -477,13 +507,13 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                 </span>
               )}
             </div>
-            
+
             {/* Title */}
             <h2 className="text-lg font-semibold text-gray-800 line-clamp-2">
               {plan.goal_strategy || 'Action Plan Details'}
             </h2>
           </div>
-          
+
           {/* Header Actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
             {/* Edit Menu */}
@@ -512,108 +542,112 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
             )}
-            
+
+
+
             <button
               onClick={onClose}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-        </div>
+          </div >
+        </div >
 
         {/* Body Content */}
-        <div className="flex-1 overflow-y-auto p-5">
+        < div className="flex-1 overflow-y-auto p-5" >
           {/* BLOCKER BANNER — 3 distinct themes by attention_level (hidden on final statuses) */}
-          {plan.is_blocked && !planIsFinal && (() => {
-            const t = blockerTheme;
-            const IconComp = t.Icon;
-            return (
-            <div className={`mb-6 bg-gradient-to-r ${t.bg} rounded-xl p-5 shadow-sm`}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`w-10 h-10 ${t.iconBg} rounded-full flex items-center justify-center flex-shrink-0`}>
-                  <IconComp className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h4 className={`text-lg font-bold ${t.headingColor}`}>{t.heading}</h4>
-                  <p className={`text-xs font-medium ${t.subtextColor}`}>{t.subtext}</p>
-                </div>
-              </div>
-              <div className={`bg-white/80 rounded-lg p-4 border ${t.detailBorder} mb-4`}>
-                <span className={`text-xs font-semibold ${t.detailLabel} uppercase tracking-wider block mb-2`}>Blocker Details</span>
-                <p className="text-base font-semibold text-gray-900 leading-relaxed">
-                  {plan.blocker_reason || 'No details provided'}
-                </p>
-                {/* Blocked duration indicator */}
-                {(() => {
-                  const days = getBlockedDays(plan);
-                  const severity = getBlockedSeverity(days);
-                  return (
-                    <div className="mt-3 space-y-1">
-                      <p className={`text-sm font-medium ${severity === 'critical' ? 'text-rose-700' : severity === 'warning' ? 'text-red-600' : 'text-gray-600'}`}>
-                        ⏳ This item has been stalled for {days} {days === 1 ? 'day' : 'days'}.
-                      </p>
-                      {severity === 'critical' && (
-                        <p className="text-sm font-bold text-rose-800 bg-rose-100 rounded px-2 py-1 inline-block">
-                          ⚠️ SLA BREACH: Immediate Action Required.
-                        </p>
-                      )}
+          {
+            plan.is_blocked && !planIsFinal && (() => {
+              const t = blockerTheme;
+              const IconComp = t.Icon;
+              return (
+                <div className={`mb-6 bg-gradient-to-r ${t.bg} rounded-xl p-5 shadow-sm`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 ${t.iconBg} rounded-full flex items-center justify-center flex-shrink-0`}>
+                      <IconComp className="w-5 h-5 text-white" />
                     </div>
-                  );
-                })()}
-              </div>
-              {canTakeAction && (
-                (() => {
-                  if (isExecOnBOD) {
-                    return (
-                      <p className="text-xs text-rose-600 font-medium italic">
-                        ℹ️ Use the instruction panel below to provide your direction.
-                      </p>
-                    );
-                  }
-
-                  // Staff cannot resolve BOD-level blockers — only leaders/admins can
-                  if (isStaff && plan.attention_level === 'Management_BOD') {
-                    return (
-                      <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
-                        <Lock className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                        <div>
-                          <p className="text-sm font-semibold text-gray-700">Pending Leader Review & Resolution</p>
-                          <p className="text-xs text-gray-500 mt-0.5">Only your Department Leader can resolve this critical escalation. Please provide updates via comments below.</p>
+                    <div>
+                      <h4 className={`text-lg font-bold ${t.headingColor}`}>{t.heading}</h4>
+                      <p className={`text-xs font-medium ${t.subtextColor}`}>{t.subtext}</p>
+                    </div>
+                  </div>
+                  <div className={`bg-white/80 rounded-lg p-4 border ${t.detailBorder} mb-4`}>
+                    <span className={`text-xs font-semibold ${t.detailLabel} uppercase tracking-wider block mb-2`}>Blocker Details</span>
+                    <p className="text-base font-semibold text-gray-900 leading-relaxed">
+                      {plan.blocker_reason || 'No details provided'}
+                    </p>
+                    {/* Blocked duration indicator */}
+                    {(() => {
+                      const days = getBlockedDays(plan);
+                      const severity = getBlockedSeverity(days);
+                      return (
+                        <div className="mt-3 space-y-1">
+                          <p className={`text-sm font-medium ${severity === 'critical' ? 'text-rose-700' : severity === 'warning' ? 'text-red-600' : 'text-gray-600'}`}>
+                            ⏳ This item has been stalled for {days} {days === 1 ? 'day' : 'days'}.
+                          </p>
+                          {severity === 'critical' && (
+                            <p className="text-sm font-bold text-rose-800 bg-rose-100 rounded px-2 py-1 inline-block">
+                              ⚠️ SLA BREACH: Immediate Action Required.
+                            </p>
+                          )}
                         </div>
-                      </div>
-                    );
-                  }
-                  
-                  return (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button
-                        onClick={() => {
-                          if (onUpdateStatus) {
-                            onUpdateStatus({ ...plan, _prefillStatus: 'On Progress' });
-                          }
-                        }}
-                        className={t.resolveBtn}
-                      >
-                        <CheckCircle className={t.iconSize} />
-                        Resolve Blocker
-                      </button>
-                      {plan.attention_level !== 'Management_BOD' && (
-                      <button
-                        onClick={() => onEscalate?.(plan)}
-                        className={t.escalateBtn}
-                      >
-                        <ArrowUpCircle className={t.iconSize} />
-                        Escalate
-                      </button>
-                      )}
-                    </div>
-                  );
-                })()
-              )}
-            </div>
-            );
-          })()}
+                      );
+                    })()}
+                  </div>
+                  {canTakeAction && (
+                    (() => {
+                      if (isExecOnBOD) {
+                        return (
+                          <p className="text-xs text-rose-600 font-medium italic">
+                            ℹ️ Use the instruction panel below to provide your direction.
+                          </p>
+                        );
+                      }
+
+                      // Staff cannot resolve BOD-level blockers — only leaders/admins can
+                      if (isStaff && plan.attention_level === 'Management_BOD') {
+                        return (
+                          <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
+                            <Lock className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                            <div>
+                              <p className="text-sm font-semibold text-gray-700">Pending Leader Review & Resolution</p>
+                              <p className="text-xs text-gray-500 mt-0.5">Only your Department Leader can resolve this critical escalation. Please provide updates via comments below.</p>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <button
+                            onClick={() => {
+                              if (onUpdateStatus) {
+                                onUpdateStatus({ ...plan, _prefillStatus: 'On Progress' });
+                              }
+                            }}
+                            className={t.resolveBtn}
+                          >
+                            <CheckCircle className={t.iconSize} />
+                            Resolve Blocker
+                          </button>
+                          {plan.attention_level !== 'Management_BOD' && (
+                            <button
+                              onClick={() => onEscalate?.(plan)}
+                              className={t.escalateBtn}
+                            >
+                              <ArrowUpCircle className={t.iconSize} />
+                              Escalate
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              );
+            })()
+          }
 
           {/* Two Column Grid - Metadata & Strategic Context */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -650,24 +684,25 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
           </div>
 
           {/* Carry-Over Warning Banner */}
-          {plan.carry_over_status && plan.carry_over_status !== 'Normal' && (
-            <div className={`rounded-xl p-4 border mb-4 flex items-center gap-3 ${
-              plan.carry_over_status === 'Late_Month_2'
+          {
+            plan.carry_over_status && plan.carry_over_status !== 'Normal' && (
+              <div className={`rounded-xl p-4 border mb-4 flex items-center gap-3 ${plan.carry_over_status === 'Late_Month_2'
                 ? 'bg-rose-50 border-rose-200'
                 : 'bg-amber-50 border-amber-200'
-            }`}>
-              <span className="text-lg flex-shrink-0">{plan.carry_over_status === 'Late_Month_2' ? '🔥' : '↩️'}</span>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-800' : 'text-amber-800'}`}>
-                  {plan.carry_over_status === 'Late_Month_2' ? 'CRITICAL LATE — 2nd Carry Over' : 'LATE — 1st Carry Over'}
-                </p>
-                <p className={`text-xs mt-0.5 ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-600' : 'text-amber-600'}`}>
-                  Max achievable score capped at {plan.max_possible_score ?? (plan.carry_over_status === 'Late_Month_2' ? 50 : 80)}%.
-                  {plan.carry_over_status === 'Late_Month_2' && ' Must be resolved this month — no further carry-over allowed.'}
-                </p>
+                }`}>
+                <span className="text-lg flex-shrink-0">{plan.carry_over_status === 'Late_Month_2' ? '🔥' : '↩️'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-800' : 'text-amber-800'}`}>
+                    {plan.carry_over_status === 'Late_Month_2' ? 'CRITICAL LATE — 2nd Carry Over' : 'LATE — 1st Carry Over'}
+                  </p>
+                  <p className={`text-xs mt-0.5 ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-600' : 'text-amber-600'}`}>
+                    Max achievable score capped at {plan.max_possible_score ?? (plan.carry_over_status === 'Late_Month_2' ? 50 : 80)}%.
+                    {plan.carry_over_status === 'Late_Month_2' && ' Must be resolved this month — no further carry-over allowed.'}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          }
 
           {/* Action Plan */}
           <div className="bg-teal-50 rounded-xl p-5 border border-teal-100 mb-4">
@@ -693,48 +728,83 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
           </div>
 
           {/* Execution Results (Compact) */}
-          {(plan.quality_score != null || plan.evidence || plan.outcome_link || plan.admin_feedback || plan.status === 'Not Achieved') && (
-            <div className="mb-4 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200">
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle className="w-4 h-4 text-gray-600" />
-                <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Results & Evidence</h3>
+          {
+            (plan.quality_score != null || plan.evidence || plan.outcome_link || (Array.isArray(plan.attachments) && plan.attachments.length > 0) || plan.admin_feedback || plan.status === 'Not Achieved') && (
+              <div className="mb-4 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle className="w-4 h-4 text-gray-600" />
+                  <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Results & Evidence</h3>
+                </div>
+                <div className="space-y-3">
+                  {plan.quality_score != null && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Verification Score:</span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-sm font-bold ${plan.quality_score >= 80 ? 'bg-green-500 text-white' : plan.quality_score >= 60 ? 'bg-amber-500 text-white' : 'bg-red-500 text-white'}`}>
+                        <Star className="w-3 h-3" />{plan.quality_score}
+                      </span>
+                    </div>
+                  )}
+                  {plan.status === 'Not Achieved' && plan.gap_category && (
+                    <div className="bg-red-50 rounded-lg p-3 border border-red-100">
+                      <span className="text-xs font-medium text-red-600">Root Cause: </span>
+                      <span className="text-sm text-gray-800">{plan.gap_category === 'Other' && plan.specify_reason ? `Other: ${plan.specify_reason}` : plan.gap_category}</span>
+                      {plan.gap_analysis && <p className="text-sm text-gray-600 mt-1 italic">"{plan.gap_analysis}"</p>}
+                    </div>
+                  )}
+
+                  {/* Multi-Attachment Evidence List */}
+                  {Array.isArray(plan.attachments) && plan.attachments.length > 0 ? (
+                    <div>
+                      <span className="text-xs text-gray-500 block mb-2">Evidence Attachments ({plan.attachments.length})</span>
+                      <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 bg-white overflow-hidden">
+                        {plan.attachments.map((item, idx) => (
+                          <a
+                            key={idx}
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 transition-colors group"
+                          >
+                            {getAttachmentIcon(item)}
+                            <span className="flex-1 min-w-0 text-sm text-gray-800 font-medium truncate group-hover:text-blue-600 transition-colors">
+                              {item.name || item.title || item.url}
+                            </span>
+                            {item.type === 'file' && item.size && (
+                              <span className="text-xs text-gray-400 flex-shrink-0">{formatFileSize(item.size)}</span>
+                            )}
+                            <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${item.type === 'file' ? 'bg-gray-100 text-gray-500' : 'bg-indigo-50 text-indigo-500'
+                              }`}>
+                              {item.type}
+                            </span>
+                            <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 flex-shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : plan.outcome_link ? (
+                    /* Legacy Fallback: Single outcome_link */
+                    <div>
+                      <span className="text-xs text-gray-500 block mb-1">Proof of Evidence</span>
+                      {isUrl(plan.outcome_link) ? (
+                        <a href={plan.outcome_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
+                          <ExternalLink className="w-3.5 h-3.5" />View Evidence
+                        </a>
+                      ) : (
+                        <p className="text-sm text-gray-700">{plan.outcome_link}</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {plan.admin_feedback && (
+                    <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                      <span className="text-xs font-medium text-amber-700">Review Note: </span>
+                      <span className="text-sm text-amber-900 italic">"{plan.admin_feedback}"</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-3">
-                {plan.quality_score != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Verification Score:</span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-sm font-bold ${plan.quality_score >= 80 ? 'bg-green-500 text-white' : plan.quality_score >= 60 ? 'bg-amber-500 text-white' : 'bg-red-500 text-white'}`}>
-                      <Star className="w-3 h-3" />{plan.quality_score}
-                    </span>
-                  </div>
-                )}
-                {plan.status === 'Not Achieved' && plan.gap_category && (
-                  <div className="bg-red-50 rounded-lg p-3 border border-red-100">
-                    <span className="text-xs font-medium text-red-600">Root Cause: </span>
-                    <span className="text-sm text-gray-800">{plan.gap_category === 'Other' && plan.specify_reason ? `Other: ${plan.specify_reason}` : plan.gap_category}</span>
-                    {plan.gap_analysis && <p className="text-sm text-gray-600 mt-1 italic">"{plan.gap_analysis}"</p>}
-                  </div>
-                )}
-                {plan.outcome_link && (
-                  <div>
-                    {isUrl(plan.outcome_link) ? (
-                      <a href={plan.outcome_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
-                        <ExternalLink className="w-3.5 h-3.5" />View Evidence
-                      </a>
-                    ) : (
-                      <p className="text-sm text-gray-700">{plan.outcome_link}</p>
-                    )}
-                  </div>
-                )}
-                {plan.admin_feedback && (
-                  <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                    <span className="text-xs font-medium text-amber-700">Review Note: </span>
-                    <span className="text-sm text-amber-900 italic">"{plan.admin_feedback}"</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+            )
+          }
 
           {/* Activity Section - Trello Style */}
           <div className="mt-6 pt-6 border-t border-gray-200">
@@ -763,7 +833,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                     disabled={posting}
                     inputRef={commentRef}
                   />
-                  
+
                   <div className="flex justify-end mt-3">
                     <button
                       onClick={handlePostUpdate}
@@ -786,7 +856,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                   <span className="ml-2 text-sm text-gray-500">Loading activity...</span>
                 </div>
               ) : (
-                <SharedHistoryTimeline 
+                <SharedHistoryTimeline
                   items={unifiedTimeline}
                   accentColor="gray"
                   emptyMessage="No activity yet"
@@ -796,57 +866,59 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
               )}
             </div>
           </div>
-        </div>
+        </div >
 
         {/* Footer — Executive Decision Panel OR standard Close button */}
-        {isExecOnBOD ? (
-          <div className="border-t-2 border-slate-300 bg-slate-50 rounded-b-xl p-5 flex-shrink-0">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 bg-slate-700 rounded-lg flex items-center justify-center">
-                <Pencil className="w-3.5 h-3.5 text-white" />
+        {
+          isExecOnBOD ? (
+            <div className="border-t-2 border-slate-300 bg-slate-50 rounded-b-xl p-5 flex-shrink-0">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 bg-slate-700 rounded-lg flex items-center justify-center">
+                  <Pencil className="w-3.5 h-3.5 text-white" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">Executive Instruction / Direction</h4>
+                  <p className="text-xs text-slate-500">Your decision will be sent to the Department Leader for execution.</p>
+                </div>
               </div>
-              <div>
-                <h4 className="text-sm font-bold text-slate-800">Executive Instruction / Direction</h4>
-                <p className="text-xs text-slate-500">Your decision will be sent to the Department Leader for execution.</p>
+              <textarea
+                ref={execInstructionRef}
+                value={execInstruction}
+                onChange={(e) => setExecInstruction(e.target.value)}
+                placeholder="e.g. Approved — proceed with vendor replacement. Budget cap: $5,000. Report back by Friday."
+                rows={3}
+                disabled={posting}
+                className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent disabled:bg-gray-100 placeholder:text-slate-400"
+              />
+              <div className="flex items-center justify-between mt-3">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors font-medium"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handlePostInstruction}
+                  disabled={!execInstruction.trim() || posting}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Send Instruction
+                </button>
               </div>
             </div>
-            <textarea
-              ref={execInstructionRef}
-              value={execInstruction}
-              onChange={(e) => setExecInstruction(e.target.value)}
-              placeholder="e.g. Approved — proceed with vendor replacement. Budget cap: $5,000. Report back by Friday."
-              rows={3}
-              disabled={posting}
-              className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent disabled:bg-gray-100 placeholder:text-slate-400"
-            />
-            <div className="flex items-center justify-between mt-3">
+          ) : (
+            <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 transition-colors font-medium"
+                className="w-full px-4 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
               >
                 Close
               </button>
-              <button
-                onClick={handlePostInstruction}
-                disabled={!execInstruction.trim() || posting}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              >
-                {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Send Instruction
-              </button>
             </div>
-          </div>
-        ) : (
-        <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="w-full px-4 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            Close
-          </button>
-        </div>
-        )}
-      </div>
-    </div>
+          )
+        }
+      </div >
+    </div >
   );
 }

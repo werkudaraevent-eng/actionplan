@@ -12,6 +12,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
 import AdminPermissions from './pages/AdminPermissions';
 import ApprovalInbox from './pages/ApprovalInbox';
+import ExecutiveActionCenter from './pages/ExecutiveActionCenter';
 import GlobalAuditLog from './pages/GlobalAuditLog';
 import UserManagement from './components/user/UserManagement';
 import CompanyActionPlans from './pages/CompanyActionPlans';
@@ -34,7 +35,7 @@ function ProfileErrorScreen({ error, onSignOut }) {
           {isNotFound ? 'Profile Not Found' : 'Profile Error'}
         </h1>
         <p className="text-gray-600 mb-6">
-          {isNotFound 
+          {isNotFound
             ? 'Your user account exists but no profile was found. Please contact your administrator to set up your profile.'
             : `Error loading profile: ${error}`
           }
@@ -71,13 +72,13 @@ function AccessDeniedScreen({ message, redirectTo = '/' }) {
 function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   const { isAdmin, isExecutive, isStaff, isLeader, departmentCode } = useAuth();
   const location = useLocation();
-  
+
   // Admin-only routes (Executives also allowed for read-only access)
   if (adminOnly && !isAdmin && !isExecutive) {
     const redirectTo = isStaff ? '/workspace' : `/dept/${departmentCode}/dashboard`;
     return <AccessDeniedScreen message="This area is restricted to administrators only." redirectTo={redirectTo} />;
   }
-  
+
   // Role-based access
   if (allowedRoles.length > 0) {
     const hasAccess = allowedRoles.some(role => {
@@ -92,7 +93,7 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
       return <AccessDeniedScreen message="You don't have permission to access this area." redirectTo={redirectTo} />;
     }
   }
-  
+
   return children;
 }
 
@@ -100,26 +101,26 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
 function DepartmentRoute({ children }) {
   const { isAdmin, isExecutive, departmentCode, profile } = useAuth();
   const { deptCode } = useParams();
-  
+
   // Admin and Executive can access any department
   if (isAdmin || isExecutive) {
     return children;
   }
-  
+
   // Check if user has access to this department (primary or additional)
-  const hasAccess = 
-    deptCode === departmentCode || 
+  const hasAccess =
+    deptCode === departmentCode ||
     profile?.additional_departments?.includes(deptCode);
-  
+
   if (!hasAccess) {
     return (
-      <AccessDeniedScreen 
+      <AccessDeniedScreen
         message={`You don't have permission to view the ${deptCode} department. You can only access your assigned departments.`}
         redirectTo={`/dept/${departmentCode}/dashboard`}
       />
     );
   }
-  
+
   return children;
 }
 
@@ -127,7 +128,7 @@ function DepartmentRoute({ children }) {
 function DepartmentDashboardWrapper() {
   const { deptCode } = useParams();
   const navigate = useNavigate();
-  
+
   const handleNavigate = (view, options = {}) => {
     // Handle old-style navigation calls from DepartmentDashboard
     if (view === 'dept-plans' || view === `dept-${deptCode}`) {
@@ -136,7 +137,7 @@ function DepartmentDashboardWrapper() {
       navigate(`/dept/${deptCode}/plans${params.toString() ? '?' + params.toString() : ''}`);
     }
   };
-  
+
   return <DepartmentDashboard departmentCode={deptCode} onNavigate={handleNavigate} />;
 }
 
@@ -164,7 +165,7 @@ function UserManagementWrapper() {
 
 function AdminDashboardWrapper() {
   const navigate = useNavigate();
-  
+
   const handleNavigate = (view, options = {}) => {
     if (view === 'all-plans') {
       const params = new URLSearchParams();
@@ -177,7 +178,7 @@ function AdminDashboardWrapper() {
       navigate(`/users${params.toString() ? '?' + params.toString() : ''}`);
     }
   };
-  
+
   return <AdminDashboard onNavigate={handleNavigate} />;
 }
 
@@ -190,11 +191,11 @@ function AdminSettingsWrapper() {
 // Default redirect based on role
 function DefaultRedirect() {
   const { isAdmin, isExecutive, isStaff, departmentCode } = useAuth();
-  
+
   if (isAdmin || isExecutive) return <Navigate to="/dashboard" replace />;
   if (isStaff) return <Navigate to="/workspace" replace />;
   if (departmentCode) return <Navigate to={`/dept/${departmentCode}/dashboard`} replace />;
-  
+
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -210,7 +211,7 @@ function AppRoutes() {
   if (location.pathname === '/reset-password') {
     return <ResetPasswordPage />;
   }
-  
+
   if (location.pathname === '/update-password') {
     return <UpdatePasswordPage />;
   }
@@ -231,57 +232,63 @@ function AppRoutes() {
         <Routes>
           {/* Default redirect based on role */}
           <Route path="/" element={<DefaultRedirect />} />
-          
+
           {/* Admin Routes */}
           <Route path="/dashboard" element={
             <ProtectedRoute adminOnly>
               <AdminDashboardWrapper />
             </ProtectedRoute>
           } />
-          
+
           <Route path="/plans" element={
             <ProtectedRoute adminOnly>
               <CompanyActionPlansWrapper />
             </ProtectedRoute>
           } />
-          
+
           <Route path="/users" element={
             <ProtectedRoute adminOnly>
               <UserManagementWrapper />
             </ProtectedRoute>
           } />
-          
+
           <Route path="/settings" element={
             <ProtectedRoute adminOnly>
               <AdminSettingsWrapper />
             </ProtectedRoute>
           } />
-          
+
           <Route path="/permissions" element={
             <ProtectedRoute adminOnly>
               <AdminPermissions />
             </ProtectedRoute>
           } />
-          
+
           <Route path="/approvals" element={
             <ProtectedRoute allowedRoles={['admin']}>
               <ApprovalInbox />
             </ProtectedRoute>
           } />
-          
+
+          <Route path="/action-center" element={
+            <ProtectedRoute allowedRoles={['admin', 'executive']}>
+              <ExecutiveActionCenter />
+            </ProtectedRoute>
+          } />
+
           <Route path="/audit-log" element={
             <ProtectedRoute adminOnly>
               <GlobalAuditLog />
             </ProtectedRoute>
           } />
-          
+
           {/* Department Routes (Admin + Leaders + Staff for dashboard) */}
           <Route path="/dept/:deptCode/dashboard" element={
             <DepartmentRoute>
               <DepartmentDashboardWrapper />
             </DepartmentRoute>
           } />
-          
+
           <Route path="/dept/:deptCode/plans" element={
             <ProtectedRoute allowedRoles={['admin', 'executive', 'leader']}>
               <DepartmentRoute>
@@ -289,17 +296,17 @@ function AppRoutes() {
               </DepartmentRoute>
             </ProtectedRoute>
           } />
-          
+
           {/* Staff Workspace */}
           <Route path="/workspace" element={
             <ProtectedRoute allowedRoles={['staff']}>
               <StaffWorkspace />
             </ProtectedRoute>
           } />
-          
+
           {/* Profile - accessible to all authenticated users */}
           <Route path="/profile" element={<UserProfile />} />
-          
+
           {/* Catch-all redirect */}
           <Route path="*" element={<DefaultRedirect />} />
         </Routes>

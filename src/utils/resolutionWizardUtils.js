@@ -14,6 +14,46 @@ export async function fetchCarryOverSettings() {
 }
 
 /**
+ * Fetch drop approval policy settings from system_settings.
+ * Returns { drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l }
+ */
+export async function fetchDropPolicySettings() {
+  const { data, error } = await withTimeout(
+    supabase
+      .from('system_settings')
+      .select('drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l')
+      .eq('id', 1)
+      .single(),
+    5000
+  );
+  if (error) throw error;
+  return data || {
+    drop_approval_req_uh: false,
+    drop_approval_req_h: false,
+    drop_approval_req_m: false,
+    drop_approval_req_l: false,
+  };
+}
+
+/**
+ * Check if dropping a plan requires management approval based on its category/priority.
+ * @param {object} plan - The action plan object (needs .category field)
+ * @param {object} dropPolicy - The drop policy settings from fetchDropPolicySettings()
+ * @returns {boolean} true if approval is required
+ */
+export function isDropApprovalRequired(plan, dropPolicy) {
+  if (!dropPolicy) return false;
+  const cat = (plan.category || '').toUpperCase().split(/[\s(]/)[0]; // Extract priority code
+  switch (cat) {
+    case 'UH': return !!dropPolicy.drop_approval_req_uh;
+    case 'H': return !!dropPolicy.drop_approval_req_h;
+    case 'M': return !!dropPolicy.drop_approval_req_m;
+    case 'L': return !!dropPolicy.drop_approval_req_l;
+    default: return false; // Unknown priority — no approval required
+  }
+}
+
+/**
  * Get the max possible score for a plan if it were carried over.
  * Returns null if the plan cannot be carried over (already at Late_Month_2).
  */
@@ -75,12 +115,13 @@ export async function getUnresolvedPlans(departmentCode, month, year) {
   const { data, error } = await withTimeout(
     supabase
       .from('action_plans')
-      .select('id, action_plan, goal_strategy, pic, status, carry_over_status, max_possible_score, is_blocked, blocker_reason, attention_level')
+      .select('id, action_plan, goal_strategy, pic, status, carry_over_status, max_possible_score, is_blocked, blocker_reason, attention_level, category, is_drop_pending')
       .eq('department_code', departmentCode)
       .eq('month', month)
       .eq('year', year)
       .is('deleted_at', null)
       .in('status', ['Open', 'On Progress', 'Blocked'])
+      .or('is_drop_pending.is.null,is_drop_pending.eq.false') // Exclude items pending drop approval
       .order('created_at', { ascending: true }),
     8000
   );

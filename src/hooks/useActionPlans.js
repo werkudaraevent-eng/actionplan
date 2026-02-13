@@ -37,9 +37,9 @@ export function useActionPlans(departmentCode = null) {
       const { data, error: fetchError } = await withTimeout(query, 10000);
 
       if (fetchError) throw fetchError;
-      
+
       console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'})`);
-      
+
       setPlans(data || []);
     } catch (err) {
       console.error('Error fetching plans:', err);
@@ -99,17 +99,17 @@ export function useActionPlans(departmentCode = null) {
   const getCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { id: null, name: null };
-    
+
     // Try to get name from profiles table
     const { data: profile } = await supabase
       .from('profiles')
       .select('full_name')
       .eq('id', user.id)
       .single();
-    
-    return { 
-      id: user.id, 
-      name: profile?.full_name || user.email || 'Unknown User' 
+
+    return {
+      id: user.id,
+      name: profile?.full_name || user.email || 'Unknown User'
     };
   };
 
@@ -128,12 +128,12 @@ export function useActionPlans(departmentCode = null) {
       .single();
 
     if (error) throw error;
-    
+
     // Optimistic update
     setPlans((prev) => [...prev, data]);
-    
+
     // NOTE: Audit logging handled by DB trigger (CREATED)
-    
+
     return data;
   };
 
@@ -145,12 +145,12 @@ export function useActionPlans(departmentCode = null) {
       .select();
 
     if (error) throw error;
-    
+
     // Optimistic update
     setPlans((prev) => [...prev, ...data]);
-    
+
     // NOTE: Audit logging handled by DB trigger (CREATED for each plan)
-    
+
     return data;
   };
 
@@ -158,7 +158,7 @@ export function useActionPlans(departmentCode = null) {
   const updatePlan = async (id, updates, previousData = null, skipLockCheck = false) => {
     // Get previous data from state if not provided
     const original = previousData || plans.find((p) => p.id === id);
-    
+
     // DEBUG: Log the update request
     console.log('[useActionPlans.updatePlan] Called with:', {
       id,
@@ -166,7 +166,7 @@ export function useActionPlans(departmentCode = null) {
       originalStatus: original?.status,
       skipLockCheck
     });
-    
+
     // PRE-FLIGHT LOCK CHECK: Verify the plan is still editable before saving
     // This prevents stale state issues where admin updated deadlines after user loaded the page
     // Skip check for admin operations or when explicitly bypassed
@@ -176,9 +176,10 @@ export function useActionPlans(departmentCode = null) {
         original.month,
         original.year || new Date().getFullYear(),
         original.unlock_status,
-        original.approved_until
+        original.approved_until,
+        original.temporary_unlock_expiry
       );
-      
+
       if (lockStatus.isLocked) {
         console.log('[useActionPlans.updatePlan] BLOCKED: Period is locked');
         const error = new Error('PERIOD_LOCKED');
@@ -187,29 +188,29 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
     }
-    
+
     // SMART FEEDBACK CLEARING: When re-submitting after revision, clear old feedback
     // This prevents stale revision notes from appearing on successfully fixed items
-    const isResubmittingAfterRevision = 
-      updates.status === 'Achieved' && 
+    const isResubmittingAfterRevision =
+      updates.status === 'Achieved' &&
       (original?.status === 'On Progress' || original?.status === 'Open' || original?.status === 'Not Achieved') &&
       original?.admin_feedback; // Only clear if there was feedback
-    
+
     if (isResubmittingAfterRevision) {
       updates.admin_feedback = null; // Clear the old revision feedback
     }
-    
+
     // AUTO-RESOLVE BLOCKER: Clear blocker when task is completed (Achieved/Not Achieved)
     // A completed task cannot be blocked - this fixes the UX bug where "BLOCKED" badge persists
     const isCompletionStatus = updates.status === 'Achieved' || updates.status === 'Not Achieved';
     const shouldClearBlocker = isCompletionStatus && original?.is_blocked === true;
-    
+
     if (shouldClearBlocker) {
       updates.is_blocked = false;
       updates.blocker_reason = null;
       console.log('[updatePlan] AUTO-RESOLVE: Clearing blocker (task completed with status:', updates.status, ')');
     }
-    
+
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
@@ -217,7 +218,7 @@ export function useActionPlans(departmentCode = null) {
 
     try {
       console.log('[useActionPlans.updatePlan] Sending to Supabase:', { id, updates });
-      
+
       const { data, error } = await supabase
         .from('action_plans')
         .update(updates)
@@ -231,9 +232,9 @@ export function useActionPlans(departmentCode = null) {
         throw error;
       }
 
-      console.log('[useActionPlans.updatePlan] Supabase success:', { 
+      console.log('[useActionPlans.updatePlan] Supabase success:', {
         returnedStatus: data?.status,
-        returnedId: data?.id 
+        returnedId: data?.id
       });
 
       setPlans((prev) =>
@@ -252,18 +253,18 @@ export function useActionPlans(departmentCode = null) {
   // Soft delete plan with audit logging and deletion reason
   const deletePlan = async (id, deletionReason = null) => {
     const planToDelete = plans.find((p) => p.id === id);
-    
+
     // Optimistic update - remove from active list
     setPlans((prev) => prev.filter((p) => p.id !== id));
 
     try {
       const { name: userName } = await getCurrentUser();
       const deletedAt = new Date().toISOString();
-      
+
       // Soft delete: set deleted_at timestamp, deleted_by name, and deletion_reason
       const { error } = await supabase
         .from('action_plans')
-        .update({ 
+        .update({
           deleted_at: deletedAt,
           deleted_by: userName,
           deletion_reason: deletionReason
@@ -327,9 +328,9 @@ export function useActionPlans(departmentCode = null) {
 
     const { data, error } = await query;
     if (error) throw error;
-    
+
     console.log(`[useActionPlans] Fetched ${data?.length || 0} deleted plans`);
-    
+
     return data || [];
   };
 
@@ -352,28 +353,28 @@ export function useActionPlans(departmentCode = null) {
     // Get previous data for audit log
     const previousPlan = plans.find((p) => p.id === id);
     const previousStatus = previousPlan?.status;
-    
+
     // Determine if we need to clear leader_feedback (staff resubmitting after revision)
     const shouldClearLeaderFeedback = status === 'Internal Review' && previousPlan?.leader_feedback;
-    
+
     // AUTO-WIPE: Clear all failure-related fields when transitioning FROM "Not Achieved" to any other status
     const shouldClearFailureData = previousStatus === 'Not Achieved' && status !== 'Not Achieved';
-    
+
     // AUTO-RESOLVE BLOCKER: Clear blocker when task is completed (Achieved/Not Achieved)
     // A completed task cannot be blocked - this fixes the UX bug where "BLOCKED" badge persists on "Achieved" items
     const isCompletionStatus = status === 'Achieved' || status === 'Not Achieved';
     const shouldClearBlocker = isCompletionStatus && previousPlan?.is_blocked === true;
-    
+
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { 
-        ...p, 
+      prev.map((p) => (p.id === id ? {
+        ...p,
         status,
         ...(shouldClearLeaderFeedback && { leader_feedback: null }),
-        ...(shouldClearFailureData && { 
+        ...(shouldClearFailureData && {
           // Failure data
-          gap_category: null, 
-          gap_analysis: null, 
+          gap_category: null,
+          gap_analysis: null,
           specify_reason: null,
           // Notes (clear auto-generated "[Cause: ...]" text)
           remark: null,
@@ -394,7 +395,7 @@ export function useActionPlans(departmentCode = null) {
       if (shouldClearLeaderFeedback) {
         updatePayload.leader_feedback = null;
       }
-      
+
       // AUTO-WIPE: Include null values to clear ALL failure-related fields in DB
       if (shouldClearFailureData) {
         // Failure data
@@ -405,18 +406,18 @@ export function useActionPlans(departmentCode = null) {
         updatePayload.remark = null;
         // Evidence (clear since task is open again)
         updatePayload.outcome_link = null;
-        
+
         console.log('[updateStatus] AUTO-WIPE: Clearing failure data, remark, and outcome_link (status changed from Not Achieved to', status, ')');
       }
-      
+
       // AUTO-RESOLVE BLOCKER: Clear blocker fields in DB when completing task
       if (shouldClearBlocker) {
         updatePayload.is_blocked = false;
         updatePayload.blocker_reason = null;
-        
+
         console.log('[updateStatus] AUTO-RESOLVE: Clearing blocker (task completed with status:', status, ')');
       }
-      
+
       const { error } = await supabase
         .from('action_plans')
         .update(updatePayload)
@@ -437,41 +438,43 @@ export function useActionPlans(departmentCode = null) {
   // SIMPLIFIED WORKFLOW: Finalize month report
   // Locks all items for a month by setting submission_status = 'submitted'
   // Auto-scores "Not Achieved" items with 0 (they skip the grading queue)
-  const finalizeMonthReport = async (month) => {
+  // NEW: After locking, processes carry-over candidates (resolution_type = 'carried_over')
+  const finalizeMonthReport = async (month, plansOverride = null) => {
     const { id: userId, name: userName } = await getCurrentUser();
-    
+
     // Find all draft items for this month (not yet submitted)
-    const itemsToFinalize = plans.filter(
+    const currentPlans = plansOverride || plans;
+    const itemsToFinalize = currentPlans.filter(
       p => p.month === month && (!p.submission_status || p.submission_status === 'draft')
     );
-    
+
     if (itemsToFinalize.length === 0) {
       throw new Error('No items to finalize for this month');
     }
 
     const submittedAt = new Date().toISOString();
-    
+
     // Split items into two groups: Achieved (needs grading) and Not Achieved (auto-score 0)
     const achievedItems = itemsToFinalize.filter(p => p.status === 'Achieved');
     const failedItems = itemsToFinalize.filter(p => p.status === 'Not Achieved');
-    
+
     const achievedIds = achievedItems.map(p => p.id);
     const failedIds = failedItems.map(p => p.id);
-    
+
     // Optimistic update - include auto-scoring for failed items
     setPlans((prev) =>
       prev.map((p) => {
         if (achievedIds.includes(p.id)) {
-          return { 
-            ...p, 
+          return {
+            ...p,
             submission_status: 'submitted',
             submitted_at: submittedAt,
             submitted_by: userId
           };
         }
         if (failedIds.includes(p.id)) {
-          return { 
-            ...p, 
+          return {
+            ...p,
             submission_status: 'submitted',
             submitted_at: submittedAt,
             submitted_by: userId,
@@ -486,13 +489,13 @@ export function useActionPlans(departmentCode = null) {
     try {
       // Batch update in database using Promise.all for parallel execution
       const updatePromises = [];
-      
+
       // Batch 1: Achieved items - need Admin grading (quality_score = null)
       if (achievedIds.length > 0) {
         updatePromises.push(
           supabase
             .from('action_plans')
-            .update({ 
+            .update({
               submission_status: 'submitted',
               submitted_at: submittedAt,
               submitted_by: userId
@@ -500,13 +503,13 @@ export function useActionPlans(departmentCode = null) {
             .in('id', achievedIds)
         );
       }
-      
+
       // Batch 2: Not Achieved items - auto-score 0, skip grading queue
       if (failedIds.length > 0) {
         updatePromises.push(
           supabase
             .from('action_plans')
-            .update({ 
+            .update({
               submission_status: 'submitted',
               submitted_at: submittedAt,
               submitted_by: userId,
@@ -516,9 +519,9 @@ export function useActionPlans(departmentCode = null) {
             .in('id', failedIds)
         );
       }
-      
+
       const results = await Promise.all(updatePromises);
-      
+
       // Check for errors
       for (const result of results) {
         if (result.error) {
@@ -526,6 +529,64 @@ export function useActionPlans(departmentCode = null) {
           throw result.error;
         }
       }
+
+      // ── CARRY-OVER PROCESSING (Post-Lock) ──────────────────────────────
+      // Scan for "Not Achieved" items tagged with resolution_type = 'carried_over'
+      // that do NOT already have a child plan (origin_plan_id check)
+      const carryOverCandidates = failedItems.filter(
+        p => p.resolution_type === 'carried_over'
+      );
+
+      if (carryOverCandidates.length > 0) {
+        console.log(`[finalizeMonthReport] Processing ${carryOverCandidates.length} carry-over candidate(s)...`);
+
+        // Check which candidates already have a child in the next month
+        const candidateIds = carryOverCandidates.map(p => p.id);
+
+        // Query for existing children (plans that have origin_plan_id pointing to our candidates)
+        const { data: existingChildren } = await supabase
+          .from('action_plans')
+          .select('origin_plan_id')
+          .in('origin_plan_id', candidateIds)
+          .is('deleted_at', null);
+
+        const alreadyCarriedIds = new Set((existingChildren || []).map(c => c.origin_plan_id));
+
+        // Filter to only those without existing children
+        const toCarryOver = carryOverCandidates.filter(p => !alreadyCarriedIds.has(p.id));
+
+        if (toCarryOver.length > 0) {
+          console.log(`[finalizeMonthReport] Creating ${toCarryOver.length} carry-over plan(s)...`);
+
+          // Execute carry-over for each candidate using the RPC
+          const carryOverResults = await Promise.allSettled(
+            toCarryOver.map(p =>
+              supabase.rpc('carry_over_plan', {
+                p_plan_id: p.id,
+                p_user_id: userId
+              })
+            )
+          );
+
+          // Log results
+          let successCount = 0;
+          let failCount = 0;
+          for (const result of carryOverResults) {
+            if (result.status === 'fulfilled' && !result.value.error) {
+              successCount++;
+            } else {
+              failCount++;
+              console.error('[finalizeMonthReport] Carry-over failed for a plan:', result.reason || result.value?.error);
+            }
+          }
+          console.log(`[finalizeMonthReport] Carry-over complete: ${successCount} success, ${failCount} failed`);
+        } else {
+          console.log('[finalizeMonthReport] All carry-over candidates already have children. Skipping.');
+        }
+      }
+
+      // Re-fetch to pick up any new carry-over plans created by the RPC
+      await fetchPlans();
 
       // NOTE: Audit logging handled by DB trigger (SUBMITTED_FOR_REVIEW with detailed changes)
 
@@ -540,14 +601,14 @@ export function useActionPlans(departmentCode = null) {
   // Also clears auto-grade for "Not Achieved" items so they can be re-evaluated
   const unlockItem = async (id) => {
     const previousPlan = plans.find((p) => p.id === id);
-    
+
     // Check if this is an auto-graded "Not Achieved" item
     const isAutoGradedNotAchieved = previousPlan?.quality_score === 0 && previousPlan?.status === 'Not Achieved';
-    
+
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { 
-        ...p, 
+      prev.map((p) => (p.id === id ? {
+        ...p,
         submission_status: 'draft',
         submitted_at: null,
         submitted_by: null,
@@ -560,7 +621,7 @@ export function useActionPlans(departmentCode = null) {
     );
 
     try {
-      const updateData = { 
+      const updateData = {
         submission_status: 'draft',
         submitted_at: null,
         submitted_by: null,
@@ -570,7 +631,7 @@ export function useActionPlans(departmentCode = null) {
           admin_feedback: null
         })
       };
-      
+
       const { error } = await supabase
         .from('action_plans')
         .update(updateData)
@@ -592,15 +653,15 @@ export function useActionPlans(departmentCode = null) {
   // Also handles auto-graded "Not Achieved" items (score 0)
   const recallMonthReport = async (month) => {
     const { id: userId, name: userName } = await getCurrentUser();
-    
+
     // Find all submitted items for this month that are NOT manually graded
     // Include: ungraded items (quality_score == null) AND auto-graded Not Achieved (quality_score === 0)
     const itemsToRecall = plans.filter(
-      p => p.month === month && 
-           p.submission_status === 'submitted' && 
-           (p.quality_score == null || (p.quality_score === 0 && p.status === 'Not Achieved'))
+      p => p.month === month &&
+        p.submission_status === 'submitted' &&
+        (p.quality_score == null || (p.quality_score === 0 && p.status === 'Not Achieved'))
     );
-    
+
     if (itemsToRecall.length === 0) {
       throw new Error('No items to recall for this month');
     }
@@ -608,25 +669,25 @@ export function useActionPlans(departmentCode = null) {
     // Separate items by type for proper handling
     const ungradedItems = itemsToRecall.filter(p => p.quality_score == null);
     const autoGradedItems = itemsToRecall.filter(p => p.quality_score === 0 && p.status === 'Not Achieved');
-    
+
     const ungradedIds = ungradedItems.map(p => p.id);
     const autoGradedIds = autoGradedItems.map(p => p.id);
     const allIds = itemsToRecall.map(p => p.id);
-    
+
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => {
         if (ungradedIds.includes(p.id)) {
-          return { 
-            ...p, 
+          return {
+            ...p,
             submission_status: 'draft',
             submitted_at: null,
             submitted_by: null
           };
         }
         if (autoGradedIds.includes(p.id)) {
-          return { 
-            ...p, 
+          return {
+            ...p,
             submission_status: 'draft',
             submitted_at: null,
             submitted_by: null,
@@ -640,13 +701,13 @@ export function useActionPlans(departmentCode = null) {
 
     try {
       const updatePromises = [];
-      
+
       // Batch 1: Ungraded items - just reset submission status
       if (ungradedIds.length > 0) {
         updatePromises.push(
           supabase
             .from('action_plans')
-            .update({ 
+            .update({
               submission_status: 'draft',
               submitted_at: null,
               submitted_by: null
@@ -654,13 +715,13 @@ export function useActionPlans(departmentCode = null) {
             .in('id', ungradedIds)
         );
       }
-      
+
       // Batch 2: Auto-graded Not Achieved items - also clear the auto-grade
       if (autoGradedIds.length > 0) {
         updatePromises.push(
           supabase
             .from('action_plans')
-            .update({ 
+            .update({
               submission_status: 'draft',
               submitted_at: null,
               submitted_by: null,
@@ -670,9 +731,9 @@ export function useActionPlans(departmentCode = null) {
             .in('id', autoGradedIds)
         );
       }
-      
+
       const results = await Promise.all(updatePromises);
-      
+
       // Check for errors
       for (const result of results) {
         if (result.error) {
@@ -680,6 +741,61 @@ export function useActionPlans(departmentCode = null) {
           throw result.error;
         }
       }
+
+      // ── CARRY-OVER ROLLBACK (Delete Children) ─────────────────────────
+      // When recalling, delete any carry-over copies that were created during
+      // the submission, so the user gets a clean slate to edit their report.
+      // Safety: Only delete children that are still 'Open' (untouched).
+      const carryOverParentIds = itemsToRecall
+        .filter(p => p.resolution_type === 'carried_over')
+        .map(p => p.id);
+
+      if (carryOverParentIds.length > 0) {
+        console.log(`[recallMonthReport] Checking for carry-over children to clean up (${carryOverParentIds.length} parents)...`);
+
+        // Find children that were auto-created by the submit flow
+        const { data: childPlans, error: childError } = await supabase
+          .from('action_plans')
+          .select('id, origin_plan_id, status')
+          .in('origin_plan_id', carryOverParentIds)
+          .is('deleted_at', null);
+
+        if (!childError && childPlans && childPlans.length > 0) {
+          // Only delete children that are still 'Open' (untouched by user)
+          const safeToDeleteIds = childPlans
+            .filter(c => c.status === 'Open')
+            .map(c => c.id);
+
+          const skippedCount = childPlans.length - safeToDeleteIds.length;
+
+          if (safeToDeleteIds.length > 0) {
+            console.log(`[recallMonthReport] Deleting ${safeToDeleteIds.length} untouched carry-over children...`);
+
+            const { error: deleteError } = await supabase
+              .from('action_plans')
+              .delete()
+              .in('id', safeToDeleteIds);
+
+            if (deleteError) {
+              console.error('[recallMonthReport] Failed to delete carry-over children:', deleteError);
+              // Non-fatal: don't throw, just log. The recall itself succeeded.
+            } else {
+              // Remove deleted children from local state
+              setPlans(prev => prev.filter(p => !safeToDeleteIds.includes(p.id)));
+              console.log(`[recallMonthReport] Cleaned up ${safeToDeleteIds.length} carry-over children.`);
+            }
+          }
+
+          if (skippedCount > 0) {
+            console.warn(`[recallMonthReport] Skipped ${skippedCount} carry-over children (already modified by user).`);
+          }
+        } else {
+          console.log('[recallMonthReport] No carry-over children found to clean up.');
+        }
+      }
+
+      // Re-fetch to ensure consistent state after cleanup
+      await fetchPlans();
 
       // NOTE: Audit logging handled by DB trigger (detailed submission_status and score changes)
 
@@ -694,18 +810,139 @@ export function useActionPlans(departmentCode = null) {
   // Grade via RPC — server-side logic handles strict/flexible mode dynamically.
   // Race condition guard is built into the RPC (checks submission_status = 'submitted').
   // Revision requests (quality_score = null) bypass the RPC and do a direct update.
+  // VERDICT SUPPORT: When gradeData._verdict is set, processes admin verdict for failed plans.
   const gradePlan = async (id, gradeData) => {
+    // Extract verdict (if any) before spreading to DB
+    const verdict = gradeData._verdict;
+    const revisionDays = gradeData._revisionDays || 3; // Admin-configurable grace period (default: 3 days)
+    const cleanGradeData = { ...gradeData };
+    delete cleanGradeData._verdict; // Don't send this to the DB
+    delete cleanGradeData._revisionDays; // Don't send this to the DB
+
+    // ── VERDICT PATH: Admin chose a consequence for a failed plan ──
+    if (verdict) {
+      console.log(`[gradePlan] Processing verdict: ${verdict} for plan ${id} (revisionDays: ${revisionDays})`);
+
+      // REVISION VERDICT: Unlock plan, clear score, return to "On Progress"
+      // CRITICAL: Grant admin-configured grace period so staff can edit past-due plans
+      if (verdict === 'revision') {
+        const gracePeriodExpiry = new Date(Date.now() + revisionDays * 24 * 60 * 60 * 1000).toISOString(); // NOW + N days
+
+        setPlans((prev) =>
+          prev.map((p) => (p.id === id ? {
+            ...p,
+            status: 'On Progress',
+            quality_score: null,
+            admin_feedback: cleanGradeData.admin_feedback,
+            submission_status: 'draft',
+            reviewed_by: cleanGradeData.reviewed_by,
+            reviewed_at: cleanGradeData.reviewed_at,
+            temporary_unlock_expiry: gracePeriodExpiry,
+            updated_at: new Date().toISOString(),
+          } : p))
+        );
+
+        try {
+          const { data, error } = await supabase
+            .from('action_plans')
+            .update({
+              status: 'On Progress',
+              quality_score: null,
+              admin_feedback: cleanGradeData.admin_feedback,
+              submission_status: 'draft',
+              reviewed_by: cleanGradeData.reviewed_by,
+              reviewed_at: cleanGradeData.reviewed_at,
+              temporary_unlock_expiry: gracePeriodExpiry,
+            })
+            .eq('id', id)
+            .eq('submission_status', 'submitted')
+            .select('*, origin_plan:origin_plan_id(month)');
+
+          if (error) { await fetchPlans(); throw error; }
+          if (!data || data.length === 0) {
+            await fetchPlans();
+            const recalledError = new Error('ITEM_RECALLED');
+            recalledError.code = 'ITEM_RECALLED';
+            recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+            throw recalledError;
+          }
+          setPlans((prev) => prev.map((p) => (p.id === id ? data[0] : p)));
+          return data[0];
+        } catch (err) {
+          console.error('Verdict (revision) failed:', err);
+          throw err;
+        }
+      }
+
+      // CARRY_OVER or FAILED VERDICT: Grade as "Not Achieved" via RPC first
+      setPlans((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, ...cleanGradeData, updated_at: new Date().toISOString() } : p))
+      );
+
+      try {
+        // Step 1: Grade via RPC (marks as Not Achieved with score)
+        const { data: result, error } = await withTimeout(
+          supabase.rpc('grade_action_plan', {
+            p_plan_id: id,
+            p_input_score: cleanGradeData.quality_score,
+            p_status: 'Not Achieved',
+            p_admin_feedback: cleanGradeData.admin_feedback || null,
+            p_reviewed_by: cleanGradeData.reviewed_by || null,
+          }),
+          10000
+        );
+
+        if (error) {
+          await fetchPlans();
+          if (error.message?.includes('recalled') || error.message?.includes('not in submitted status')) {
+            const recalledError = new Error('ITEM_RECALLED');
+            recalledError.code = 'ITEM_RECALLED';
+            recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+            throw recalledError;
+          }
+          throw error;
+        }
+
+        // Step 2: If carry_over, trigger the carry_over_plan RPC immediately
+        if (verdict === 'carry_over') {
+          console.log(`[gradePlan] Triggering carry-over for plan ${id}...`);
+          const { data: coResult, error: coError } = await supabase.rpc('carry_over_plan', {
+            p_plan_id: id,
+            p_user_id: cleanGradeData.reviewed_by,
+          });
+
+          if (coError) {
+            console.error('[gradePlan] Carry-over failed:', coError);
+            // Non-fatal: the grade was saved, carry-over can be retried
+          } else {
+            console.log('[gradePlan] Carry-over success:', coResult);
+          }
+        }
+        // If verdict === 'failed', nothing additional needed. Plan stays as Not Achieved with no copy.
+
+        // Re-fetch to get fresh data (including any new carry-over plans)
+        await fetchPlans();
+
+        return result;
+      } catch (err) {
+        console.error(`Verdict (${verdict}) failed:`, err);
+        throw err;
+      }
+    }
+
+    // ── STANDARD PATHS (no verdict) ──
+
     // Optimistic update
     setPlans((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...gradeData, updated_at: new Date().toISOString() } : p))
+      prev.map((p) => (p.id === id ? { ...p, ...cleanGradeData, updated_at: new Date().toISOString() } : p))
     );
 
     try {
       // REVISION PATH: quality_score is null → direct update (kickback to draft)
-      if (gradeData.quality_score == null) {
+      if (cleanGradeData.quality_score == null) {
         const { data, error } = await supabase
           .from('action_plans')
-          .update(gradeData)
+          .update(cleanGradeData)
           .eq('id', id)
           .eq('submission_status', 'submitted')
           .select('*, origin_plan:origin_plan_id(month)');
@@ -726,10 +963,10 @@ export function useActionPlans(departmentCode = null) {
       const { data: result, error } = await withTimeout(
         supabase.rpc('grade_action_plan', {
           p_plan_id: id,
-          p_input_score: gradeData.quality_score,
-          p_status: gradeData.status || 'Achieved',
-          p_admin_feedback: gradeData.admin_feedback || null,
-          p_reviewed_by: gradeData.reviewed_by || null,
+          p_input_score: cleanGradeData.quality_score,
+          p_status: cleanGradeData.status || 'Achieved',
+          p_admin_feedback: cleanGradeData.admin_feedback || null,
+          p_reviewed_by: cleanGradeData.reviewed_by || null,
         }),
         10000
       );
@@ -763,8 +1000,8 @@ export function useActionPlans(departmentCode = null) {
           ...p,
           status: result.final_status,
           quality_score: result.final_score,
-          admin_feedback: gradeData.admin_feedback,
-          reviewed_by: gradeData.reviewed_by,
+          admin_feedback: cleanGradeData.admin_feedback,
+          reviewed_by: cleanGradeData.reviewed_by,
           reviewed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } : p))
@@ -783,7 +1020,7 @@ export function useActionPlans(departmentCode = null) {
   const resetPlan = async (id) => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
-    
+
     const resetData = {
       quality_score: null,
       status: 'Open',
@@ -794,7 +1031,7 @@ export function useActionPlans(departmentCode = null) {
       outcome_link: null,
       remark: null
     };
-    
+
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...resetData, updated_at: new Date().toISOString() } : p))
@@ -830,22 +1067,22 @@ export function useActionPlans(departmentCode = null) {
   // COMPLETE WIPE: Clears score, status, feedback, AND user submissions (outcome_link, remark)
   const bulkResetGrades = async () => {
     const { id: userId, name: userName } = await getCurrentUser();
-    
+
     // Find all graded items (quality_score is not null)
     const gradedItems = plans.filter(p => p.quality_score != null);
-    
+
     if (gradedItems.length === 0) {
       throw new Error('No graded items to reset');
     }
 
     const gradedIds = gradedItems.map(p => p.id);
-    
+
     // Optimistic update - COMPLETE WIPE
     setPlans((prev) =>
       prev.map((p) => {
         if (gradedIds.includes(p.id)) {
-          return { 
-            ...p, 
+          return {
+            ...p,
             quality_score: null,
             status: 'Open',
             submission_status: 'draft',
@@ -863,7 +1100,7 @@ export function useActionPlans(departmentCode = null) {
     try {
       const { error } = await supabase
         .from('action_plans')
-        .update({ 
+        .update({
           quality_score: null,
           status: 'Open',
           submission_status: 'draft',
@@ -894,12 +1131,12 @@ export function useActionPlans(departmentCode = null) {
   const approveUnlockRequest = async (id, expiryDate = null) => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
-    
+
     const { id: userId } = await getCurrentUser();
 
     // If no expiry provided, default to 7 days from now
     const expiry = expiryDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    
+
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? {
@@ -952,9 +1189,9 @@ export function useActionPlans(departmentCode = null) {
   const rejectUnlockRequest = async (id, rejectionReason = '') => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
-    
+
     const { id: userId } = await getCurrentUser();
-    
+
     // Optimistic update
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? {
@@ -1008,9 +1245,9 @@ export function useActionPlans(departmentCode = null) {
   const revokeUnlockAccess = async (id) => {
     const original = plans.find((p) => p.id === id);
     if (!original) throw new Error('Plan not found');
-    
+
     const { id: userId } = await getCurrentUser();
-    
+
     // Optimistic update — clear all unlock fields
     setPlans((prev) =>
       prev.map((p) => (p.id === id ? {
@@ -1060,6 +1297,49 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
+  // Immediate Carry Over (for Provisional Logic)
+  // Uses carry_over_plan RPC
+  const carryOverPlan = async (id) => {
+    const { id: userId } = await getCurrentUser();
+
+    try {
+      const { data: result, error } = await withTimeout(
+        supabase.rpc('carry_over_plan', {
+          p_plan_id: id,
+          p_user_id: userId
+        }),
+        10000
+      );
+
+      if (error) {
+        await fetchPlans();
+        throw error;
+      }
+
+      // Add the new plan to the list
+      if (result && result.new_plan_id) {
+        // We need to fetch the full object for the new plan to have all fields
+        const { data: newPlan } = await supabase
+          .from('action_plans')
+          .select('*, origin_plan:origin_plan_id(month)')
+          .eq('id', result.new_plan_id)
+          .single();
+
+        if (newPlan) {
+          setPlans(prev => [...prev, newPlan]);
+        } else {
+          // Fallback: refresh all
+          await fetchPlans();
+        }
+      }
+
+      return result;
+    } catch (err) {
+      console.error('Carry over failed:', err);
+      throw err;
+    }
+  };
+
   return {
     plans,
     setPlans,
@@ -1083,6 +1363,7 @@ export function useActionPlans(departmentCode = null) {
     approveUnlockRequest,
     rejectUnlockRequest,
     revokeUnlockAccess,
+    carryOverPlan,
   };
 }
 

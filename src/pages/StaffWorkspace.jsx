@@ -28,14 +28,14 @@ export default function StaffWorkspace() {
   const { profile, departmentCode } = useAuth();
   const { currentDept } = useDepartmentContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   // Use currentDept if available, fallback to departmentCode (primary department)
   const activeDept = currentDept || departmentCode;
-  
+
   const { plans, loading, updatePlan, updateStatus, refetch } = useActionPlans(activeDept);
   const { departments } = useDepartments();
   const { toast } = useToast();
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,16 +43,16 @@ export default function StaffWorkspace() {
   const [endMonth, setEndMonth] = useState('Dec');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  
+
   // Smart modal navigation: counter to signal when edit modal closes
   const [editModalClosedCounter, setEditModalClosedCounter] = useState(0);
-  
+
   // Track if we should return to view modal after edit closes
   const [returnToViewPlanId, setReturnToViewPlanId] = useState(null);
-  
+
   // Deep linking: View detail modal for notification navigation
   const [viewPlan, setViewPlan] = useState(null);
-  
+
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
 
@@ -65,7 +65,7 @@ export default function StaffWorkspace() {
           planId: returnToViewPlanId,
           counter: editModalClosedCounter
         });
-        
+
         try {
           const { data: freshPlan, error } = await withTimeout(
             supabase
@@ -75,7 +75,7 @@ export default function StaffWorkspace() {
               .single(),
             8000
           );
-          
+
           if (!error && freshPlan) {
             console.log('[StaffWorkspace] Fresh plan fetched:', {
               id: freshPlan.id,
@@ -131,7 +131,7 @@ export default function StaffWorkspace() {
     if (highlightId && !loading) {
       // Try to find the plan in current data first
       const planInData = plans.find(p => p.id === highlightId);
-      
+
       if (planInData) {
         setViewPlan(planInData);
         // Clear the URL param after opening
@@ -148,7 +148,7 @@ export default function StaffWorkspace() {
                 .single(),
               8000
             );
-            
+
             if (!error && data) {
               setViewPlan(data);
             } else {
@@ -181,7 +181,7 @@ export default function StaffWorkspace() {
       console.log('[StaffWorkspace] No userName found, returning empty array');
       return [];
     }
-    
+
     const normalizedUserName = normalize(userName);
     console.log('[StaffWorkspace] Filtering plans for user:', {
       userName,
@@ -192,10 +192,10 @@ export default function StaffWorkspace() {
 
     // Debug: Log first few plans to see PIC values
     if (plans.length > 0) {
-      console.log('[StaffWorkspace] Sample plans PIC values:', 
-        plans.slice(0, 5).map(p => ({ 
-          id: p.id, 
-          pic: p.pic, 
+      console.log('[StaffWorkspace] Sample plans PIC values:',
+        plans.slice(0, 5).map(p => ({
+          id: p.id,
+          pic: p.pic,
           normalizedPic: normalize(p.pic),
           isMatch: normalize(p.pic) === normalizedUserName
         }))
@@ -205,12 +205,12 @@ export default function StaffWorkspace() {
     const filtered = plans.filter((plan) => {
       const normalizedPic = normalize(plan.pic);
       const isMatch = normalizedPic === normalizedUserName;
-      
+
       // Log each comparison for debugging
       if (plans.length <= 20) { // Only log if not too many plans
         console.log(`[StaffWorkspace] Comparing: PIC="${plan.pic}" (${normalizedPic}) vs User="${userName}" (${normalizedUserName}) => ${isMatch}`);
       }
-      
+
       return isMatch;
     });
 
@@ -222,7 +222,7 @@ export default function StaffWorkspace() {
   const filteredPlans = useMemo(() => {
     const startIdx = MONTH_ORDER[startMonth] ?? 0;
     const endIdx = MONTH_ORDER[endMonth] ?? 11;
-    
+
     const filtered = myPlans.filter((plan) => {
       // Month range filter
       const planMonthIdx = MONTH_ORDER[plan.month];
@@ -231,7 +231,7 @@ export default function StaffWorkspace() {
       }
       // Status filter
       if (selectedStatus !== 'all' && plan.status !== selectedStatus) return false;
-      
+
       // Category/Priority filter
       if (selectedCategory !== 'all') {
         const planCategory = (plan.category || '').toUpperCase();
@@ -241,7 +241,7 @@ export default function StaffWorkspace() {
           return false;
         }
       }
-      
+
       // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -250,7 +250,7 @@ export default function StaffWorkspace() {
       }
       return true;
     });
-    
+
     // Sort by month chronologically (Jan -> Dec), then by ID descending (newest first within same month)
     return [...filtered].sort((a, b) => {
       const monthDiff = (MONTH_ORDER[a.month] ?? 99) - (MONTH_ORDER[b.month] ?? 99);
@@ -265,37 +265,37 @@ export default function StaffWorkspace() {
     const isFullYear = startMonth === 'Jan' && endMonth === 'Dec';
     const currentMonthIndex = new Date().getMonth(); // 0 = Jan
     const endMonthIndex = MONTH_ORDER[endMonth] ?? 11;
-    
+
     // For YTD label: only show (YTD) if full year AND end month is current month or later
     const isYTD = isFullYear && endMonthIndex >= currentMonthIndex;
-    
+
     // All stats are calculated from filteredPlans (already filtered by month range, status, search)
     const total = filteredPlans.length;
     const achieved = filteredPlans.filter((p) => p.status === 'Achieved').length;
     const inProgress = filteredPlans.filter((p) => p.status === 'On Progress').length;
     const pending = filteredPlans.filter((p) => p.status === 'Open').length;
     const notAchieved = filteredPlans.filter((p) => p.status === 'Not Achieved').length;
-    
+
     // Completion rate based on filtered data
-    const completionRate = total > 0 ? Number(((achieved  / total) * 100).toFixed(1)) : 0;
-    
+    const completionRate = total > 0 ? Number(((achieved / total) * 100).toFixed(1)) : 0;
+
     // Verification Score calculation based on filtered data
     const gradedPlans = filteredPlans.filter((p) => p.quality_score != null && p.quality_score > 0);
     const totalScore = gradedPlans.reduce((acc, curr) => acc + parseInt(curr.quality_score, 10), 0);
-    const qualityScore = gradedPlans.length > 0 ? Number((totalScore  / gradedPlans.length).toFixed(1)) : null;
+    const qualityScore = gradedPlans.length > 0 ? Number((totalScore / gradedPlans.length).toFixed(1)) : null;
     const gradedCount = gradedPlans.length;
-    
+
     // Period label for cards
     const periodLabel = isFullYear ? (isYTD ? '(YTD)' : '') : `(${startMonth}${startMonth !== endMonth ? ` - ${endMonth}` : ''})`;
-    
-    return { 
-      total, 
-      achieved, 
-      inProgress, 
-      pending, 
-      notAchieved, 
-      completionRate, 
-      qualityScore, 
+
+    return {
+      total,
+      achieved,
+      inProgress,
+      pending,
+      notAchieved,
+      completionRate,
+      qualityScore,
       gradedCount,
       isYTD,
       isFullYear,
@@ -312,7 +312,7 @@ export default function StaffWorkspace() {
     setSelectedStatus('all');
     setSelectedCategory('all');
   };
-  
+
   const clearMonthFilter = () => {
     setStartMonth('Jan');
     setEndMonth('Dec');
@@ -332,7 +332,7 @@ export default function StaffWorkspace() {
       editDataId: editData?.id,
       editDataStatus: editData?.status
     });
-    
+
     try {
       if (editData) {
         // Staff can only update status, outcome, remark, and gap analysis fields
@@ -340,19 +340,24 @@ export default function StaffWorkspace() {
         // Note: editData.status might be pre-filled from handleCompletionStatusChange,
         // so we need to get the true original from plans state
         const originalPlan = plans.find(p => p.id === editData.id);
-        
+
         // Check if blocker will be auto-resolved (completing a blocked task)
         const isCompletionStatus = formData.status === 'Achieved' || formData.status === 'Not Achieved';
         const blockerWasAutoResolved = isCompletionStatus && originalPlan?.is_blocked === true;
-        
+
         const updateFields = {
           status: formData.status,
           outcome_link: formData.outcome_link,
           remark: formData.remark,
+          // Multi-file evidence attachments
+          ...(formData.attachments !== undefined && { attachments: formData.attachments }),
           // Gap analysis fields for "Not Achieved" status
           gap_category: formData.gap_category,
           gap_analysis: formData.gap_analysis,
           specify_reason: formData.specify_reason,
+          // Follow-up action fields (Carry Over / Drop)
+          ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
+          ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
           // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
           ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
           ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
@@ -360,28 +365,28 @@ export default function StaffWorkspace() {
           ...(formData.blocker_category !== undefined && { blocker_category: formData.blocker_category }),
           ...(formData.attention_level !== undefined && { attention_level: formData.attention_level }),
         };
-        
+
         // DEBUG: Log the update payload
         console.log('[StaffWorkspace.handleSave] Updating plan:', {
           id: editData.id,
           updateFields,
           originalStatus: originalPlan?.status
         });
-        
+
         const updatedPlan = await updatePlan(editData.id, updateFields, originalPlan);
-        
+
         // DEBUG: Log the result
         console.log('[StaffWorkspace.handleSave] Update result:', {
           newStatus: updatedPlan?.status,
           success: !!updatedPlan
         });
-        
+
         // Show toast if blocker was auto-resolved
         if (blockerWasAutoResolved) {
-          toast({ 
-            title: 'Plan Completed', 
-            description: 'Blocker has been automatically cleared.', 
-            variant: 'success' 
+          toast({
+            title: 'Plan Completed',
+            description: 'Blocker has been automatically cleared.',
+            variant: 'success'
           });
         }
       }
@@ -390,8 +395,8 @@ export default function StaffWorkspace() {
     } catch (error) {
       console.error('[StaffWorkspace.handleSave] Save failed:', error);
       // Show more specific error message if available
-      const errorMessage = error.code === 'PERIOD_LOCKED' 
-        ? error.message 
+      const errorMessage = error.code === 'PERIOD_LOCKED'
+        ? error.message
         : 'Failed to save. Please try again.';
       toast({ title: 'Save Failed', description: errorMessage, variant: 'error' });
       // Re-throw so ActionPlanModal knows the save failed
@@ -417,10 +422,10 @@ export default function StaffWorkspace() {
 
   // Staff cannot delete - this is a no-op
   const handleDelete = () => {
-    toast({ 
-      title: 'Action Not Allowed', 
-      description: 'Staff members cannot delete action plans. Please contact your department head.', 
-      variant: 'warning' 
+    toast({
+      title: 'Action Not Allowed',
+      description: 'Staff members cannot delete action plans. Please contact your department head.',
+      variant: 'warning'
     });
   };
 
@@ -439,10 +444,10 @@ export default function StaffWorkspace() {
       'completion': 'all', // Clicking completion rate shows all
       'verification': 'all' // Clicking verification score shows all
     };
-    
+
     const status = statusMap[cardType] || 'all';
     setSelectedStatus(status);
-    
+
     // Smooth scroll to table after a brief delay for filter to apply
     setTimeout(() => {
       tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -525,10 +530,10 @@ export default function StaffWorkspace() {
         departmentCode={departmentCode}
         staffMode={true} // Limit fields for staff
       />
-      
+
       {/* View Detail Modal for notification deep linking */}
-      <ViewDetailModal 
-        plan={viewPlan} 
+      <ViewDetailModal
+        plan={viewPlan}
         onClose={() => setViewPlan(null)}
         onEdit={(plan) => {
           // STACKED MODAL: Keep ViewDetailModal open, Edit modal will stack on top

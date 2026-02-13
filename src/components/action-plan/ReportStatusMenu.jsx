@@ -18,9 +18,9 @@ const CURRENT_YEAR = new Date().getFullYear();
  * - disabled: boolean - Disable all actions
  * - lockSettings: Object - Lock settings from system_settings (for checking if month is locked)
  */
-export default function ReportStatusMenu({ 
-  plans = [], 
-  onSubmit, 
+export default function ReportStatusMenu({
+  plans = [],
+  onSubmit,
   onRecall,
   onRequestUnlock,
   submitting = false,
@@ -38,54 +38,55 @@ export default function ReportStatusMenu({
     return MONTHS.map(month => {
       const monthPlans = plans.filter(p => p.month === month);
       const totalCount = monthPlans.length;
-      
+
       // Check if this month is date-locked
-      const isDateLocked = lockSettings?.isLockEnabled 
+      const isDateLocked = lockSettings?.isLockEnabled
         ? isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings)
         : false;
-      
-      // If date-locked, check if all draft plans have active temporary unlocks
+
+      // If date-locked, check if all draft plans have active temporary unlocks or grace periods
       let isMonthLocked = isDateLocked;
       if (isDateLocked && totalCount > 0) {
         const draftPlans = monthPlans.filter(p => !p.submission_status || p.submission_status === 'draft');
         if (draftPlans.length > 0) {
-          const allDraftsUnlocked = draftPlans.every(p => 
-            p.unlock_status === 'approved' && 
-            p.approved_until && 
-            new Date(p.approved_until) > new Date()
+          const allDraftsUnlocked = draftPlans.every(p =>
+            (p.unlock_status === 'approved' &&
+              p.approved_until &&
+              new Date(p.approved_until) > new Date()) ||
+            (p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date())
           );
           if (allDraftsUnlocked) {
-            isMonthLocked = false; // All drafts have active temporary unlock
+            isMonthLocked = false; // All drafts have active temporary unlock or grace period
           }
         }
       }
-      
+
       if (totalCount === 0) {
         return { month, status: 'empty', totalCount: 0, draftCount: 0, submittedCount: 0, gradedCount: 0, ungradedCount: 0, isLocked: isMonthLocked };
       }
-      
+
       // Draft items (can be submitted)
       const draftCount = monthPlans.filter(
         p => !p.submission_status || p.submission_status === 'draft'
       ).length;
-      
+
       // Submitted items
       const submittedItems = monthPlans.filter(p => p.submission_status === 'submitted');
       const submittedCount = submittedItems.length;
-      
+
       // Graded items (locked forever)
       const gradedCount = submittedItems.filter(p => p.quality_score != null).length;
-      
+
       // Ungraded submitted items (can be recalled)
       const ungradedCount = submittedCount - gradedCount;
-      
+
       // Incomplete drafts (not Achieved or Not Achieved)
       const incompleteCount = monthPlans.filter(
         p => (!p.submission_status || p.submission_status === 'draft') &&
-             p.status !== 'Achieved' && 
-             p.status !== 'Not Achieved'
+          p.status !== 'Achieved' &&
+          p.status !== 'Not Achieved'
       ).length;
-      
+
       // Determine status
       let status = 'empty';
       if (gradedCount === totalCount) {
@@ -99,17 +100,17 @@ export default function ReportStatusMenu({
       } else if (ungradedCount > 0) {
         status = 'submitted'; // Can recall ungraded items
       }
-      
+
       // CRITICAL: If month is locked, user cannot submit (must request unlock first)
       const canSubmit = draftCount > 0 && incompleteCount === 0 && !isMonthLocked;
-      
-      return { 
-        month, 
-        status, 
-        totalCount, 
-        draftCount, 
-        submittedCount, 
-        gradedCount, 
+
+      return {
+        month,
+        status,
+        totalCount,
+        draftCount,
+        submittedCount,
+        gradedCount,
         ungradedCount,
         incompleteCount,
         isLocked: isMonthLocked,
@@ -134,12 +135,12 @@ export default function ReportStatusMenu({
     const handleClickOutside = (e) => {
       const isOutsideTrigger = triggerRef.current && !triggerRef.current.contains(e.target);
       const isOutsideContent = contentRef.current && !contentRef.current.contains(e.target);
-      
+
       if (isOutsideTrigger && isOutsideContent) {
         setIsOpen(false);
       }
     };
-    
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
@@ -152,20 +153,20 @@ export default function ReportStatusMenu({
       const rect = triggerRef.current.getBoundingClientRect();
       const scrollY = window.scrollY;
       const scrollX = window.scrollX;
-      
+
       let top = rect.bottom + scrollY + 4;
       let left = rect.right + scrollX - 320; // Right-align, 320px width
-      
+
       // Prevent off-screen
       if (left < 8) left = 8;
-      
+
       // Flip to top if needed
       const viewportHeight = window.innerHeight;
       const estimatedHeight = 400;
       if (top + estimatedHeight > viewportHeight + scrollY) {
         top = rect.top + scrollY - estimatedHeight - 4;
       }
-      
+
       setPosition({ top, left });
     }
   }, [isOpen]);
@@ -206,7 +207,7 @@ export default function ReportStatusMenu({
         </span>
       );
     }
-    
+
     switch (monthData.status) {
       case 'complete':
         return (
@@ -247,7 +248,7 @@ export default function ReportStatusMenu({
 
   const getActionButton = (monthData) => {
     const isLoading = submitting && actionMonth === monthData.month;
-    
+
     if (monthData.status === 'complete') {
       return (
         <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -256,7 +257,7 @@ export default function ReportStatusMenu({
         </span>
       );
     }
-    
+
     if (monthData.canRecall) {
       return (
         <button
@@ -273,7 +274,7 @@ export default function ReportStatusMenu({
         </button>
       );
     }
-    
+
     // Month is locked but has items ready to submit - show clickable unlock request button
     if (monthData.isLocked && monthData.draftCount > 0 && monthData.incompleteCount === 0) {
       return (
@@ -288,7 +289,7 @@ export default function ReportStatusMenu({
         </button>
       );
     }
-    
+
     if (monthData.canSubmit) {
       return (
         <button
@@ -305,7 +306,7 @@ export default function ReportStatusMenu({
         </button>
       );
     }
-    
+
     // Month is locked but has incomplete items - show clickable unlock request button
     if (monthData.isLocked && monthData.status === 'in-progress') {
       return (
@@ -320,7 +321,7 @@ export default function ReportStatusMenu({
         </button>
       );
     }
-    
+
     if (monthData.status === 'in-progress') {
       return (
         <button
@@ -334,7 +335,7 @@ export default function ReportStatusMenu({
         </button>
       );
     }
-    
+
     if (monthData.status === 'submitted') {
       return (
         <span className="text-xs text-blue-600 flex items-center gap-1">
@@ -343,7 +344,7 @@ export default function ReportStatusMenu({
         </span>
       );
     }
-    
+
     return <span className="text-xs text-gray-400">—</span>;
   };
 
@@ -354,11 +355,10 @@ export default function ReportStatusMenu({
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-          summary.lockedNeedAttention > 0 
-            ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100' 
+        className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${summary.lockedNeedAttention > 0
+            ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100'
             : 'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
-        }`}
+          }`}
       >
         <FileText className="w-4 h-4" />
         <span className="font-medium">Monthly Reports</span>
@@ -400,9 +400,8 @@ export default function ReportStatusMenu({
             {monthStatuses.map((monthData) => (
               <div
                 key={monthData.month}
-                className={`flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-b-0 ${
-                  monthData.status === 'empty' ? 'bg-gray-50/50' : 'hover:bg-gray-50'
-                }`}
+                className={`flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-b-0 ${monthData.status === 'empty' ? 'bg-gray-50/50' : 'hover:bg-gray-50'
+                  }`}
               >
                 {/* Month Name & Count */}
                 <div className="flex items-center gap-3 min-w-0">

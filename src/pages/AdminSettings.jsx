@@ -249,8 +249,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
-            <div className="col-span-3 text-gray-400 text-sm italic">â€”</div>
-            <div className="col-span-2 text-gray-400 text-sm italic">â€”</div>
+            <div className="col-span-3 text-gray-400 text-sm italic">—</div>
+            <div className="col-span-2 text-gray-400 text-sm italic">—</div>
             <div className="col-span-2 flex justify-end gap-2">
               <button onClick={handleSaveNew} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -282,8 +282,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     />
                   </div>
-                  <div className="col-span-3 text-gray-400 text-sm">â€”</div>
-                  <div className="col-span-2 text-gray-400 text-sm">â€”</div>
+                  <div className="col-span-3 text-gray-400 text-sm">—</div>
+                  <div className="col-span-2 text-gray-400 text-sm">—</div>
                   <div className="col-span-2 flex justify-end gap-2">
                     <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
                       {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -817,7 +817,7 @@ function HistoricalTab() {
                           step="1"
                           value={value}
                           onChange={(e) => handleCellChange(dept.code, month, e.target.value)}
-                          placeholder="â€”"
+                          placeholder="—"
                           className="w-full px-1 py-1.5 border border-gray-200 rounded text-center text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
                         />
                       </td>
@@ -828,7 +828,7 @@ function HistoricalTab() {
                       parseFloat(avg) >= 90 ? 'text-green-600' :
                         parseFloat(avg) >= 70 ? 'text-amber-600' : 'text-red-600'
                       }`}>
-                      {avg !== null ? `${avg}%` : 'â€”'}
+                      {avg !== null ? `${avg}%` : '—'}
                     </span>
                   </td>
                   <td className="px-2 py-1">
@@ -866,7 +866,7 @@ function HistoricalTab() {
       {/* Unsaved changes indicator */}
       {hasChanges && (
         <div className="p-3 bg-amber-50 border-t border-amber-200 text-center text-sm text-amber-700">
-          âš ï¸ You have unsaved changes. Click "Save Changes" to persist your data.
+          You have unsaved changes. Click "Save Changes" to persist your data.
         </div>
       )}
     </div>
@@ -1145,7 +1145,7 @@ function DataManagementTab() {
             <RefreshCw className="w-6 h-6 text-purple-600" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold text-gray-800">ðŸ”„ Universal Bulk Update</h3>
+            <h3 className="text-lg font-bold text-gray-800">Universal Bulk Update</h3>
             <p className="text-sm text-gray-500 mt-1">
               Update specific columns (e.g., evidence, outcome_link, remark) for existing action plans using an Excel file.
             </p>
@@ -1647,9 +1647,9 @@ function SystemSettingsTab() {
               <div className="text-sm text-amber-800">
                 <p className="font-medium mb-1">How Unlock Requests Work</p>
                 <ul className="space-y-0.5 text-amber-700 text-xs">
-                  <li>â€¢ Users can request to unlock a locked plan by providing a reason</li>
-                  <li>â€¢ Admins review and approve/reject unlock requests</li>
-                  <li>â€¢ Approved plans can be edited until the approval expires</li>
+                  <li>• Users can request to unlock a locked plan by providing a reason</li>
+                  <li>• Admins review and approve/reject unlock requests</li>
+                  <li>• Approved plans can be edited until the approval expires</li>
                 </ul>
               </div>
             </div>
@@ -1880,7 +1880,7 @@ function SystemSettingsTab() {
           <div className="flex items-start gap-4 bg-amber-50/50 rounded-xl p-4 border border-amber-200">
             <div className="flex-1">
               <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 1 â€” Max Score Cap
+                Late Month 1 — Max Score Cap
               </label>
               <p className="text-xs text-gray-500 mb-3">
                 The maximum score a plan can achieve if carried over once (first late month).
@@ -1909,7 +1909,7 @@ function SystemSettingsTab() {
           <div className="flex items-start gap-4 bg-rose-50/50 rounded-xl p-4 border border-rose-200">
             <div className="flex-1">
               <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 2 â€” Max Score Cap
+                Late Month 2 — Max Score Cap
               </label>
               <p className="text-xs text-gray-500 mb-3">
                 The maximum score for a second carry-over. Plans exceeding this limit will be forced to Drop.
@@ -1999,7 +1999,7 @@ function SystemSettingsTab() {
             </button>
           </div>
 
-          {/* Passing Score Input â€” only meaningful when strict mode is ON */}
+          {/* Passing Score Input — only meaningful when strict mode is ON */}
           {/* Grid of 4 threshold inputs */}
           <div className={`grid grid-cols-2 gap-4 transition-all ${gradingSettings.is_strict_grading_enabled ? '' : 'opacity-50 pointer-events-none'
             }`}>
@@ -2048,19 +2048,19 @@ function SystemSettingsTab() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-gray-700">Ultra High â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_uh}%</span></span>
+                  <span className="text-gray-700">Ultra High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_uh}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-                  <span className="text-gray-700">High â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_h}%</span></span>
+                  <span className="text-gray-700">High → Must score <span className="font-semibold">≥ {gradingSettings.threshold_h}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                  <span className="text-gray-700">Medium â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_m}%</span></span>
+                  <span className="text-gray-700">Medium → Must score <span className="font-semibold">≥ {gradingSettings.threshold_m}%</span></span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-gray-500"></span>
-                  <span className="text-gray-700">Low â†’ Must score <span className="font-semibold">â‰¥ {gradingSettings.threshold_l}%</span></span>
+                  <span className="text-gray-700">Low → Must score <span className="font-semibold">≥ {gradingSettings.threshold_l}%</span></span>
                 </div>
               </div>
               <p className="text-xs text-gray-400 mt-2">Carry-over items: threshold is capped at the plan's max possible score.</p>
@@ -2134,7 +2134,7 @@ function SystemSettingsTab() {
                     ? `text-${color}-600 hover:bg-${color}-100`
                     : 'text-gray-400 hover:bg-gray-100'
                     }`}
-                  title={dropPolicy[key] ? 'Approval required â€” click to disable' : 'No approval needed â€” click to enable'}
+                  title={dropPolicy[key] ? 'Approval required — click to disable' : 'No approval needed — click to enable'}
                 >
                   {savingDropPolicy === key ? (
                     <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
@@ -2183,7 +2183,7 @@ function DeveloperZone() {
   const [showSafeResetConfirm, setShowSafeResetConfirm] = useState(false);
   const [lastResult, setLastResult] = useState(null);
 
-  // HARD RESET: Mark & Sweep â€” deletes carry-over children, resets parents to Blocked
+  // HARD RESET: Mark & Sweep - deletes carry-over children, resets parents to Blocked
   const handleHardReset = async () => {
     setHardResetting(true);
     try {
@@ -2192,7 +2192,7 @@ function DeveloperZone() {
       setLastResult({ type: 'hard', ...data });
       setShowHardResetConfirm(false);
       toast({
-        title: 'âœ… Hard Reset Complete',
+        title: '✅ Hard Reset Complete',
         description: `Deleted ${data?.deleted_carry_over ?? 0} carry-over plans, reset ${data?.reset_parents ?? 0} parents, removed ${data?.deleted_duplicates ?? 0} duplicates.`,
         variant: 'success'
       });
@@ -2205,7 +2205,7 @@ function DeveloperZone() {
     }
   };
 
-  // SAFE RESET: UPDATE-only factory reset â€” no deletions, breaks carry-over links
+  // SAFE RESET: UPDATE-only factory reset - no deletions, breaks carry-over links
   const handleSafeReset = async () => {
     setSafeResetting(true);
     try {
@@ -2214,7 +2214,7 @@ function DeveloperZone() {
       setLastResult({ type: 'safe', ...data });
       setShowSafeResetConfirm(false);
       toast({
-        title: 'âœ… Safe Reset Complete',
+        title: '✅ Safe Reset Complete',
         description: `Reset ${data?.reset_count ?? 0} action plans to Open. No records deleted.`,
         variant: 'success'
       });
@@ -2236,7 +2236,7 @@ function DeveloperZone() {
             <AlertTriangle className="w-5 h-5 text-red-600" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-gray-800">âš ï¸ Developer Zone</h3>
+            <h3 className="text-lg font-bold text-gray-800">Developer Zone</h3>
             <p className="text-sm text-gray-500 mt-0.5">
               UAT/Testing cleanup tools - Use with caution
             </p>
@@ -2246,21 +2246,21 @@ function DeveloperZone() {
 
       {/* Content */}
       <div className="p-5 space-y-4">
-        {/* SAFE RESET â€” Recommended */}
+        {/* SAFE RESET — Recommended */}
         <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-300">
           <div className="flex items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold text-amber-700">ðŸ”„ Safe Reset: Factory Reset (No Deletion)</h4>
+                <h4 className="font-bold text-amber-700">Safe Reset: Factory Reset (No Deletion)</h4>
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">RECOMMENDED</span>
               </div>
               <p className="text-sm text-amber-600 mt-1 mb-3">
                 Resets all statuses, scores, carry-over flags, and blocker data back to <code className="bg-amber-100 px-1 rounded">Open</code>.
-                Breaks parent-child links safely. <strong>Zero deletions</strong> â€” all plan definitions are preserved.
+                Breaks parent-child links safely. <strong>Zero deletions</strong> — all plan definitions are preserved.
               </p>
 
               <div className="text-xs text-amber-500 space-y-1 mb-4">
-                <p><strong>Resets:</strong> status â†’ Open, scores â†’ NULL, carry-over â†’ Normal, blockers â†’ cleared, audit logs â†’ truncated</p>
+                <p><strong>Resets:</strong> status → Open, scores → NULL, carry-over → Normal, blockers → cleared, audit logs → truncated</p>
                 <p><strong>Preserves:</strong> department, month, goal, action plan title, indicator, PIC, category, evidence</p>
               </div>
 
@@ -2272,19 +2272,19 @@ function DeveloperZone() {
                 {safeResetting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Resetting...</>
                 ) : (
-                  <><RefreshCw className="w-4 h-4" /> ðŸ”„ SAFE RESET â€” Factory Reset</>
+                  <><RefreshCw className="w-4 h-4" /> SAFE RESET — Factory Reset</>
                 )}
               </button>
             </div>
           </div>
         </div>
 
-        {/* HARD RESET â€” Mark & Sweep */}
+        {/* HARD RESET — Mark & Sweep */}
         <div className="p-4 bg-red-50 rounded-xl border-2 border-red-300">
           <div className="flex items-start gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-bold text-red-700">ðŸ”¥ Hard Reset: Mark & Sweep</h4>
+                <h4 className="font-bold text-red-700">Hard Reset: Mark & Sweep</h4>
                 <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">DESTRUCTIVE</span>
               </div>
               <p className="text-sm text-red-600 mt-1 mb-3">
@@ -2294,7 +2294,7 @@ function DeveloperZone() {
 
               <div className="text-xs text-red-500 space-y-1 mb-4">
                 <p><strong>Deletes:</strong> All plans where <code className="bg-red-100 px-1 rounded">origin_plan_id IS NOT NULL</code> (carry-over children)</p>
-                <p><strong>Resets:</strong> Parent plans â†’ Blocked, scores â†’ NULL, carry-over flags â†’ cleared</p>
+                <p><strong>Resets:</strong> Parent plans → Blocked, scores → NULL, carry-over flags → cleared</p>
                 <p><strong>Preserves:</strong> Recurring (native) plans with <code className="bg-red-100 px-1 rounded">origin_plan_id = NULL</code></p>
               </div>
 
@@ -2306,7 +2306,7 @@ function DeveloperZone() {
                 {hardResetting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Sweeping...</>
                 ) : (
-                  <><Shield className="w-4 h-4" /> ðŸ”¥ HARD RESET â€” Delete Carry-Overs</>
+                  <><Shield className="w-4 h-4" /> HARD RESET — Delete Carry-Overs</>
                 )}
               </button>
             </div>
@@ -2335,8 +2335,8 @@ function DeveloperZone() {
                   <RefreshCw className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">ðŸ”„ Safe Factory Reset</h3>
-                  <p className="text-amber-100 text-sm">UPDATE only â€” no deletions</p>
+                  <h3 className="text-lg font-bold text-white">Safe Factory Reset</h3>
+                  <p className="text-amber-100 text-sm">UPDATE only — no deletions</p>
                 </div>
               </div>
             </div>
@@ -2344,10 +2344,10 @@ function DeveloperZone() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
                 <p className="text-sm text-amber-800 font-medium mb-2">This will reset ALL action plans:</p>
                 <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-                  <li>Status â†’ Open, Scores â†’ NULL</li>
+                  <li>Status → Open, Scores → NULL</li>
                   <li>Carry-over links broken, flags cleared</li>
-                  <li>Blockers, remarks, unlock requests â†’ cleared</li>
-                  <li>Audit logs, notifications, progress logs â†’ truncated</li>
+                  <li>Blockers, remarks, unlock requests → cleared</li>
+                  <li>Audit logs, notifications, progress logs → truncated</li>
                 </ul>
               </div>
               <p className="text-sm text-gray-600 mb-2">Plan definitions (titles, goals, PICs, departments) stay intact.</p>
@@ -2373,19 +2373,19 @@ function DeveloperZone() {
                   <Shield className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">ðŸ”¥ Hard Reset: Mark & Sweep</h3>
+                  <h3 className="text-lg font-bold text-white">Hard Reset: Mark & Sweep</h3>
                   <p className="text-red-100 text-sm">Deletes carry-over children</p>
                 </div>
               </div>
             </div>
             <div className="p-5">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 font-medium mb-2">âš ï¸ DESTRUCTIVE: This will DELETE carry-over plans</p>
+                <p className="text-sm text-red-800 font-medium mb-2">DESTRUCTIVE: This will DELETE carry-over plans</p>
                 <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
-                  <li>All plans with origin_plan_id â†’ DELETED</li>
-                  <li>Parent plans â†’ status reverted to Blocked</li>
-                  <li>Scores, carry-over flags â†’ cleared</li>
-                  <li>Duplicates â†’ removed</li>
+                  <li>All plans with origin_plan_id → DELETED</li>
+                  <li>Parent plans → status reverted to Blocked</li>
+                  <li>Scores, carry-over flags → cleared</li>
+                  <li>Duplicates → removed</li>
                 </ul>
               </div>
               <p className="text-sm text-gray-600 mb-2">Recurring (native) plans are preserved. Use this to re-test the Resolution Wizard.</p>

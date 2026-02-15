@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { 
-  Mail, 
-  Server, 
-  Bell, 
-  Send, 
-  Loader2, 
-  Eye, 
+import {
+  Mail,
+  Server,
+  Bell,
+  Send,
+  Loader2,
+  Eye,
   EyeOff,
   CheckCircle,
   XCircle,
@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { supabase } from '../../lib/supabase';
+import { sendCustomEmail, generateTestEmailHtml, getTestEmailSubject } from '../../services/emailService';
 
 // Priority scope options
 const PRIORITY_SCOPES = [
@@ -180,14 +181,14 @@ const TEMPLATE_META = {
 // Helper to generate dynamic schedule description
 const getScheduleSummary = (schedule, scope) => {
   if (!schedule) return "No schedule configured";
-  
+
   const activeTriggers = [];
   if (schedule.h_minus_3) activeTriggers.push("H-3");
   if (schedule.h_minus_1) activeTriggers.push("H-1");
   if (schedule.h_0) activeTriggers.push("H-0");
-  
+
   if (activeTriggers.length === 0) return "No active triggers set";
-  
+
   // Build scope label
   let scopeLabel = '';
   if (scope && scope.length > 0) {
@@ -201,22 +202,22 @@ const getScheduleSummary = (schedule, scope) => {
       scopeLabel = scopeNames.join(', ');
     }
   }
-  
+
   const triggerText = activeTriggers.join(", ");
   return scopeLabel ? `${triggerText} • ${scopeLabel}` : triggerText;
 };
 
 export default function EmailSettingsSection() {
   const { toast } = useToast();
-  
+
   // Loading state for initial fetch
   const [loading, setLoading] = useState(true);
-  
+
   // Active provider state - null until loaded from DB
   const [activeProvider, setActiveProvider] = useState(null);
   const [selectedTab, setSelectedTab] = useState(null);
-  
-  // SMTP Configuration
+
+  // SMTP Configuration (kept for legacy compatibility / send-system-email edge function)
   const [smtpConfig, setSmtpConfig] = useState({
     host: '',
     port: '587',
@@ -224,26 +225,24 @@ export default function EmailSettingsSection() {
     password: '',
     security: 'tls'
   });
-  
-  // Gmail Configuration
+
+  // Gmail Configuration (kept for legacy compatibility)
   const [gmailConfig, setGmailConfig] = useState({
     email: '',
     appPassword: ''
   });
-  
+
   // Templates state
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
-  
+
   // Modal state
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [templateDraft, setTemplateDraft] = useState({ subject: '', body: '' });
-  
+
   // UI State
-  const [showPassword, setShowPassword] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+  const [sendingTestKey, setSendingTestKey] = useState(null); // which row is sending a test
 
   // Fetch settings on mount
   useEffect(() => {
@@ -298,12 +297,10 @@ export default function EmailSettingsSection() {
 
   const handleSmtpChange = (field, value) => {
     setSmtpConfig(prev => ({ ...prev, [field]: value }));
-    setTestResult(null);
   };
 
   const handleGmailChange = (field, value) => {
     setGmailConfig(prev => ({ ...prev, [field]: value }));
-    setTestResult(null);
   };
 
   const handleToggleTemplate = (key) => {
@@ -317,12 +314,12 @@ export default function EmailSettingsSection() {
     setEditingTemplate(key);
     const template = templates[key];
     const meta = TEMPLATE_META[key];
-    
+
     // Get default scope based on template type
-    const defaultScope = key === 'critical_alert' 
-      ? ['UH', 'H'] 
+    const defaultScope = key === 'critical_alert'
+      ? ['UH', 'H']
       : ['UH', 'H', 'M', 'L'];
-    
+
     setTemplateDraft({
       subject: template.subject,
       body: template.body,
@@ -343,9 +340,9 @@ export default function EmailSettingsSection() {
 
   const saveTemplate = () => {
     if (!editingTemplate) return;
-    
+
     const meta = TEMPLATE_META[editingTemplate];
-    
+
     setTemplates(prev => ({
       ...prev,
       [editingTemplate]: {
@@ -356,23 +353,23 @@ export default function EmailSettingsSection() {
         ...(meta.hasScope && templateDraft.scope && { scope: templateDraft.scope })
       }
     }));
-    
+
     toast({
       title: 'Template Saved',
       description: `${meta.title} template updated.`,
       variant: 'success'
     });
-    
+
     closeTemplateEditor();
   };
 
   const sendTestEmail = async () => {
     if (!editingTemplate) return;
-    
+
     setSendingTest(true);
     try {
       // Use current form values (so user can test before saving)
-      const config = activeProvider === 'gmail' 
+      const config = activeProvider === 'gmail'
         ? { ...gmailConfig, type: 'gmail' }
         : { ...smtpConfig, type: 'smtp' };
 
@@ -412,30 +409,35 @@ export default function EmailSettingsSection() {
     }
   };
 
-  const handleTestConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
-    
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    if (selectedTab === 'smtp') {
-      const isValid = smtpConfig.host && smtpConfig.port && smtpConfig.username && smtpConfig.password;
-      setTestResult(isValid ? 'success' : 'error');
-    } else {
-      const isValid = gmailConfig.email && gmailConfig.appPassword && gmailConfig.appPassword.length === 16;
-      setTestResult(isValid ? 'success' : 'error');
-    }
-    
-    setTesting(false);
-  };
+  // Quick test from the notification row (uses Resend via send-email Edge Function)
+  const handleQuickTest = async (templateKey) => {
+    setSendingTestKey(templateKey);
+    try {
+      // Get the admin's email from the current session
+      const { data: { user } } = await supabase.auth.getUser();
+      const adminEmail = user?.email;
+      if (!adminEmail) throw new Error('Could not determine your email address.');
 
-  const makeActiveProvider = () => {
-    setActiveProvider(selectedTab);
-    toast({
-      title: 'Provider Activated',
-      description: `${selectedTab === 'smtp' ? 'Custom SMTP' : 'Gmail'} is now the active email provider.`,
-      variant: 'success'
-    });
+      const subject = getTestEmailSubject(templateKey);
+      const html = generateTestEmailHtml(templateKey);
+
+      await sendCustomEmail(adminEmail, subject, html);
+
+      toast({
+        title: 'Test Email Sent',
+        description: `Sent to ${adminEmail}. Check your inbox!`,
+        variant: 'success'
+      });
+    } catch (err) {
+      console.error('Quick test email error:', err);
+      toast({
+        title: 'Send Failed',
+        description: err.message || 'Could not send test email.',
+        variant: 'error'
+      });
+    } finally {
+      setSendingTestKey(null);
+    }
   };
 
   const handleSave = async () => {
@@ -485,154 +487,89 @@ export default function EmailSettingsSection() {
           <p className="text-gray-500 text-sm">Loading email settings...</p>
         </div>
       ) : (
-      /* Main Card: Email Service Configuration */
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-100 rounded-lg">
-              <Mail className="w-5 h-5 text-blue-600" />
+        /* Main Card: Email Service Configuration */
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* Header */}
+          <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-blue-100 rounded-lg">
+                <Mail className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Email Service Configuration</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Manage automated email notifications and alerts
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-800">Email Service Configuration</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Configure email delivery for system notifications
-              </p>
+          </div>
+
+          {/* Email Provider Info Banner */}
+          <div className="p-5 border-b border-gray-100">
+            <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200">
+              <div className="p-2 bg-teal-100 rounded-lg shrink-0 mt-0.5">
+                <Zap className="w-4 h-4 text-teal-600" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-teal-800">Resend Email Service</p>
+                  <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-[10px] font-bold rounded-full">ACTIVE</span>
+                </div>
+                <p className="text-xs text-teal-600 leading-relaxed">
+                  Transactional emails are sent via Resend (Supabase Edge Function).
+                  Use the <strong>Send Test</strong> button on each notification to verify delivery to your inbox.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Provider Tabs */}
-        <div className="p-5 border-b border-gray-100">
-          <label className="block text-sm font-semibold text-gray-700 mb-3">
-            Service Provider
-          </label>
-          <div className="flex gap-3">
-            <ProviderTab
-              provider="smtp"
-              label="Custom SMTP"
-              sublabel="Office 365, SendGrid, etc."
-              icon={Server}
-              isSelected={selectedTab === 'smtp'}
-              isActive={activeProvider === 'smtp'}
-              onClick={() => setSelectedTab('smtp')}
-            />
-            <ProviderTab
-              provider="gmail"
-              label="Google Gmail"
-              sublabel="Using App Password"
-              icon={Mail}
-              isSelected={selectedTab === 'gmail'}
-              isActive={activeProvider === 'gmail'}
-              onClick={() => setSelectedTab('gmail')}
-            />
-          </div>
-        </div>
+          {/* Notification Templates */}
+          <div className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Bell className="w-4 h-4 text-gray-500" />
+              <label className="text-sm font-semibold text-gray-700">
+                Automatic Blasts & Alerts
+              </label>
+            </div>
 
-        {/* Connection Details */}
-        <div className="p-5 border-b border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <label className="text-sm font-semibold text-gray-700">
-              Connection Details
-            </label>
-            {selectedTab !== activeProvider && (
-              <button
-                onClick={makeActiveProvider}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-lg hover:bg-emerald-100 transition-colors"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                Make Active Provider
-              </button>
-            )}
+            <div className="space-y-3">
+              {Object.entries(TEMPLATE_META).map(([key, meta]) => {
+                // Compute dynamic description for templates with schedules
+                const template = templates[key];
+                const description = meta.hasSchedule
+                  ? getScheduleSummary(template?.schedule, template?.scope)
+                  : meta.description;
+
+                return (
+                  <NotificationRow
+                    key={key}
+                    templateKey={key}
+                    icon={meta.icon}
+                    title={meta.title}
+                    description={description}
+                    enabled={template?.enabled ?? false}
+                    onToggle={() => handleToggleTemplate(key)}
+                    onEdit={() => openTemplateEditor(key)}
+                    onSendTest={() => handleQuickTest(key)}
+                    isSendingTest={sendingTestKey === key}
+                  />
+                );
+              })}
+            </div>
           </div>
 
-          {selectedTab === 'smtp' ? (
-            <SmtpForm
-              config={smtpConfig}
-              onChange={handleSmtpChange}
-              showPassword={showPassword}
-              onTogglePassword={() => setShowPassword(!showPassword)}
-            />
-          ) : (
-            <GmailForm
-              config={gmailConfig}
-              onChange={handleGmailChange}
-              showPassword={showPassword}
-              onTogglePassword={() => setShowPassword(!showPassword)}
-            />
-          )}
-
-          {/* Test Connection */}
-          <div className="mt-5 pt-4 border-t border-gray-100 flex items-center gap-4">
+          {/* Save Footer */}
+          <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
             <button
-              onClick={handleTestConnection}
-              disabled={testing}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
             >
-              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {testing ? 'Testing...' : '🔌 Test Connection'}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              {saving ? 'Saving...' : 'Save Settings'}
             </button>
-
-            {testResult === 'success' && (
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="w-5 h-5" />
-                <span className="text-sm font-medium">Connection successful!</span>
-              </div>
-            )}
-            {testResult === 'error' && (
-              <div className="flex items-center gap-2 text-red-600">
-                <XCircle className="w-5 h-5" />
-                <span className="text-sm font-medium">Connection failed. Check settings.</span>
-              </div>
-            )}
           </div>
         </div>
-
-        {/* Notification Templates */}
-        <div className="p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Bell className="w-4 h-4 text-gray-500" />
-            <label className="text-sm font-semibold text-gray-700">
-              Automatic Blasts & Alerts
-            </label>
-          </div>
-
-          <div className="space-y-3">
-            {Object.entries(TEMPLATE_META).map(([key, meta]) => {
-              // Compute dynamic description for templates with schedules
-              const template = templates[key];
-              const description = meta.hasSchedule
-                ? getScheduleSummary(template?.schedule, template?.scope)
-                : meta.description;
-              
-              return (
-                <NotificationRow
-                  key={key}
-                  templateKey={key}
-                  icon={meta.icon}
-                  title={meta.title}
-                  description={description}
-                  enabled={template?.enabled ?? false}
-                  onToggle={() => handleToggleTemplate(key)}
-                  onEdit={() => openTemplateEditor(key)}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Save Footer */}
-        <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      </div>
       )}
 
       {/* Template Editor Modal */}
@@ -660,11 +597,10 @@ function ProviderTab({ provider, label, sublabel, icon: Icon, isSelected, isActi
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center gap-3 p-4 rounded-xl border-2 transition-all relative ${
-        isSelected
-          ? 'border-teal-500 bg-teal-50'
-          : 'border-gray-200 bg-white hover:border-gray-300'
-      }`}
+      className={`flex-1 flex items-center gap-3 p-4 rounded-xl border-2 transition-all relative ${isSelected
+        ? 'border-teal-500 bg-teal-50'
+        : 'border-gray-200 bg-white hover:border-gray-300'
+        }`}
     >
       {/* Active Badge */}
       {isActive && (
@@ -672,7 +608,7 @@ function ProviderTab({ provider, label, sublabel, icon: Icon, isSelected, isActi
           Active
         </span>
       )}
-      
+
       <div className={`p-2 rounded-lg ${isSelected ? 'bg-teal-100' : 'bg-gray-100'}`}>
         <Icon className={`w-5 h-5 ${isSelected ? 'text-teal-600' : 'text-gray-500'}`} />
       </div>
@@ -753,11 +689,10 @@ function SmtpForm({ config, onChange, showPassword, onTogglePassword }) {
             <button
               key={option}
               onClick={() => onChange('security', option)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                config.security === option
-                  ? 'bg-teal-100 text-teal-700 border-2 border-teal-500'
-                  : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:bg-gray-200'
-              }`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${config.security === option
+                ? 'bg-teal-100 text-teal-700 border-2 border-teal-500'
+                : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:bg-gray-200'
+                }`}
             >
               {option.toUpperCase()}
             </button>
@@ -813,9 +748,9 @@ function GmailForm({ config, onChange, showPassword, onTogglePassword }) {
 }
 
 /**
- * Notification Row with Toggle and Edit Button
+ * Notification Row with Toggle, Edit, and Send Test buttons
  */
-function NotificationRow({ templateKey, icon: Icon, title, description, enabled, onToggle, onEdit }) {
+function NotificationRow({ templateKey, icon: Icon, title, description, enabled, onToggle, onEdit, onSendTest, isSendingTest }) {
   return (
     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
       <div className="flex items-center gap-3">
@@ -827,24 +762,38 @@ function NotificationRow({ templateKey, icon: Icon, title, description, enabled,
           <p className="text-xs text-gray-500">{description}</p>
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {/* Send Test Email Button */}
+        <button
+          onClick={onSendTest}
+          disabled={isSendingTest}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 hover:border-blue-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title="Send a test email to your inbox"
+        >
+          {isSendingTest ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Send className="w-3.5 h-3.5" />
+          )}
+          {isSendingTest ? 'Sending...' : 'Send Test'}
+        </button>
+        {/* Edit Template Button */}
         <button
           onClick={onEdit}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
         >
           <Pencil className="w-3.5 h-3.5" />
-          Edit Template
+          Edit
         </button>
+        {/* Toggle */}
         <button
           onClick={onToggle}
-          className={`relative w-11 h-6 rounded-full transition-colors ${
-            enabled ? 'bg-teal-600' : 'bg-gray-300'
-          }`}
+          className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-teal-600' : 'bg-gray-300'
+            }`}
         >
           <span
-            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-              enabled ? 'translate-x-5' : 'translate-x-0'
-            }`}
+            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
           />
         </button>
       </div>
@@ -890,11 +839,10 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
               {hasSchedule && (
                 <button
                   onClick={() => setActiveTab('schedule')}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                    activeTab === 'schedule'
-                      ? 'text-teal-700 border-teal-600 bg-teal-50'
-                      : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
-                  }`}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'schedule'
+                    ? 'text-teal-700 border-teal-600 bg-teal-50'
+                    : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
+                    }`}
                 >
                   <Settings2 className="w-4 h-4" />
                   Schedule
@@ -903,11 +851,10 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
               {hasScope && (
                 <button
                   onClick={() => setActiveTab('scope')}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                    activeTab === 'scope'
-                      ? 'text-teal-700 border-teal-600 bg-teal-50'
-                      : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
-                  }`}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'scope'
+                    ? 'text-teal-700 border-teal-600 bg-teal-50'
+                    : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
+                    }`}
                 >
                   <Zap className="w-4 h-4" />
                   Priority Scope
@@ -915,11 +862,10 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
               )}
               <button
                 onClick={() => setActiveTab('template')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                  activeTab === 'template'
-                    ? 'text-teal-700 border-teal-600 bg-teal-50'
-                    : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'template'
+                  ? 'text-teal-700 border-teal-600 bg-teal-50'
+                  : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 <FileText className="w-4 h-4" />
                 Email Template
@@ -932,16 +878,16 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
         <div className="p-5 overflow-y-auto flex-1 space-y-5">
           {/* Schedule Tab Content */}
           {hasSchedule && activeTab === 'schedule' && (
-            <ScheduleTabContent 
-              schedule={draft.schedule} 
-              onChange={(schedule) => onDraftChange({ ...draft, schedule })} 
+            <ScheduleTabContent
+              schedule={draft.schedule}
+              onChange={(schedule) => onDraftChange({ ...draft, schedule })}
             />
           )}
 
           {/* Scope Tab Content */}
           {hasScope && activeTab === 'scope' && (
-            <ScopeTabContent 
-              scope={draft.scope} 
+            <ScopeTabContent
+              scope={draft.scope}
               onChange={(scope) => onDraftChange({ ...draft, scope })}
               templateKey={templateKey}
             />
@@ -949,10 +895,10 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
 
           {/* Template Tab Content */}
           {(!hasTabs || activeTab === 'template') && (
-            <TemplateTabContent 
-              draft={draft} 
-              onDraftChange={onDraftChange} 
-              variables={meta.variables} 
+            <TemplateTabContent
+              draft={draft}
+              onDraftChange={onDraftChange}
+              variables={meta.variables}
             />
           )}
         </div>
@@ -1067,7 +1013,7 @@ function ScheduleTabContent({ schedule, onChange }) {
           <div>
             <p className="text-sm font-medium text-amber-800">Scheduling Note</p>
             <p className="text-xs text-amber-700 mt-1">
-              Reminder emails are sent automatically based on the monthly lock schedule configured in Admin Settings. 
+              Reminder emails are sent automatically based on the monthly lock schedule configured in Admin Settings.
               Make sure at least one trigger is enabled for reminders to be sent.
             </p>
           </div>
@@ -1122,7 +1068,7 @@ function ScopeTabContent({ scope, onChange, templateKey }) {
         </p>
         <div className="space-y-3">
           {PRIORITY_SCOPES.map((priority) => (
-            <label 
+            <label
               key={priority.id}
               className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 cursor-pointer transition-colors"
             >
@@ -1159,7 +1105,7 @@ function ScopeTabContent({ scope, onChange, templateKey }) {
               {isCriticalAlert ? 'Critical Alert Scope' : 'Standard Reminder Scope'}
             </p>
             <p className={`text-xs mt-1 ${isCriticalAlert ? 'text-amber-700' : 'text-blue-700'}`}>
-              {isCriticalAlert 
+              {isCriticalAlert
                 ? 'Critical alerts are designed for high-priority items. Consider limiting scope to Ultra High and High priorities for maximum impact.'
                 : 'Standard reminders can target all priority levels. Users will receive reminders for action plans matching the selected priorities.'}
             </p>

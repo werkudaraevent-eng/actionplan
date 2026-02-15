@@ -59,6 +59,7 @@ export default function OptionManager({
 
     // Delete confirmation
     const [deleteTarget, setDeleteTarget] = useState(null);
+    const [deleteError, setDeleteError] = useState('');
 
     // Import preview state
     const [importPreview, setImportPreview] = useState(null);
@@ -230,31 +231,56 @@ export default function OptionManager({
         if (!deleteTarget) return;
 
         setSaving(true);
+        setDeleteError('');
+
         try {
-            const { error } = await supabase
+            // .select() forces Supabase to return deleted rows — critical for verifying success.
+            // Without it, error:null + data:null is returned even when 0 rows are deleted (RLS/ID mismatch).
+            console.log(`[OptionManager] DELETE from "${tableName}" WHERE id = ${deleteTarget.id}`);
+
+            const { data, error } = await supabase
                 .from(tableName)
                 .delete()
-                .eq('id', deleteTarget.id);
+                .eq('id', deleteTarget.id)
+                .select();
 
             if (error) {
-                // Check for Foreign Key violation (Postgres error code 23503)
+                // Foreign Key violation — option is in use
                 if (error.code === '23503') {
-                    toast({
-                        title: 'Cannot Delete',
-                        description: 'This option is used in existing Action Plans. Please Archive it instead.',
-                        variant: 'warning',
-                    });
+                    const msg = 'Cannot delete: This option is actively used in existing records. Please Archive it instead.';
+                    setDeleteError(msg);
+                    toast({ title: 'Cannot Delete', description: msg, variant: 'warning' });
+                    setSaving(false);
                     return;
                 }
                 throw error;
             }
 
-            toast({ title: 'Deleted', description: `"${deleteTarget.label}" permanently deleted.`, variant: 'success' });
+            // "Paranoid" check: verify a row was actually deleted.
+            // If data is empty, the DELETE ran but affected 0 rows — likely an RLS policy blocking it.
+            if (!data || data.length === 0) {
+                const msg = 'Delete failed: Item not found or permission denied. Check Supabase RLS policies for this table.';
+                console.warn(`[OptionManager] Zero rows returned from DELETE on "${tableName}". Possible RLS block or stale ID.`);
+                setDeleteError(msg);
+                toast({ title: 'Delete Failed', description: msg, variant: 'error' });
+                setSaving(false);
+                return;
+            }
+
+            // ✅ Verified success — row was actually removed from DB
+            const deletedLabel = deleteTarget.label;
+            setOptions(prev => prev.filter(item => item.id !== deleteTarget.id));
             setDeleteTarget(null);
-            await loadOptions();
+            setDeleteError('');
+            toast({ title: 'Deleted', description: `"${deletedLabel}" permanently deleted.`, variant: 'success' });
+
+            // Background refetch to sync sort_order / any server-side changes
+            loadOptions();
         } catch (err) {
             console.error('Delete error:', err);
-            toast({ title: 'Delete Failed', description: err.message, variant: 'error' });
+            const msg = err.message || 'An unexpected error occurred.';
+            setDeleteError(msg);
+            toast({ title: 'Delete Failed', description: msg, variant: 'error' });
         } finally {
             setSaving(false);
         }
@@ -842,9 +868,16 @@ export default function OptionManager({
                             This will permanently remove <span className="font-semibold text-gray-800">"{deleteTarget.label}"</span>.
                             This action cannot be undone.
                         </p>
+                        {/* Inline error message — shown when deletion fails */}
+                        {deleteError && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-sm text-red-700">{deleteError}</p>
+                            </div>
+                        )}
                         <div className="flex gap-3 justify-end">
                             <button
-                                onClick={() => setDeleteTarget(null)}
+                                onClick={() => { setDeleteTarget(null); setDeleteError(''); }}
                                 disabled={saving}
                                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                             >

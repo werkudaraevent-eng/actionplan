@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { 
-  History, 
-  Filter, 
-  Loader2, 
-  ChevronDown, 
-  User, 
+import {
+  History,
+  Filter,
+  Loader2,
+  ChevronDown,
+  User,
   FileText,
   RefreshCw,
   Calendar,
@@ -20,41 +20,41 @@ import { parseMentions } from '../utils/mentionUtils';
 // Change type styling and labels — grouped by visual severity
 const CHANGE_TYPE_CONFIG = {
   // Urgent (rose/red)
-  'SOFT_DELETE':          { label: 'Trashed',       color: 'bg-rose-100 text-rose-700',   icon: '🗑️', group: 'destructive' },
-  'DELETED':             { label: 'Deleted',       color: 'bg-rose-100 text-rose-700',   icon: '🗑️', group: 'destructive' },
-  'REJECTED':            { label: 'Rejected',      color: 'bg-rose-100 text-rose-700',   icon: '❌', group: 'destructive' },
-  'UNLOCK_REJECTED':     { label: 'Unlock Denied', color: 'bg-rose-100 text-rose-700',   icon: '❌', group: 'destructive' },
+  'SOFT_DELETE': { label: 'Trashed', color: 'bg-rose-100 text-rose-700', icon: '🗑️', group: 'destructive' },
+  'DELETED': { label: 'Deleted', color: 'bg-rose-100 text-rose-700', icon: '🗑️', group: 'destructive' },
+  'REJECTED': { label: 'Rejected', color: 'bg-rose-100 text-rose-700', icon: '❌', group: 'destructive' },
+  'UNLOCK_REJECTED': { label: 'Unlock Denied', color: 'bg-rose-100 text-rose-700', icon: '❌', group: 'destructive' },
   // Progress (amber)
-  'STATUS_UPDATE':       { label: 'Status',        color: 'bg-amber-100 text-amber-700',  icon: '🔄', group: 'status' },
-  'REVISION_REQUESTED':  { label: 'Revision',      color: 'bg-amber-100 text-amber-700',  icon: '↩️', group: 'status' },
-  'UNLOCK_REQUESTED':    { label: 'Unlock Req',    color: 'bg-amber-100 text-amber-700',  icon: '🔓', group: 'status' },
-  'GRADE_RESET':         { label: 'Reset',         color: 'bg-orange-100 text-orange-700', icon: '🔄', group: 'status' },
+  'STATUS_UPDATE': { label: 'Status', color: 'bg-amber-100 text-amber-700', icon: '🔄', group: 'status' },
+  'REVISION_REQUESTED': { label: 'Revision', color: 'bg-amber-100 text-amber-700', icon: '↩️', group: 'status' },
+  'UNLOCK_REQUESTED': { label: 'Unlock Req', color: 'bg-amber-100 text-amber-700', icon: '🔓', group: 'status' },
+  'GRADE_RESET': { label: 'Reset', color: 'bg-orange-100 text-orange-700', icon: '🔄', group: 'status' },
   // Submissions (blue)
-  'SUBMITTED_FOR_REVIEW':{ label: 'Submitted',     color: 'bg-blue-100 text-blue-700',    icon: '📤', group: 'submission' },
-  'LEADER_BATCH_SUBMIT': { label: 'Batch Submit',  color: 'bg-blue-100 text-blue-700',    icon: '📤', group: 'submission' },
-  'MARKED_READY':        { label: 'Ready',         color: 'bg-purple-100 text-purple-700', icon: '✅', group: 'submission' },
+  'SUBMITTED_FOR_REVIEW': { label: 'Submitted', color: 'bg-blue-100 text-blue-700', icon: '📤', group: 'submission' },
+  'LEADER_BATCH_SUBMIT': { label: 'Batch Submit', color: 'bg-blue-100 text-blue-700', icon: '📤', group: 'submission' },
+  'MARKED_READY': { label: 'Ready', color: 'bg-purple-100 text-purple-700', icon: '✅', group: 'submission' },
   // Success (green)
-  'CREATED':             { label: 'Created',       color: 'bg-green-100 text-green-700',  icon: '➕', group: 'success' },
-  'RESTORE':             { label: 'Restored',      color: 'bg-green-100 text-green-700',  icon: '♻️', group: 'success' },
-  'APPROVED':            { label: 'Graded',        color: 'bg-green-100 text-green-700',  icon: '✅', group: 'success' },
-  'UNLOCK_APPROVED':     { label: 'Unlocked',      color: 'bg-green-100 text-green-700',  icon: '✅', group: 'success' },
+  'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700', icon: '➕', group: 'success' },
+  'RESTORE': { label: 'Restored', color: 'bg-green-100 text-green-700', icon: '♻️', group: 'success' },
+  'APPROVED': { label: 'Graded', color: 'bg-green-100 text-green-700', icon: '✅', group: 'success' },
+  'UNLOCK_APPROVED': { label: 'Unlocked', color: 'bg-green-100 text-green-700', icon: '✅', group: 'success' },
   // Info / updates (slate/gray)
-  'REMARK_UPDATE':       { label: 'Remark',        color: 'bg-purple-100 text-purple-700', icon: '📝', group: 'update' },
-  'OUTCOME_UPDATE':      { label: 'Evidence',      color: 'bg-teal-100 text-teal-700',    icon: '🔗', group: 'update' },
-  'FULL_UPDATE':         { label: 'Updated',       color: 'bg-gray-100 text-gray-600',    icon: '✏️', group: 'update' },
+  'REMARK_UPDATE': { label: 'Remark', color: 'bg-purple-100 text-purple-700', icon: '📝', group: 'update' },
+  'OUTCOME_UPDATE': { label: 'Evidence', color: 'bg-teal-100 text-teal-700', icon: '🔗', group: 'update' },
+  'FULL_UPDATE': { label: 'Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️', group: 'update' },
   // Comments (slate)
-  'PROGRESS_UPDATE':     { label: 'Comment',       color: 'bg-slate-100 text-slate-600',  icon: '💬', group: 'comment' },
+  'PROGRESS_UPDATE': { label: 'Comment', color: 'bg-slate-100 text-slate-600', icon: '💬', group: 'comment' },
 };
 
 // Type filter options for the dropdown
 const TYPE_FILTER_OPTIONS = [
-  { value: 'ALL',         label: 'All Actions' },
-  { value: 'comment',     label: '💬 Comments' },
-  { value: 'status',      label: '🔄 Status Updates' },
-  { value: 'submission',  label: '📤 Submissions' },
-  { value: 'success',     label: '✅ Grading & Approvals' },
+  { value: 'ALL', label: 'All Actions' },
+  { value: 'comment', label: '💬 Comments' },
+  { value: 'status', label: '🔄 Status Updates' },
+  { value: 'submission', label: '📤 Submissions' },
+  { value: 'success', label: '✅ Grading & Approvals' },
   { value: 'destructive', label: '🗑️ Deletions & Rejections' },
-  { value: 'update',      label: '✏️ Field Updates' },
+  { value: 'update', label: '✏️ Field Updates' },
 ];
 
 const PAGE_SIZE = 50;
@@ -156,7 +156,7 @@ export default function GlobalAuditLog() {
         .select(`
           id, action_plan_id, user_id, change_type, previous_value, new_value, description, created_at,
           profile:user_id ( full_name, role, department_code ),
-          action_plan:action_plan_id ( id, action_plan, department_code, month, year )
+          action_plan:action_plan_id ( id, action_plan, indicator, department_code, month, year )
         `)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -166,7 +166,7 @@ export default function GlobalAuditLog() {
         .select(`
           id, action_plan_id, user_id, message, type, created_at,
           profile:user_id ( full_name, role, department_code ),
-          action_plan:action_plan_id ( id, action_plan, department_code, month, year )
+          action_plan:action_plan_id ( id, action_plan, indicator, department_code, month, year )
         `)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -249,8 +249,9 @@ export default function GlobalAuditLog() {
       result = result.filter(log => {
         const userName = (log.profile?.full_name || '').toLowerCase();
         const planText = (log.action_plan?.action_plan || '').toLowerCase();
+        const indicatorText = (log.action_plan?.indicator || '').toLowerCase();
         const desc = (typeof log.description === 'string' ? log.description : '').toLowerCase();
-        return userName.includes(q) || planText.includes(q) || desc.includes(q);
+        return userName.includes(q) || planText.includes(q) || indicatorText.includes(q) || desc.includes(q);
       });
     }
 
@@ -484,13 +485,30 @@ export default function GlobalAuditLog() {
                               <span>{typeConfig.label}</span>
                             </span>
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-start gap-2 max-w-xs">
-                              <FileText className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
-                              <span className="text-sm text-gray-700 line-clamp-2" title={planText}>
-                                {truncateText(planText, 60)}
-                              </span>
-                            </div>
+                          <td className="px-4 py-3 max-w-[320px]">
+                            {log.action_plan ? (
+                              <div className="flex items-start gap-2 min-w-0">
+                                <FileText className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-gray-800 truncate" title={planText}>
+                                    {planText}
+                                  </p>
+                                  {log.action_plan.indicator && (
+                                    <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                                      <span className="text-[10px] font-bold text-gray-400 border border-gray-200 px-1 rounded bg-gray-50 flex-shrink-0">KPI</span>
+                                      <span
+                                        className="text-xs text-gray-500 italic truncate cursor-help"
+                                        title={log.action_plan.indicator}
+                                      >
+                                        {log.action_plan.indicator}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-400 italic">Unknown Action Plan</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 max-w-sm">
                             <RichDescription text={description} />

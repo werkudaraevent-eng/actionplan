@@ -1,6 +1,8 @@
 /**
  * emailService.js — Frontend utility for sending custom transactional emails
- * via the Supabase Edge Function `send-email` (Resend-backed).
+ * via the Supabase Edge Function `send-email` (Nodemailer SMTP-backed).
+ *
+ * SMTP credentials are stored in Supabase Secrets and never exposed to the client.
  *
  * Usage:
  *   import { sendCustomEmail } from '../services/emailService';
@@ -19,24 +21,24 @@ import { supabase } from '../lib/supabase';
  * @returns {Promise<{ success: boolean, message: string, id?: string }>}
  */
 export async function sendCustomEmail(to, subject, html, text) {
-    if (!supabase) {
-        throw new Error('Supabase client not initialized');
-    }
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
 
-    const { data, error } = await supabase.functions.invoke('send-email', {
-        body: { to, subject, html, text },
-    });
+  const { data, error } = await supabase.functions.invoke('send-email', {
+    body: { to, subject, html, text },
+  });
 
-    if (error) {
-        // Supabase functions.invoke wraps HTTP errors
-        throw new Error(error.message || 'Failed to invoke send-email function');
-    }
+  if (error) {
+    // Supabase functions.invoke wraps HTTP errors
+    throw new Error(error.message || 'Failed to invoke send-email function');
+  }
 
-    if (!data?.success) {
-        throw new Error(data?.message || 'Email send failed');
-    }
+  if (!data?.success) {
+    throw new Error(data?.message || 'Email send failed');
+  }
 
-    return data;
+  return data;
 }
 
 // ─── Pre-built Test Email Templates ─────────────────────────────────────────
@@ -64,13 +66,13 @@ const WERKUDARA_STYLES = `
  * Generate a test email HTML for a specific template type.
  */
 export function generateTestEmailHtml(templateType) {
-    const now = new Date().toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-    });
+  const now = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
 
-    switch (templateType) {
-        case 'deadline_reminder':
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+  switch (templateType) {
+    case 'deadline_reminder':
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header">
             <h1>Deadline Reminder</h1>
@@ -101,8 +103,8 @@ export function generateTestEmailHtml(templateType) {
         </div>
       </body></html>`;
 
-        case 'critical_alert':
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+    case 'critical_alert':
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header" style="background: linear-gradient(135deg, #dc2626, #b91c1c);">
             <h1>Critical Priority Alert</h1>
@@ -130,8 +132,8 @@ export function generateTestEmailHtml(templateType) {
         </div>
       </body></html>`;
 
-        case 'grading_update':
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+    case 'grading_update':
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header" style="background: linear-gradient(135deg, #7c3aed, #6d28d9);">
             <h1>Grading Update</h1>
@@ -166,8 +168,8 @@ export function generateTestEmailHtml(templateType) {
         </div>
       </body></html>`;
 
-        case 'auto_lock':
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+    case 'auto_lock':
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
             <h1>Monthly Lock Applied</h1>
@@ -198,8 +200,8 @@ export function generateTestEmailHtml(templateType) {
         </div>
       </body></html>`;
 
-        case 'password_reset':
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+    case 'password_reset':
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header">
             <h1>Password Reset</h1>
@@ -222,8 +224,8 @@ export function generateTestEmailHtml(templateType) {
         </div>
       </body></html>`;
 
-        default:
-            return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
+    default:
+      return `<!DOCTYPE html><html><head>${WERKUDARA_STYLES}</head><body>
         <div class="container">
           <div class="header">
             <h1>Test Email</h1>
@@ -239,19 +241,19 @@ export function generateTestEmailHtml(templateType) {
           </div>
         </div>
       </body></html>`;
-    }
+  }
 }
 
 /**
  * Get the subject line for a test email of a specific type.
  */
 export function getTestEmailSubject(templateType) {
-    const subjects = {
-        password_reset: '[TEST] Reset Your Password - Werkudara Group',
-        deadline_reminder: '[TEST] Action Plan Deadline Reminder - January 2026',
-        critical_alert: '[TEST] URGENT: Critical Action Plan Deadline',
-        auto_lock: '[TEST] Monthly Lock Applied - January 2026',
-        grading_update: '[TEST] Your Action Plan Has Been Graded',
-    };
-    return subjects[templateType] || '[TEST] Werkudara Action Plan Tracker';
+  const subjects = {
+    password_reset: '[TEST] Reset Your Password - Werkudara Group',
+    deadline_reminder: '[TEST] Action Plan Deadline Reminder - January 2026',
+    critical_alert: '[TEST] URGENT: Critical Action Plan Deadline',
+    auto_lock: '[TEST] Monthly Lock Applied - January 2026',
+    grading_update: '[TEST] Your Action Plan Has Been Graded',
+  };
+  return subjects[templateType] || '[TEST] Werkudara Action Plan Tracker';
 }

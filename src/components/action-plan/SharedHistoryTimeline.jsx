@@ -36,6 +36,7 @@ export const CHANGE_TYPE_LABELS = {
   'BLOCKER_CLEARED': { label: 'Blocker Cleared', color: 'bg-emerald-100 text-emerald-700', icon: '✅' },
   'CARRY_OVER': { label: 'Carried Over', color: 'bg-blue-100 text-blue-700', icon: '⏭️' },
   'ESCALATION_CHANGE': { label: 'Escalation Changed', color: 'bg-orange-100 text-orange-700', icon: '⬆️' },
+  'RESCHEDULED': { label: 'Rescheduled', color: 'bg-indigo-100 text-indigo-700', icon: '📅' },
   'PLAN_DETAILS_UPDATED': { label: 'Plan Details Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️' },
   // Progress log type (for unified display)
   'PROGRESS_UPDATE': { label: 'Progress Update', color: 'bg-blue-100 text-blue-700', icon: '💬' },
@@ -277,16 +278,16 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
                 </span>
                 <span className="text-gray-400">→</span>
                 <span className={`px-2 py-0.5 rounded ${item.change_type === 'REVISION_REQUESTED'
-                    ? 'bg-amber-100 text-amber-700'
-                    : item.change_type === 'APPROVED'
-                      ? 'bg-green-100 text-green-700'
-                      : item.change_type === 'GRADE_RESET'
-                        ? 'bg-orange-100 text-orange-700'
-                        : item.new_value?.status === 'Not Achieved'
-                          ? 'bg-red-100 text-red-700'
-                          : item.new_value?.status === 'Achieved'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-teal-100 text-teal-700'
+                  ? 'bg-amber-100 text-amber-700'
+                  : item.change_type === 'APPROVED'
+                    ? 'bg-green-100 text-green-700'
+                    : item.change_type === 'GRADE_RESET'
+                      ? 'bg-orange-100 text-orange-700'
+                      : item.new_value?.status === 'Not Achieved'
+                        ? 'bg-red-100 text-red-700'
+                        : item.new_value?.status === 'Achieved'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-teal-100 text-teal-700'
                   }`}>
                   {item.new_value?.status || item.new_value?.submission_status || 'Unknown'}
                 </span>
@@ -297,8 +298,8 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
           {item.change_type === 'ESCALATION_CHANGE' && item.previous_value && item.new_value && (
             <div className="flex items-center gap-2 text-xs">
               <span className={`px-2 py-0.5 rounded ${item.previous_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
-                  item.previous_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
-                    'bg-gray-200 text-gray-600'
+                item.previous_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
+                  'bg-gray-200 text-gray-600'
                 }`}>
                 {item.previous_value.attention_level === 'Management_BOD' ? 'Management/BOD' :
                   item.previous_value.attention_level === 'Leader' ? 'Leader' :
@@ -306,8 +307,8 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               </span>
               <span className="text-gray-400">→</span>
               <span className={`px-2 py-0.5 rounded ${item.new_value.attention_level === 'Management_BOD' ? 'bg-red-100 text-red-700' :
-                  item.new_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
-                    'bg-gray-200 text-gray-600'
+                item.new_value.attention_level === 'Leader' ? 'bg-amber-100 text-amber-700' :
+                  'bg-gray-200 text-gray-600'
                 }`}>
                 {item.new_value.attention_level === 'Management_BOD' ? 'Management/BOD' :
                   item.new_value.attention_level === 'Leader' ? 'Leader' :
@@ -453,6 +454,19 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               <span className="font-medium text-blue-800">⏭️ Carried to: </span>
               <span className="text-blue-700">{item.new_value.month} {item.new_value.year}</span>
               <span className="text-blue-500 ml-2">• Status reset to Open</span>
+            </div>
+          )}
+
+          {/* Rescheduled (month change) details */}
+          {item.change_type === 'RESCHEDULED' && item.previous_value && item.new_value && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
+                {item.previous_value.month}{item.previous_value.year !== item.new_value.year ? ` ${item.previous_value.year}` : ''}
+              </span>
+              <span className="text-gray-400">→</span>
+              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
+                {item.new_value.month} {item.new_value.year}
+              </span>
             </div>
           )}
 

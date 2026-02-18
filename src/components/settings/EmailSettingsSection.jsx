@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Mail,
-  Server,
   Bell,
   Send,
   Loader2,
-  Eye,
-  EyeOff,
   CheckCircle,
   XCircle,
   Lock,
@@ -19,11 +16,13 @@ import {
   Info,
   Clock,
   FileText,
-  Settings2
+  Settings2,
+  ShieldCheck,
+  Server
 } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { supabase } from '../../lib/supabase';
-import { sendCustomEmail, generateTestEmailHtml, getTestEmailSubject } from '../../services/emailService';
+import { generateTestEmailHtml, getTestEmailSubject } from '../../services/emailService';
 
 // Priority scope options
 const PRIORITY_SCOPES = [
@@ -207,30 +206,50 @@ const getScheduleSummary = (schedule, scope) => {
   return scopeLabel ? `${triggerText} • ${scopeLabel}` : triggerText;
 };
 
+// Compile a draft template by replacing {variables} with dummy data and wrapping in styled HTML
+const compileDraftTemplate = (subject, body) => {
+  const dummyData = {
+    name: 'Hanung (Tester)',
+    email: 'hanung@werkudara.com',
+    link: 'https://actionplan2026.netlify.app/reset?token=demo123',
+    month: 'February',
+    year: '2026',
+    lock_date: 'Feb 25, 2026',
+    days_remaining: '5',
+    department: 'IT Dev',
+    priority: 'High',
+    total_plans: '18',
+    achieved_count: '14',
+    plan_title: 'Q1 System Upgrade',
+    score: '88',
+    feedback: 'Excellent progress.',
+    reviewer_name: 'Admin Werkudara',
+  };
+
+  // Replace all {variable} occurrences in both subject and body
+  let compiledSubject = subject;
+  let compiledBody = body;
+  for (const [key, value] of Object.entries(dummyData)) {
+    const regex = new RegExp(`\\{${key}\\}`, 'g');
+    compiledSubject = compiledSubject.replace(regex, value);
+    compiledBody = compiledBody.replace(regex, value);
+  }
+
+  // Convert newlines to <br/> and wrap in a styled container
+  const htmlBody = `
+    <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #333; line-height: 1.7; max-width: 560px; margin: 0 auto; padding: 24px;">
+      ${compiledBody.replace(/\n/g, '<br/>')}
+    </div>
+  `.trim();
+
+  return { subject: compiledSubject, html: htmlBody };
+};
+
 export default function EmailSettingsSection() {
   const { toast } = useToast();
 
   // Loading state for initial fetch
   const [loading, setLoading] = useState(true);
-
-  // Active provider state - null until loaded from DB
-  const [activeProvider, setActiveProvider] = useState(null);
-  const [selectedTab, setSelectedTab] = useState(null);
-
-  // SMTP Configuration (kept for legacy compatibility / send-system-email edge function)
-  const [smtpConfig, setSmtpConfig] = useState({
-    host: '',
-    port: '587',
-    username: '',
-    password: '',
-    security: 'tls'
-  });
-
-  // Gmail Configuration (kept for legacy compatibility)
-  const [gmailConfig, setGmailConfig] = useState({
-    email: '',
-    appPassword: ''
-  });
 
   // Templates state
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
@@ -261,32 +280,13 @@ export default function EmailSettingsSection() {
 
         if (data?.email_config) {
           const config = data.email_config;
-          // Load SMTP config
-          if (config.smtp) {
-            setSmtpConfig(prev => ({ ...prev, ...config.smtp }));
-          }
-          // Load Gmail config
-          if (config.gmail) {
-            setGmailConfig(prev => ({ ...prev, ...config.gmail }));
-          }
           // Load templates
           if (config.templates) {
             setTemplates(prev => ({ ...prev, ...config.templates }));
           }
-          // CRITICAL: Set active provider from database
-          const savedProvider = config.active_provider || 'smtp';
-          setActiveProvider(savedProvider);
-          setSelectedTab(savedProvider);
-        } else {
-          // No saved settings - use defaults
-          setActiveProvider('smtp');
-          setSelectedTab('smtp');
         }
       } catch (err) {
         console.error('Failed to fetch email settings:', err);
-        // Fallback to defaults on error
-        setActiveProvider('smtp');
-        setSelectedTab('smtp');
       } finally {
         setLoading(false);
       }
@@ -294,14 +294,6 @@ export default function EmailSettingsSection() {
 
     fetchSettings();
   }, []);
-
-  const handleSmtpChange = (field, value) => {
-    setSmtpConfig(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleGmailChange = (field, value) => {
-    setGmailConfig(prev => ({ ...prev, [field]: value }));
-  };
 
   const handleToggleTemplate = (key) => {
     setTemplates(prev => ({
@@ -338,51 +330,91 @@ export default function EmailSettingsSection() {
     setTemplateDraft({ subject: '', body: '', schedule: null, scope: null });
   };
 
-  const saveTemplate = () => {
+  const saveTemplate = async () => {
     if (!editingTemplate) return;
 
-    const meta = TEMPLATE_META[editingTemplate];
+    setSaving(true);
+    try {
+      const meta = TEMPLATE_META[editingTemplate];
 
-    setTemplates(prev => ({
-      ...prev,
-      [editingTemplate]: {
-        ...prev[editingTemplate],
+      // 1. Prepare the updated template data
+      const updatedTemplateData = {
+        ...templates[editingTemplate],
         subject: templateDraft.subject,
         body: templateDraft.body,
         ...(meta.hasSchedule && templateDraft.schedule && { schedule: templateDraft.schedule }),
         ...(meta.hasScope && templateDraft.scope && { scope: templateDraft.scope })
-      }
-    }));
+      };
 
-    toast({
-      title: 'Template Saved',
-      description: `${meta.title} template updated.`,
-      variant: 'success'
-    });
+      // 2. Merge into full templates object
+      const newTemplates = {
+        ...templates,
+        [editingTemplate]: updatedTemplateData
+      };
 
-    closeTemplateEditor();
+      // 3. Build the full email_config payload for the database
+      const fullEmailConfig = {
+        active_provider: 'smtp_secure',
+        templates: newTemplates
+      };
+
+      // 4. Persist to Supabase
+      const { error } = await supabase
+        .from('system_settings')
+        .update({
+          email_config: fullEmailConfig,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      // 5. Update local state & close modal only on success
+      setTemplates(newTemplates);
+      toast({
+        title: 'Template Saved',
+        description: `${meta.title} updated successfully.`,
+        variant: 'success'
+      });
+      closeTemplateEditor();
+
+    } catch (err) {
+      console.error('Failed to save template:', err);
+      toast({
+        title: 'Save Failed',
+        description: err.message,
+        variant: 'error'
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // Send test email from the template editor modal (uses server-side SMTP)
   const sendTestEmail = async () => {
     if (!editingTemplate) return;
 
     setSendingTest(true);
     try {
-      // Use current form values (so user can test before saving)
-      const config = activeProvider === 'gmail'
-        ? { ...gmailConfig, type: 'gmail' }
-        : { ...smtpConfig, type: 'smtp' };
+      // 1. Get Admin Email
+      const { data: { user } } = await supabase.auth.getUser();
+      const adminEmail = user?.email;
+      if (!adminEmail) throw new Error('Could not determine your email address.');
 
-      const template = {
-        subject: templateDraft.subject,
-        body: templateDraft.body
-      };
+      // 2. COMPILE THE DRAFT (Crucial Step)
+      // We must use templateDraft.subject and templateDraft.body
+      // NOT the saved template and NOT the hardcoded generator
+      const { subject, html } = compileDraftTemplate(
+        templateDraft.subject,
+        templateDraft.body
+      );
 
-      // Call Edge Function
-      const { data, error } = await supabase.functions.invoke('send-system-email', {
+      // 3. Invoke Edge Function
+      const { data, error } = await supabase.functions.invoke('send-email', {
         body: {
-          providerConfig: config,
-          template: template
+          to: adminEmail,
+          subject: `[DRAFT TEST] ${subject}`,
+          html: html
         }
       });
 
@@ -390,8 +422,8 @@ export default function EmailSettingsSection() {
 
       if (data?.success) {
         toast({
-          title: 'Test Email Sent',
-          description: data.message || 'Check your inbox for the test email.',
+          title: 'Draft Test Sent',
+          description: `Check inbox for: "${subject}"`,
           variant: 'success'
         });
       } else {
@@ -401,7 +433,7 @@ export default function EmailSettingsSection() {
       console.error('Send test email error:', err);
       toast({
         title: 'Send Failed',
-        description: err.message || 'Could not send test email.',
+        description: err.message,
         variant: 'error'
       });
     } finally {
@@ -409,30 +441,47 @@ export default function EmailSettingsSection() {
     }
   };
 
-  // Quick test from the notification row (uses Resend via send-email Edge Function)
+  // Quick test from the notification row — sends the SAVED template from state
   const handleQuickTest = async (templateKey) => {
     setSendingTestKey(templateKey);
     try {
-      // Get the admin's email from the current session
+      // 1. Get Admin Email
       const { data: { user } } = await supabase.auth.getUser();
       const adminEmail = user?.email;
       if (!adminEmail) throw new Error('Could not determine your email address.');
 
-      const subject = getTestEmailSubject(templateKey);
-      const html = generateTestEmailHtml(templateKey);
+      // 2. Get the SAVED template from state
+      const template = templates[templateKey];
+      if (!template) throw new Error('Template not found');
 
-      await sendCustomEmail(adminEmail, subject, html);
+      // 3. Compile using the helper (Swaps variables & fixes newlines)
+      const { subject, html } = compileDraftTemplate(template.subject, template.body);
 
-      toast({
-        title: 'Test Email Sent',
-        description: `Sent to ${adminEmail}. Check your inbox!`,
-        variant: 'success'
+      // 4. Send via Edge Function
+      const { data, error } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: adminEmail,
+          subject: `[QUICK TEST] ${subject}`,
+          html: html
+        }
       });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast({
+          title: 'Test Email Sent',
+          description: `Sent to ${adminEmail}`,
+          variant: 'success'
+        });
+      } else {
+        throw new Error(data?.message || 'Failed to send email');
+      }
     } catch (err) {
       console.error('Quick test email error:', err);
       toast({
         title: 'Send Failed',
-        description: err.message || 'Could not send test email.',
+        description: err.message,
         variant: 'error'
       });
     } finally {
@@ -444,9 +493,7 @@ export default function EmailSettingsSection() {
     setSaving(true);
     try {
       const emailConfig = {
-        active_provider: activeProvider,
-        smtp: smtpConfig,
-        gmail: gmailConfig,
+        active_provider: 'smtp_secure',  // Server-side SMTP via Supabase Secrets
         templates: templates
       };
 
@@ -463,7 +510,7 @@ export default function EmailSettingsSection() {
 
       toast({
         title: 'Settings Saved',
-        description: 'Email configuration has been updated.',
+        description: 'Email templates have been updated.',
         variant: 'success'
       });
     } catch (err) {
@@ -504,21 +551,31 @@ export default function EmailSettingsSection() {
             </div>
           </div>
 
-          {/* Email Provider Info Banner */}
+          {/* Secure SMTP Status Card */}
           <div className="p-5 border-b border-gray-100">
-            <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200">
-              <div className="p-2 bg-teal-100 rounded-lg shrink-0 mt-0.5">
-                <Zap className="w-4 h-4 text-teal-600" />
+            <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-200">
+              <div className="p-2.5 bg-emerald-100 rounded-lg shrink-0 mt-0.5">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm font-semibold text-teal-800">Resend Email Service</p>
-                  <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-[10px] font-bold rounded-full">ACTIVE</span>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <p className="text-sm font-semibold text-emerald-800">Secure Server-Side SMTP</p>
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full tracking-wide">ACTIVE</span>
                 </div>
-                <p className="text-xs text-teal-600 leading-relaxed">
-                  Transactional emails are sent via Resend (Supabase Edge Function).
-                  Use the <strong>Send Test</strong> button on each notification to verify delivery to your inbox.
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  Emails are sent via <strong>Nodemailer</strong> through a Supabase Edge Function.
+                  SMTP credentials are securely stored in <strong>Supabase Secrets</strong> — they are never exposed to the browser.
                 </p>
+                <div className="flex items-center gap-4 mt-3">
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                    <Server className="w-3.5 h-3.5" />
+                    <span>Edge Function: <code className="font-mono bg-emerald-100 px-1 py-0.5 rounded text-[10px]">send-email</code></span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Credentials: Supabase Secrets</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -589,163 +646,6 @@ export default function EmailSettingsSection() {
   );
 }
 
-
-/**
- * Provider Tab Button
- */
-function ProviderTab({ provider, label, sublabel, icon: Icon, isSelected, isActive, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 flex items-center gap-3 p-4 rounded-xl border-2 transition-all relative ${isSelected
-        ? 'border-teal-500 bg-teal-50'
-        : 'border-gray-200 bg-white hover:border-gray-300'
-        }`}
-    >
-      {/* Active Badge */}
-      {isActive && (
-        <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full uppercase tracking-wide">
-          Active
-        </span>
-      )}
-
-      <div className={`p-2 rounded-lg ${isSelected ? 'bg-teal-100' : 'bg-gray-100'}`}>
-        <Icon className={`w-5 h-5 ${isSelected ? 'text-teal-600' : 'text-gray-500'}`} />
-      </div>
-      <div className="text-left">
-        <p className={`font-semibold ${isSelected ? 'text-teal-700' : 'text-gray-700'}`}>
-          {label}
-        </p>
-        <p className="text-xs text-gray-500">{sublabel}</p>
-      </div>
-      {isSelected && (
-        <CheckCircle className="w-5 h-5 text-teal-600 ml-auto" />
-      )}
-    </button>
-  );
-}
-
-/**
- * SMTP Configuration Form
- */
-function SmtpForm({ config, onChange, showPassword, onTogglePassword }) {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">SMTP Host</label>
-          <input
-            type="text"
-            value={config.host}
-            onChange={(e) => onChange('host', e.target.value)}
-            placeholder="smtp.office365.com"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">Port</label>
-          <input
-            type="text"
-            value={config.port}
-            onChange={(e) => onChange('port', e.target.value)}
-            placeholder="587"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">Username / Email</label>
-          <input
-            type="text"
-            value={config.username}
-            onChange={(e) => onChange('username', e.target.value)}
-            placeholder="noreply@company.com"
-            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={config.password}
-              onChange={(e) => onChange('password', e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3 py-2.5 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-            />
-            <button
-              type="button"
-              onClick={onTogglePassword}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1.5">Security Protocol</label>
-        <div className="flex gap-3">
-          {['tls', 'ssl', 'none'].map((option) => (
-            <button
-              key={option}
-              onClick={() => onChange('security', option)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${config.security === option
-                ? 'bg-teal-100 text-teal-700 border-2 border-teal-500'
-                : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:bg-gray-200'
-                }`}
-            >
-              {option.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Gmail Configuration Form
- */
-function GmailForm({ config, onChange, showPassword, onTogglePassword }) {
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1.5">Gmail Address</label>
-        <input
-          type="email"
-          value={config.email}
-          onChange={(e) => onChange('email', e.target.value)}
-          placeholder="your-email@gmail.com"
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-        />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1.5">App Password (16 characters)</label>
-        <div className="relative">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={config.appPassword}
-            onChange={(e) => onChange('appPassword', e.target.value.replace(/\s/g, ''))}
-            placeholder="xxxx xxxx xxxx xxxx"
-            maxLength={16}
-            className="w-full px-3 py-2.5 pr-10 border border-gray-300 rounded-lg text-sm font-mono tracking-wider focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-          <button
-            type="button"
-            onClick={onTogglePassword}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-          >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
-        </div>
-        <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
-          Use an App Password from Google Account Security. Do not use your login password.
-        </p>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Notification Row with Toggle, Edit, and Send Test buttons

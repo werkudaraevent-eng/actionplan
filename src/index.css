@@ -60,6 +60,16 @@ html, body {
   scrollbar-width: none;
 }
 
+/* Hide scrollbar completely (for horizontal tab bars, etc.) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Thin scrollbar utility class */
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;

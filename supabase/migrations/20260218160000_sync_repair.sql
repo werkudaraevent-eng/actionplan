@@ -1,1 +1,0 @@
--- Sync migration history to match server state

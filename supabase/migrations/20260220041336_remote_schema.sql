@@ -1,606 +1,68 @@
-create extension if not exists "pg_cron" with schema "pg_catalog";
-
-drop extension if exists "pg_net";
-
-create sequence "public"."monthly_lock_schedules_id_seq";
-
-
-  create table "public"."action_plans" (
-    "id" uuid not null default gen_random_uuid(),
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now(),
-    "department_code" text not null,
-    "month" text not null,
-    "goal_strategy" text not null,
-    "action_plan" text not null,
-    "indicator" text not null,
-    "pic" text not null,
-    "report_format" text not null default 'Monthly Report'::text,
-    "status" text not null default 'Open'::text,
-    "outcome_link" text,
-    "remark" text,
-    "year" integer not null default 2026,
-    "deleted_at" timestamp with time zone,
-    "deleted_by" text,
-    "deletion_reason" text,
-    "quality_score" integer,
-    "leader_feedback" text,
-    "reviewed_by" uuid,
-    "reviewed_at" timestamp with time zone,
-    "admin_feedback" text,
-    "submission_status" character varying(20) default 'draft'::character varying,
-    "submitted_at" timestamp with time zone,
-    "submitted_by" uuid,
-    "area_focus" text,
-    "category" text,
-    "evidence" text,
-    "gap_category" text,
-    "gap_analysis" text,
-    "specify_reason" text,
-    "unlock_status" text,
-    "unlock_reason" text,
-    "unlock_requested_at" timestamp with time zone,
-    "unlock_requested_by" uuid,
-    "unlock_approved_by" uuid,
-    "unlock_approved_at" timestamp with time zone,
-    "approved_until" timestamp with time zone,
-    "unlock_rejection_reason" text,
-    "blocker_reason" text,
-    "is_carry_over" boolean default false,
-    "is_blocked" boolean default false,
-    "blocker_category" text,
-    "attention_level" text not null default 'Standard'::text,
-    "carry_over_status" text not null default 'Normal'::text,
-    "origin_plan_id" uuid,
-    "max_possible_score" integer not null default 100,
-    "resolution_type" text,
-    "carried_to_month" text,
-    "is_drop_pending" boolean default false,
-    "temporary_unlock_expiry" timestamp with time zone,
-    "attachments" jsonb default '[]'::jsonb
-      );
-
-
-alter table "public"."action_plans" enable row level security;
-
-
-  create table "public"."annual_targets" (
-    "year" integer not null,
-    "target_percentage" integer not null default 80,
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now()
-      );
-
-
-alter table "public"."annual_targets" enable row level security;
-
-
-  create table "public"."audit_logs" (
-    "id" uuid not null default gen_random_uuid(),
-    "action_plan_id" uuid not null,
-    "user_id" uuid,
-    "change_type" text not null,
-    "previous_value" jsonb,
-    "new_value" jsonb not null,
-    "description" text not null,
-    "created_at" timestamp with time zone default now()
-      );
-
-
-alter table "public"."audit_logs" enable row level security;
-
-
-  create table "public"."departments" (
-    "code" text not null,
-    "name" text not null,
-    "created_at" timestamp with time zone default now()
-      );
-
-
-alter table "public"."departments" enable row level security;
-
 
-  create table "public"."drop_requests" (
-    "id" uuid not null default gen_random_uuid(),
-    "plan_id" uuid not null,
-    "user_id" uuid not null,
-    "reason" text not null,
-    "status" text not null default 'PENDING'::text,
-    "created_at" timestamp with time zone not null default now(),
-    "reviewed_at" timestamp with time zone,
-    "reviewed_by" uuid
-      );
 
 
-alter table "public"."drop_requests" enable row level security;
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
 
 
-  create table "public"."dropdown_options" (
-    "id" uuid not null default gen_random_uuid(),
-    "category" character varying(50) not null,
-    "label" character varying(255) not null,
-    "is_active" boolean default true,
-    "sort_order" integer default 0,
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now()
-      );
+CREATE EXTENSION IF NOT EXISTS "pg_cron" WITH SCHEMA "pg_catalog";
 
 
-alter table "public"."dropdown_options" enable row level security;
 
 
-  create table "public"."historical_stats" (
-    "id" uuid not null default gen_random_uuid(),
-    "department_code" text not null,
-    "year" integer not null,
-    "month" integer not null,
-    "completion_rate" numeric(5,2) not null,
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now()
-      );
 
 
-alter table "public"."historical_stats" enable row level security;
+COMMENT ON SCHEMA "public" IS 'standard public schema';
 
 
-  create table "public"."master_options" (
-    "id" uuid not null default gen_random_uuid(),
-    "category" character varying(50) not null,
-    "label" text not null,
-    "value" text not null,
-    "sort_order" integer default 0,
-    "is_active" boolean not null default true,
-    "created_at" timestamp with time zone not null default now()
-      );
 
+CREATE EXTENSION IF NOT EXISTS "pg_graphql" WITH SCHEMA "graphql";
 
-alter table "public"."master_options" enable row level security;
 
 
-  create table "public"."monthly_lock_schedules" (
-    "id" integer not null default nextval('public.monthly_lock_schedules_id_seq'::regclass),
-    "month_index" integer not null,
-    "year" integer not null,
-    "lock_date" timestamp with time zone not null,
-    "created_at" timestamp with time zone default now(),
-    "created_by" uuid,
-    "is_force_open" boolean default false
-      );
 
 
-alter table "public"."monthly_lock_schedules" enable row level security;
 
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
 
-  create table "public"."notifications" (
-    "id" uuid not null default gen_random_uuid(),
-    "user_id" uuid not null,
-    "actor_id" uuid,
-    "resource_id" uuid not null,
-    "resource_type" text not null,
-    "type" text not null,
-    "title" text,
-    "message" text,
-    "is_read" boolean not null default false,
-    "created_at" timestamp with time zone not null default now(),
-    "read_at" timestamp with time zone
-      );
 
 
-alter table "public"."notifications" enable row level security;
 
 
-  create table "public"."profiles" (
-    "id" uuid not null,
-    "email" text not null,
-    "full_name" text not null,
-    "role" text not null,
-    "department_code" text,
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now(),
-    "additional_departments" text[] default '{}'::text[]
-      );
 
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
 
-alter table "public"."profiles" enable row level security;
 
 
-  create table "public"."progress_logs" (
-    "id" uuid not null default gen_random_uuid(),
-    "action_plan_id" uuid not null,
-    "user_id" uuid,
-    "message" text not null,
-    "created_at" timestamp with time zone default now(),
-    "type" character varying(50) default 'comment'::character varying
-      );
 
 
-alter table "public"."progress_logs" enable row level security;
 
+CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
 
-  create table "public"."role_permissions" (
-    "id" uuid not null default gen_random_uuid(),
-    "role" text not null,
-    "resource" text not null,
-    "action" text not null,
-    "is_allowed" boolean not null default false,
-    "created_at" timestamp with time zone default now(),
-    "updated_at" timestamp with time zone default now()
-      );
 
 
-alter table "public"."role_permissions" enable row level security;
 
 
-  create table "public"."system_settings" (
-    "id" integer not null default 1,
-    "is_lock_enabled" boolean default true,
-    "lock_cutoff_day" integer default 6,
-    "updated_at" timestamp with time zone default now(),
-    "updated_by" uuid,
-    "email_config" jsonb default '{}'::jsonb,
-    "carry_over_penalty_1" integer not null default 80,
-    "carry_over_penalty_2" integer not null default 50,
-    "is_strict_grading_enabled" boolean not null default false,
-    "standard_passing_score" integer not null default 80,
-    "threshold_uh" integer not null default 100,
-    "threshold_h" integer not null default 100,
-    "threshold_m" integer not null default 80,
-    "threshold_l" integer not null default 70,
-    "drop_approval_req_uh" boolean default false,
-    "drop_approval_req_h" boolean default false,
-    "drop_approval_req_m" boolean default false,
-    "drop_approval_req_l" boolean default false
-      );
 
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
 
-alter table "public"."system_settings" enable row level security;
 
-alter sequence "public"."monthly_lock_schedules_id_seq" owned by "public"."monthly_lock_schedules"."id";
 
-CREATE UNIQUE INDEX action_plans_pkey ON public.action_plans USING btree (id);
 
-CREATE UNIQUE INDEX annual_targets_pkey ON public.annual_targets USING btree (year);
 
-CREATE UNIQUE INDEX audit_logs_pkey ON public.audit_logs USING btree (id);
 
-CREATE UNIQUE INDEX departments_pkey ON public.departments USING btree (code);
-
-CREATE UNIQUE INDEX drop_requests_pkey ON public.drop_requests USING btree (id);
-
-CREATE UNIQUE INDEX dropdown_options_category_label_key ON public.dropdown_options USING btree (category, label);
-
-CREATE UNIQUE INDEX dropdown_options_pkey ON public.dropdown_options USING btree (id);
-
-CREATE UNIQUE INDEX historical_stats_department_code_year_month_key ON public.historical_stats USING btree (department_code, year, month);
-
-CREATE UNIQUE INDEX historical_stats_pkey ON public.historical_stats USING btree (id);
-
-CREATE INDEX idx_action_plans_deleted_at ON public.action_plans USING btree (deleted_at);
-
-CREATE INDEX idx_action_plans_deleted_dept ON public.action_plans USING btree (department_code, deleted_at) WHERE (deleted_at IS NOT NULL);
-
-CREATE INDEX idx_action_plans_department ON public.action_plans USING btree (department_code);
-
-CREATE INDEX idx_action_plans_gap_category ON public.action_plans USING btree (gap_category) WHERE (gap_category IS NOT NULL);
-
-CREATE INDEX idx_action_plans_month ON public.action_plans USING btree (month);
-
-CREATE INDEX idx_action_plans_origin_plan_id ON public.action_plans USING btree (origin_plan_id) WHERE (origin_plan_id IS NOT NULL);
-
-CREATE INDEX idx_action_plans_quality_score ON public.action_plans USING btree (quality_score);
-
-CREATE INDEX idx_action_plans_status ON public.action_plans USING btree (status);
-
-CREATE INDEX idx_action_plans_submission_status ON public.action_plans USING btree (submission_status);
-
-CREATE INDEX idx_action_plans_year_dept ON public.action_plans USING btree (year, department_code);
-
-CREATE INDEX idx_action_plans_year_month ON public.action_plans USING btree (year, month);
-
-CREATE INDEX idx_action_plans_year_status ON public.action_plans USING btree (year, status);
-
-CREATE INDEX idx_audit_logs_action_plan ON public.audit_logs USING btree (action_plan_id);
-
-CREATE INDEX idx_audit_logs_created ON public.audit_logs USING btree (created_at DESC);
-
-CREATE INDEX idx_audit_logs_user ON public.audit_logs USING btree (user_id);
-
-CREATE INDEX idx_drop_requests_plan_id ON public.drop_requests USING btree (plan_id);
-
-CREATE INDEX idx_drop_requests_status ON public.drop_requests USING btree (status);
-
-CREATE INDEX idx_dropdown_options_active ON public.dropdown_options USING btree (is_active);
-
-CREATE INDEX idx_dropdown_options_category ON public.dropdown_options USING btree (category);
-
-CREATE INDEX idx_historical_stats_dept ON public.historical_stats USING btree (department_code);
-
-CREATE INDEX idx_historical_stats_lookup ON public.historical_stats USING btree (department_code, year);
-
-CREATE INDEX idx_historical_stats_year ON public.historical_stats USING btree (year);
-
-CREATE INDEX idx_master_options_category ON public.master_options USING btree (category);
-
-CREATE INDEX idx_master_options_category_active ON public.master_options USING btree (category, is_active) WHERE (is_active = true);
-
-CREATE UNIQUE INDEX idx_master_options_unique_value ON public.master_options USING btree (category, value);
-
-CREATE INDEX idx_monthly_lock_schedules_month_year ON public.monthly_lock_schedules USING btree (month_index, year);
-
-CREATE INDEX idx_notifications_created_at ON public.notifications USING btree (created_at DESC);
-
-CREATE INDEX idx_notifications_resource ON public.notifications USING btree (resource_id, resource_type);
-
-CREATE INDEX idx_notifications_user_id ON public.notifications USING btree (user_id);
-
-CREATE INDEX idx_notifications_user_unread ON public.notifications USING btree (user_id, is_read) WHERE (is_read = false);
-
-CREATE INDEX idx_profiles_additional_departments ON public.profiles USING gin (additional_departments);
-
-CREATE INDEX idx_profiles_department ON public.profiles USING btree (department_code);
-
-CREATE INDEX idx_profiles_role ON public.profiles USING btree (role);
-
-CREATE INDEX idx_progress_logs_action_plan_id ON public.progress_logs USING btree (action_plan_id);
-
-CREATE INDEX idx_progress_logs_created_at ON public.progress_logs USING btree (created_at DESC);
-
-CREATE INDEX idx_role_permissions_resource ON public.role_permissions USING btree (resource);
-
-CREATE INDEX idx_role_permissions_role ON public.role_permissions USING btree (role);
-
-CREATE UNIQUE INDEX master_options_pkey ON public.master_options USING btree (id);
-
-CREATE UNIQUE INDEX monthly_lock_schedules_month_index_year_key ON public.monthly_lock_schedules USING btree (month_index, year);
-
-CREATE UNIQUE INDEX monthly_lock_schedules_pkey ON public.monthly_lock_schedules USING btree (id);
-
-CREATE UNIQUE INDEX notifications_pkey ON public.notifications USING btree (id);
-
-CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id);
-
-CREATE UNIQUE INDEX progress_logs_pkey ON public.progress_logs USING btree (id);
-
-CREATE UNIQUE INDEX role_permissions_pkey ON public.role_permissions USING btree (id);
-
-CREATE UNIQUE INDEX role_permissions_unique ON public.role_permissions USING btree (role, resource, action);
-
-CREATE UNIQUE INDEX system_settings_pkey ON public.system_settings USING btree (id);
-
-CREATE UNIQUE INDEX system_settings_single_row ON public.system_settings USING btree (((id = 1)));
-
-alter table "public"."action_plans" add constraint "action_plans_pkey" PRIMARY KEY using index "action_plans_pkey";
-
-alter table "public"."annual_targets" add constraint "annual_targets_pkey" PRIMARY KEY using index "annual_targets_pkey";
-
-alter table "public"."audit_logs" add constraint "audit_logs_pkey" PRIMARY KEY using index "audit_logs_pkey";
-
-alter table "public"."departments" add constraint "departments_pkey" PRIMARY KEY using index "departments_pkey";
-
-alter table "public"."drop_requests" add constraint "drop_requests_pkey" PRIMARY KEY using index "drop_requests_pkey";
-
-alter table "public"."dropdown_options" add constraint "dropdown_options_pkey" PRIMARY KEY using index "dropdown_options_pkey";
-
-alter table "public"."historical_stats" add constraint "historical_stats_pkey" PRIMARY KEY using index "historical_stats_pkey";
-
-alter table "public"."master_options" add constraint "master_options_pkey" PRIMARY KEY using index "master_options_pkey";
-
-alter table "public"."monthly_lock_schedules" add constraint "monthly_lock_schedules_pkey" PRIMARY KEY using index "monthly_lock_schedules_pkey";
-
-alter table "public"."notifications" add constraint "notifications_pkey" PRIMARY KEY using index "notifications_pkey";
-
-alter table "public"."profiles" add constraint "profiles_pkey" PRIMARY KEY using index "profiles_pkey";
-
-alter table "public"."progress_logs" add constraint "progress_logs_pkey" PRIMARY KEY using index "progress_logs_pkey";
-
-alter table "public"."role_permissions" add constraint "role_permissions_pkey" PRIMARY KEY using index "role_permissions_pkey";
-
-alter table "public"."system_settings" add constraint "system_settings_pkey" PRIMARY KEY using index "system_settings_pkey";
-
-alter table "public"."action_plans" add constraint "action_plans_attention_level_check" CHECK ((attention_level = ANY (ARRAY['Standard'::text, 'Leader'::text, 'Management_BOD'::text]))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_attention_level_check";
-
-alter table "public"."action_plans" add constraint "action_plans_blocker_category_check" CHECK ((blocker_category = ANY (ARRAY['Internal'::text, 'External'::text, 'Budget'::text, 'Approval'::text]))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_blocker_category_check";
-
-alter table "public"."action_plans" add constraint "action_plans_origin_plan_id_fkey" FOREIGN KEY (origin_plan_id) REFERENCES public.action_plans(id) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_origin_plan_id_fkey";
-
-alter table "public"."action_plans" add constraint "action_plans_quality_score_check" CHECK (((quality_score >= 0) AND (quality_score <= 100))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_quality_score_check";
-
-alter table "public"."action_plans" add constraint "action_plans_resolution_type_check" CHECK (((resolution_type IS NULL) OR (resolution_type = ANY (ARRAY['carried_over'::text, 'dropped'::text])))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_resolution_type_check";
-
-alter table "public"."action_plans" add constraint "action_plans_reviewed_by_fkey" FOREIGN KEY (reviewed_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_reviewed_by_fkey";
-
-alter table "public"."action_plans" add constraint "action_plans_status_check" CHECK ((status = ANY (ARRAY['Open'::text, 'On Progress'::text, 'Blocked'::text, 'Achieved'::text, 'Not Achieved'::text, 'Internal Review'::text, 'Waiting Approval'::text]))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_status_check";
-
-alter table "public"."action_plans" add constraint "action_plans_submission_status_check" CHECK (((submission_status)::text = ANY ((ARRAY['draft'::character varying, 'submitted'::character varying])::text[]))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_submission_status_check";
-
-alter table "public"."action_plans" add constraint "action_plans_submitted_by_fkey" FOREIGN KEY (submitted_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_submitted_by_fkey";
-
-alter table "public"."action_plans" add constraint "action_plans_unlock_approved_by_fkey" FOREIGN KEY (unlock_approved_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_unlock_approved_by_fkey";
-
-alter table "public"."action_plans" add constraint "action_plans_unlock_requested_by_fkey" FOREIGN KEY (unlock_requested_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_unlock_requested_by_fkey";
-
-alter table "public"."action_plans" add constraint "action_plans_unlock_status_check" CHECK (((unlock_status IS NULL) OR (unlock_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))) not valid;
-
-alter table "public"."action_plans" validate constraint "action_plans_unlock_status_check";
-
-alter table "public"."action_plans" add constraint "carry_over_status_check" CHECK ((carry_over_status = ANY (ARRAY['Normal'::text, 'Late_Month_1'::text, 'Late_Month_2'::text]))) not valid;
-
-alter table "public"."action_plans" validate constraint "carry_over_status_check";
-
-alter table "public"."action_plans" add constraint "department_code_format" CHECK ((department_code = upper(TRIM(BOTH FROM department_code)))) not valid;
-
-alter table "public"."action_plans" validate constraint "department_code_format";
-
-alter table "public"."action_plans" add constraint "max_possible_score_range" CHECK (((max_possible_score >= 0) AND (max_possible_score <= 100))) not valid;
-
-alter table "public"."action_plans" validate constraint "max_possible_score_range";
-
-alter table "public"."action_plans" add constraint "valid_year" CHECK (((year >= 2020) AND (year <= 2100))) not valid;
-
-alter table "public"."action_plans" validate constraint "valid_year";
-
-alter table "public"."audit_logs" add constraint "audit_logs_action_plan_id_fkey" FOREIGN KEY (action_plan_id) REFERENCES public.action_plans(id) ON DELETE CASCADE not valid;
-
-alter table "public"."audit_logs" validate constraint "audit_logs_action_plan_id_fkey";
-
-alter table "public"."audit_logs" add constraint "audit_logs_change_type_check" CHECK ((change_type = ANY (ARRAY['STATUS_UPDATE'::text, 'REMARK_UPDATE'::text, 'OUTCOME_UPDATE'::text, 'FULL_UPDATE'::text, 'CREATED'::text, 'DELETED'::text, 'SOFT_DELETE'::text, 'RESTORE'::text, 'SUBMITTED_FOR_REVIEW'::text, 'MARKED_READY'::text, 'APPROVED'::text, 'REJECTED'::text, 'REVISION_REQUESTED'::text, 'LEADER_BATCH_SUBMIT'::text, 'GRADE_RESET'::text, 'UNLOCK_REQUESTED'::text, 'UNLOCK_APPROVED'::text, 'UNLOCK_REJECTED'::text, 'ALERT_RAISED'::text, 'BLOCKER_UPDATED'::text, 'BLOCKER_REPORTED'::text, 'BLOCKER_CLEARED'::text, 'CARRY_OVER'::text, 'PLAN_DETAILS_UPDATED'::text, 'ALERT_RESOLVED'::text, 'ALERT_CLOSED_FAILED'::text, 'ESCALATION_CHANGE'::text]))) not valid;
-
-alter table "public"."audit_logs" validate constraint "audit_logs_change_type_check";
-
-alter table "public"."audit_logs" add constraint "audit_logs_user_id_fkey" FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE SET NULL not valid;
-
-alter table "public"."audit_logs" validate constraint "audit_logs_user_id_fkey";
-
-alter table "public"."drop_requests" add constraint "drop_requests_plan_id_fkey" FOREIGN KEY (plan_id) REFERENCES public.action_plans(id) ON DELETE CASCADE not valid;
-
-alter table "public"."drop_requests" validate constraint "drop_requests_plan_id_fkey";
-
-alter table "public"."drop_requests" add constraint "drop_requests_reason_check" CHECK ((length(TRIM(BOTH FROM reason)) >= 5)) not valid;
-
-alter table "public"."drop_requests" validate constraint "drop_requests_reason_check";
-
-alter table "public"."drop_requests" add constraint "drop_requests_reviewed_by_fkey" FOREIGN KEY (reviewed_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."drop_requests" validate constraint "drop_requests_reviewed_by_fkey";
-
-alter table "public"."drop_requests" add constraint "drop_requests_status_check" CHECK ((status = ANY (ARRAY['PENDING'::text, 'APPROVED'::text, 'REJECTED'::text, 'CANCELLED'::text]))) not valid;
-
-alter table "public"."drop_requests" validate constraint "drop_requests_status_check";
-
-alter table "public"."drop_requests" add constraint "drop_requests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."drop_requests" validate constraint "drop_requests_user_id_fkey";
-
-alter table "public"."dropdown_options" add constraint "dropdown_options_category_label_key" UNIQUE using index "dropdown_options_category_label_key";
-
-alter table "public"."historical_stats" add constraint "historical_stats_completion_rate_check" CHECK (((completion_rate >= (0)::numeric) AND (completion_rate <= (100)::numeric))) not valid;
-
-alter table "public"."historical_stats" validate constraint "historical_stats_completion_rate_check";
-
-alter table "public"."historical_stats" add constraint "historical_stats_department_code_year_month_key" UNIQUE using index "historical_stats_department_code_year_month_key";
-
-alter table "public"."historical_stats" add constraint "historical_stats_month_check" CHECK (((month >= 1) AND (month <= 12))) not valid;
-
-alter table "public"."historical_stats" validate constraint "historical_stats_month_check";
-
-alter table "public"."monthly_lock_schedules" add constraint "monthly_lock_schedules_created_by_fkey" FOREIGN KEY (created_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."monthly_lock_schedules" validate constraint "monthly_lock_schedules_created_by_fkey";
-
-alter table "public"."monthly_lock_schedules" add constraint "monthly_lock_schedules_month_index_check" CHECK (((month_index >= 0) AND (month_index <= 11))) not valid;
-
-alter table "public"."monthly_lock_schedules" validate constraint "monthly_lock_schedules_month_index_check";
-
-alter table "public"."monthly_lock_schedules" add constraint "monthly_lock_schedules_month_index_year_key" UNIQUE using index "monthly_lock_schedules_month_index_year_key";
-
-alter table "public"."monthly_lock_schedules" add constraint "monthly_lock_schedules_year_check" CHECK (((year >= 2020) AND (year <= 2100))) not valid;
-
-alter table "public"."monthly_lock_schedules" validate constraint "monthly_lock_schedules_year_check";
-
-alter table "public"."notifications" add constraint "notifications_actor_id_fkey" FOREIGN KEY (actor_id) REFERENCES auth.users(id) ON DELETE SET NULL not valid;
-
-alter table "public"."notifications" validate constraint "notifications_actor_id_fkey";
-
-alter table "public"."notifications" add constraint "notifications_resource_type_check" CHECK ((resource_type = ANY (ARRAY['ACTION_PLAN'::text, 'COMMENT'::text, 'BLOCKER'::text, 'PROGRESS_LOG'::text]))) not valid;
-
-alter table "public"."notifications" validate constraint "notifications_resource_type_check";
-
-alter table "public"."notifications" add constraint "notifications_type_check" CHECK ((type = ANY (ARRAY['NEW_COMMENT'::text, 'MENTION'::text, 'STATUS_CHANGE'::text, 'KICKBACK'::text, 'BLOCKER_REPORTED'::text, 'BLOCKER_RESOLVED'::text, 'GRADE_RECEIVED'::text, 'UNLOCK_APPROVED'::text, 'UNLOCK_REJECTED'::text, 'UNLOCK_REVOKED'::text, 'TASK_ASSIGNED'::text, 'ESCALATION_LEADER'::text, 'ESCALATION_BOD'::text, 'MANAGEMENT_INSTRUCTION'::text]))) not valid;
-
-alter table "public"."notifications" validate constraint "notifications_type_check";
-
-alter table "public"."notifications" add constraint "notifications_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE not valid;
-
-alter table "public"."notifications" validate constraint "notifications_user_id_fkey";
-
-alter table "public"."profiles" add constraint "profiles_id_fkey" FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE not valid;
-
-alter table "public"."profiles" validate constraint "profiles_id_fkey";
-
-alter table "public"."profiles" add constraint "profiles_role_check" CHECK ((role = ANY (ARRAY['admin'::text, 'leader'::text, 'staff'::text, 'executive'::text, 'Administrator'::text, 'Leader'::text, 'Staff'::text, 'Executive'::text]))) not valid;
-
-alter table "public"."profiles" validate constraint "profiles_role_check";
-
-alter table "public"."progress_logs" add constraint "progress_logs_action_plan_id_fkey" FOREIGN KEY (action_plan_id) REFERENCES public.action_plans(id) ON DELETE CASCADE not valid;
-
-alter table "public"."progress_logs" validate constraint "progress_logs_action_plan_id_fkey";
-
-alter table "public"."progress_logs" add constraint "progress_logs_user_id_fkey" FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE SET NULL not valid;
-
-alter table "public"."progress_logs" validate constraint "progress_logs_user_id_fkey";
-
-alter table "public"."role_permissions" add constraint "role_permissions_role_check" CHECK ((role = ANY (ARRAY['admin'::text, 'executive'::text, 'leader'::text, 'staff'::text]))) not valid;
-
-alter table "public"."role_permissions" validate constraint "role_permissions_role_check";
-
-alter table "public"."role_permissions" add constraint "role_permissions_unique" UNIQUE using index "role_permissions_unique";
-
-alter table "public"."system_settings" add constraint "carry_over_penalty_1_range" CHECK (((carry_over_penalty_1 >= 0) AND (carry_over_penalty_1 <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "carry_over_penalty_1_range";
-
-alter table "public"."system_settings" add constraint "carry_over_penalty_2_range" CHECK (((carry_over_penalty_2 >= 0) AND (carry_over_penalty_2 <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "carry_over_penalty_2_range";
-
-alter table "public"."system_settings" add constraint "chk_threshold_h" CHECK (((threshold_h >= 1) AND (threshold_h <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "chk_threshold_h";
-
-alter table "public"."system_settings" add constraint "chk_threshold_l" CHECK (((threshold_l >= 1) AND (threshold_l <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "chk_threshold_l";
-
-alter table "public"."system_settings" add constraint "chk_threshold_m" CHECK (((threshold_m >= 1) AND (threshold_m <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "chk_threshold_m";
-
-alter table "public"."system_settings" add constraint "chk_threshold_uh" CHECK (((threshold_uh >= 1) AND (threshold_uh <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "chk_threshold_uh";
-
-alter table "public"."system_settings" add constraint "standard_passing_score_range" CHECK (((standard_passing_score >= 1) AND (standard_passing_score <= 100))) not valid;
-
-alter table "public"."system_settings" validate constraint "standard_passing_score_range";
-
-alter table "public"."system_settings" add constraint "system_settings_lock_cutoff_day_check" CHECK (((lock_cutoff_day >= 1) AND (lock_cutoff_day <= 28))) not valid;
-
-alter table "public"."system_settings" validate constraint "system_settings_lock_cutoff_day_check";
-
-alter table "public"."system_settings" add constraint "system_settings_updated_by_fkey" FOREIGN KEY (updated_by) REFERENCES public.profiles(id) not valid;
-
-alter table "public"."system_settings" validate constraint "system_settings_updated_by_fkey";
-
-set check_function_bodies = off;
-
-CREATE OR REPLACE FUNCTION public.approve_drop_request(p_request_id uuid)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+CREATE OR REPLACE FUNCTION "public"."approve_drop_request"("p_request_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_admin_id  UUID := auth.uid();
   v_plan_id   UUID;
@@ -660,15 +122,16 @@ BEGIN
   FROM drop_requests dr
   WHERE dr.id = p_request_id;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.approve_drop_request_v2(p_plan_id uuid)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."approve_drop_request"("p_request_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."approve_drop_request_v2"("p_plan_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_admin_id    UUID := auth.uid();
   v_plan        RECORD;
@@ -727,30 +190,16 @@ BEGIN
     'Drop request approved. Plan marked as Not Achieved with score 0.'
   );
 END;
-$function$
-;
-
-create or replace view "public"."audit_logs_with_user" as  SELECT al.id,
-    al.action_plan_id,
-    al.user_id,
-    al.change_type,
-    al.previous_value,
-    al.new_value,
-    al.description,
-    al.created_at,
-    p.full_name AS user_name,
-    p.department_code AS user_department,
-    p.role AS user_role
-   FROM (public.audit_logs al
-     LEFT JOIN public.profiles p ON ((al.user_id = p.id)));
+$$;
 
 
-CREATE OR REPLACE FUNCTION public.auto_cancel_drop_requests_on_finalization()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+ALTER FUNCTION "public"."approve_drop_request_v2"("p_plan_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_final_statuses TEXT[] := ARRAY['Achieved', 'Not Achieved'];
   v_cancelled_count INT;
@@ -799,15 +248,20 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.carry_over_plan(p_plan_id uuid, p_user_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() IS 'Trigger function: Automatically cancels all PENDING drop_requests when the associated action_plan status is finalized (Achieved / Not Achieved). Also clears is_drop_pending flag and sends a notification to the requester.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."carry_over_plan"("p_plan_id" "uuid", "p_user_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_plan record;
   v_penalty_1 integer;
@@ -910,13 +364,15 @@ BEGIN
     'max_possible_score', v_new_max
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.clamp_quality_score()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
+
+ALTER FUNCTION "public"."carry_over_plan"("p_plan_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."clamp_quality_score"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
 BEGIN
   -- Only act when quality_score is being set and max_possible_score exists
   IF NEW.quality_score IS NOT NULL AND NEW.max_possible_score IS NOT NULL AND NEW.max_possible_score < 100 THEN
@@ -926,15 +382,16 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.create_notification(p_user_id uuid, p_actor_id uuid, p_resource_id uuid, p_resource_type text, p_type text, p_title text DEFAULT NULL::text, p_message text DEFAULT NULL::text)
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."clamp_quality_score"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text" DEFAULT NULL::"text", "p_message" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_notification_id UUID;
 BEGIN
@@ -949,15 +406,20 @@ BEGIN
   
   RETURN v_notification_id;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.get_carry_over_settings()
- RETURNS jsonb
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text", "p_message" "text") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text", "p_message" "text") IS 'Helper function to create notifications with SECURITY DEFINER to bypass RLS';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."get_carry_over_settings"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_result jsonb;
 BEGIN
@@ -974,15 +436,16 @@ BEGIN
 
   RETURN v_result;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.grade_action_plan(p_plan_id uuid, p_input_score integer, p_status text DEFAULT 'Achieved'::text, p_admin_feedback text DEFAULT NULL::text, p_reviewed_by uuid DEFAULT NULL::uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."get_carry_over_settings"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."grade_action_plan"("p_plan_id" "uuid", "p_input_score" integer, "p_status" "text" DEFAULT 'Achieved'::"text", "p_admin_feedback" "text" DEFAULT NULL::"text", "p_reviewed_by" "uuid" DEFAULT NULL::"uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_strict           boolean;
   v_threshold_uh     integer;
@@ -1077,14 +540,15 @@ BEGIN
     'selected_threshold', v_selected_threshold
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+
+ALTER FUNCTION "public"."grade_action_plan"("p_plan_id" "uuid", "p_input_score" integer, "p_status" "text", "p_admin_feedback" "text", "p_reviewed_by" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
 BEGIN
   INSERT INTO public.profiles (id, email, full_name, role, department_code)
   VALUES (
@@ -1096,14 +560,15 @@ BEGIN
   );
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.log_action_plan_changes()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+
+ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."log_action_plan_changes"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
 DECLARE
   v_user_id UUID;
   v_change_type TEXT;
@@ -1450,15 +915,20 @@ BEGIN
   
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.notify_on_escalation()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."log_action_plan_changes"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."log_action_plan_changes"() IS 'Enhanced Audit Trigger v3: Now captures RCA fields (gap_category, gap_analysis, specify_reason) in new_value for Not Achieved status changes. Handles all action plan changes with detailed logging.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_on_escalation"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   _actor_id uuid;
   _actor_name text;
@@ -1518,15 +988,16 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.notify_on_status_change()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'auth'
-AS $function$
+
+ALTER FUNCTION "public"."notify_on_escalation"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_on_status_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'auth'
+    AS $$
 DECLARE
   v_plan_owner_id UUID;
   v_leader_id UUID;
@@ -1666,15 +1137,20 @@ BEGIN
   
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.notify_status_change()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."notify_on_status_change"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."notify_on_status_change"() IS 'Trigger function that creates notifications on action plan status changes, blockers, grades, and unlock decisions';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_status_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_pic_user_id uuid;
   v_actor_name text;
@@ -1752,15 +1228,20 @@ BEGIN
   
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.process_unlock_request(p_plan_id uuid, p_action text, p_admin_id uuid, p_expiry_date timestamp with time zone DEFAULT NULL::timestamp with time zone, p_rejection_reason text DEFAULT NULL::text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."notify_status_change"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."notify_status_change"() IS 'Trigger function that notifies the PIC (person in charge) when someone else changes their action plan status. Uses SECURITY DEFINER to bypass RLS for notification insertion.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."process_unlock_request"("p_plan_id" "uuid", "p_action" "text", "p_admin_id" "uuid", "p_expiry_date" timestamp with time zone DEFAULT NULL::timestamp with time zone, "p_rejection_reason" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_plan record;
   v_action_upper text;
@@ -1855,15 +1336,16 @@ BEGIN
 
   RETURN jsonb_build_object('success', false, 'error', 'Unknown action');
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.reject_drop_request(p_request_id uuid, p_rejection_reason text DEFAULT NULL::text)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."process_unlock_request"("p_plan_id" "uuid", "p_action" "text", "p_admin_id" "uuid", "p_expiry_date" timestamp with time zone, "p_rejection_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reject_drop_request"("p_request_id" "uuid", "p_rejection_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_admin_id       UUID := auth.uid();
   v_plan_id        UUID;
@@ -2038,15 +1520,16 @@ BEGIN
   END IF;
 
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.reject_drop_request_v2(p_plan_id uuid, p_rejection_reason text DEFAULT NULL::text)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."reject_drop_request"("p_request_id" "uuid", "p_rejection_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reject_drop_request_v2"("p_plan_id" "uuid", "p_rejection_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_admin_id       UUID := auth.uid();
   v_plan           RECORD;
@@ -2192,15 +1675,16 @@ BEGIN
     'Drop request rejected. Reason: ' || COALESCE(p_rejection_reason, 'No reason provided')
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.relock_expired_unlocks()
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."reject_drop_request_v2"("p_plan_id" "uuid", "p_rejection_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."relock_expired_unlocks"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_count integer;
 BEGIN
@@ -2228,15 +1712,16 @@ BEGIN
     'run_at', now()
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.report_action_plan_blocker(p_plan_id uuid, p_blocker_reason text, p_user_id uuid)
- RETURNS json
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."relock_expired_unlocks"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."report_action_plan_blocker"("p_plan_id" "uuid", "p_blocker_reason" "text", "p_user_id" "uuid") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_plan RECORD;
   v_leader RECORD;
@@ -2326,15 +1811,16 @@ BEGIN
     'leaders_notified', v_leaders_notified
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.reset_action_plans_safe()
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."report_action_plan_blocker"("p_plan_id" "uuid", "p_blocker_reason" "text", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reset_action_plans_safe"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   deleted_copies int;
   reset_masters int;
@@ -2411,15 +1897,16 @@ BEGIN
     'message', 'Safe Reset Complete (Fixed): Pruned copies and reset masters.'
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.reset_simulation_data()
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."reset_action_plans_safe"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reset_simulation_data"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   deleted_carry_over int;
   reset_parents int;
@@ -2532,15 +2019,20 @@ BEGIN
     'deleted_drop_requests', deleted_drop_requests
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.resolve_and_submit_report(p_department_code text, p_month text, p_year integer, p_resolutions jsonb, p_user_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."reset_simulation_data"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."reset_simulation_data"() IS 'God Mode: Factory Reset — deletes carry-over children, resets all parent/dropped plans to clean Open state, removes duplicates, and clears ALL supporting data: audit_logs, notifications, progress_logs, drop_requests. Also resets: blocker/escalation fields, is_drop_pending flag, lock/unlock cycle.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."resolve_and_submit_report"("p_department_code" "text", "p_month" "text", "p_year" integer, "p_resolutions" "jsonb", "p_user_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_resolution jsonb;
   v_plan_id uuid;
@@ -2697,15 +2189,16 @@ BEGIN
     'next_year', v_next_year
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.revoke_unlock_access(p_plan_id uuid, p_admin_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."resolve_and_submit_report"("p_department_code" "text", "p_month" "text", "p_year" integer, "p_resolutions" "jsonb", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."revoke_unlock_access"("p_plan_id" "uuid", "p_admin_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_plan record;
   v_requester_id uuid;
@@ -2759,15 +2252,16 @@ BEGIN
     'plan_id', p_plan_id
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.submit_drop_request(p_plan_id uuid, p_reason text)
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."revoke_unlock_access"("p_plan_id" "uuid", "p_admin_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."submit_drop_request"("p_plan_id" "uuid", "p_reason" "text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_request_id UUID;
   v_user_id UUID := auth.uid();
@@ -2805,15 +2299,16 @@ BEGIN
 
   RETURN v_request_id;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.update_carry_over_settings(p_penalty_1 integer, p_penalty_2 integer)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."submit_drop_request"("p_plan_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_carry_over_settings"("p_penalty_1" integer, "p_penalty_2" integer) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_role text;
 BEGIN
@@ -2849,26 +2344,29 @@ BEGIN
     'carry_over_penalty_2', p_penalty_2
   );
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.update_dropdown_options_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
+
+ALTER FUNCTION "public"."update_carry_over_settings"("p_penalty_1" integer, "p_penalty_2" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_dropdown_options_updated_at"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
 BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.update_plan_evidence(p_plan_id uuid, p_evidence text DEFAULT NULL::text, p_attachments jsonb DEFAULT NULL::jsonb)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."update_dropdown_options_updated_at"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text" DEFAULT NULL::"text", "p_attachments" "jsonb" DEFAULT NULL::"jsonb") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
   v_plan RECORD;
 BEGIN
@@ -2889,36 +2387,46 @@ BEGIN
     updated_at  = NOW()
   WHERE id = p_plan_id;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.update_system_settings_timestamp()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
+
+ALTER FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text", "p_attachments" "jsonb") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text", "p_attachments" "jsonb") IS 'Atomically update evidence text and/or attachments JSON array for an action plan.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."update_system_settings_timestamp"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
 BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.update_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
+
+ALTER FUNCTION "public"."update_system_settings_timestamp"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_updated_at"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
 BEGIN
   NEW.updated_at = now();
   RETURN NEW;
 END;
-$function$
-;
+$$;
 
-CREATE OR REPLACE FUNCTION public.upsert_master_options(p_items jsonb)
- RETURNS jsonb
- LANGUAGE plpgsql
- SET search_path TO 'public'
-AS $function$
+
+ALTER FUNCTION "public"."update_updated_at"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."upsert_master_options"("p_items" "jsonb") RETURNS "jsonb"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO 'public'
+    AS $$
 DECLARE
     v_item      JSONB;
     v_inserted  INT := 0;
@@ -2990,1286 +2498,1793 @@ BEGIN
         'total_processed', v_inserted + v_updated + v_skipped
     );
 END;
-$function$
-;
+$$;
+
 
-grant delete on table "public"."action_plans" to "anon";
+ALTER FUNCTION "public"."upsert_master_options"("p_items" "jsonb") OWNER TO "postgres";
 
-grant insert on table "public"."action_plans" to "anon";
 
-grant references on table "public"."action_plans" to "anon";
+COMMENT ON FUNCTION "public"."upsert_master_options"("p_items" "jsonb") IS 'Bulk upsert master_options. Accepts JSON array of {category, label, value, sort_order?, is_active?}. Matches on (category + value): updates if exists, inserts if new. Skips rows with missing category/label.';
 
-grant select on table "public"."action_plans" to "anon";
 
-grant trigger on table "public"."action_plans" to "anon";
+SET default_tablespace = '';
 
-grant truncate on table "public"."action_plans" to "anon";
+SET default_table_access_method = "heap";
 
-grant update on table "public"."action_plans" to "anon";
 
-grant delete on table "public"."action_plans" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."action_plans" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "department_code" "text" NOT NULL,
+    "month" "text" NOT NULL,
+    "goal_strategy" "text" NOT NULL,
+    "action_plan" "text" NOT NULL,
+    "indicator" "text" NOT NULL,
+    "pic" "text" NOT NULL,
+    "report_format" "text" DEFAULT 'Monthly Report'::"text" NOT NULL,
+    "status" "text" DEFAULT 'Open'::"text" NOT NULL,
+    "outcome_link" "text",
+    "remark" "text",
+    "year" integer DEFAULT 2026 NOT NULL,
+    "deleted_at" timestamp with time zone,
+    "deleted_by" "text",
+    "deletion_reason" "text",
+    "quality_score" integer,
+    "leader_feedback" "text",
+    "reviewed_by" "uuid",
+    "reviewed_at" timestamp with time zone,
+    "admin_feedback" "text",
+    "submission_status" character varying(20) DEFAULT 'draft'::character varying,
+    "submitted_at" timestamp with time zone,
+    "submitted_by" "uuid",
+    "area_focus" "text",
+    "category" "text",
+    "evidence" "text",
+    "gap_category" "text",
+    "gap_analysis" "text",
+    "specify_reason" "text",
+    "unlock_status" "text",
+    "unlock_reason" "text",
+    "unlock_requested_at" timestamp with time zone,
+    "unlock_requested_by" "uuid",
+    "unlock_approved_by" "uuid",
+    "unlock_approved_at" timestamp with time zone,
+    "approved_until" timestamp with time zone,
+    "unlock_rejection_reason" "text",
+    "blocker_reason" "text",
+    "is_carry_over" boolean DEFAULT false,
+    "is_blocked" boolean DEFAULT false,
+    "blocker_category" "text",
+    "attention_level" "text" DEFAULT 'Standard'::"text" NOT NULL,
+    "carry_over_status" "text" DEFAULT 'Normal'::"text" NOT NULL,
+    "origin_plan_id" "uuid",
+    "max_possible_score" integer DEFAULT 100 NOT NULL,
+    "resolution_type" "text",
+    "carried_to_month" "text",
+    "is_drop_pending" boolean DEFAULT false,
+    "temporary_unlock_expiry" timestamp with time zone,
+    "attachments" "jsonb" DEFAULT '[]'::"jsonb",
+    CONSTRAINT "action_plans_attention_level_check" CHECK (("attention_level" = ANY (ARRAY['Standard'::"text", 'Leader'::"text", 'Management_BOD'::"text"]))),
+    CONSTRAINT "action_plans_blocker_category_check" CHECK (("blocker_category" = ANY (ARRAY['Internal'::"text", 'External'::"text", 'Budget'::"text", 'Approval'::"text"]))),
+    CONSTRAINT "action_plans_quality_score_check" CHECK ((("quality_score" >= 0) AND ("quality_score" <= 100))),
+    CONSTRAINT "action_plans_resolution_type_check" CHECK ((("resolution_type" IS NULL) OR ("resolution_type" = ANY (ARRAY['carried_over'::"text", 'dropped'::"text"])))),
+    CONSTRAINT "action_plans_status_check" CHECK (("status" = ANY (ARRAY['Open'::"text", 'On Progress'::"text", 'Blocked'::"text", 'Achieved'::"text", 'Not Achieved'::"text", 'Internal Review'::"text", 'Waiting Approval'::"text"]))),
+    CONSTRAINT "action_plans_submission_status_check" CHECK ((("submission_status")::"text" = ANY ((ARRAY['draft'::character varying, 'submitted'::character varying])::"text"[]))),
+    CONSTRAINT "action_plans_unlock_status_check" CHECK ((("unlock_status" IS NULL) OR ("unlock_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))),
+    CONSTRAINT "carry_over_status_check" CHECK (("carry_over_status" = ANY (ARRAY['Normal'::"text", 'Late_Month_1'::"text", 'Late_Month_2'::"text"]))),
+    CONSTRAINT "department_code_format" CHECK (("department_code" = "upper"(TRIM(BOTH FROM "department_code")))),
+    CONSTRAINT "max_possible_score_range" CHECK ((("max_possible_score" >= 0) AND ("max_possible_score" <= 100))),
+    CONSTRAINT "valid_year" CHECK ((("year" >= 2020) AND ("year" <= 2100)))
+);
 
-grant insert on table "public"."action_plans" to "authenticated";
 
-grant references on table "public"."action_plans" to "authenticated";
+ALTER TABLE "public"."action_plans" OWNER TO "postgres";
 
-grant select on table "public"."action_plans" to "authenticated";
 
-grant trigger on table "public"."action_plans" to "authenticated";
+COMMENT ON COLUMN "public"."action_plans"."deletion_reason" IS 'Reason for soft deletion - required for audit trail';
 
-grant truncate on table "public"."action_plans" to "authenticated";
 
-grant update on table "public"."action_plans" to "authenticated";
 
-grant delete on table "public"."action_plans" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."area_focus" IS 'Focus area for the action plan (e.g., Workforce Optimization, Margin Optimization)';
 
-grant insert on table "public"."action_plans" to "service_role";
 
-grant references on table "public"."action_plans" to "service_role";
 
-grant select on table "public"."action_plans" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."category" IS 'Category/priority of the action plan (e.g., High, Medium, Urgent)';
 
-grant trigger on table "public"."action_plans" to "service_role";
 
-grant truncate on table "public"."action_plans" to "service_role";
 
-grant update on table "public"."action_plans" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."evidence" IS 'Evidence or proof of completion (text/link)';
 
-grant delete on table "public"."annual_targets" to "anon";
 
-grant insert on table "public"."annual_targets" to "anon";
 
-grant references on table "public"."annual_targets" to "anon";
+COMMENT ON COLUMN "public"."action_plans"."gap_category" IS 'Standardized category for failure reason (e.g., Budget Issue, Manpower, Timeline, External Factor)';
 
-grant select on table "public"."annual_targets" to "anon";
 
-grant trigger on table "public"."annual_targets" to "anon";
 
-grant truncate on table "public"."annual_targets" to "anon";
+COMMENT ON COLUMN "public"."action_plans"."gap_analysis" IS 'Detailed explanation of why the action plan was not achieved';
 
-grant update on table "public"."annual_targets" to "anon";
 
-grant delete on table "public"."annual_targets" to "authenticated";
 
-grant insert on table "public"."annual_targets" to "authenticated";
+COMMENT ON COLUMN "public"."action_plans"."specify_reason" IS 'Custom reason text when gap_category is set to Other';
 
-grant references on table "public"."annual_targets" to "authenticated";
 
-grant select on table "public"."annual_targets" to "authenticated";
 
-grant trigger on table "public"."annual_targets" to "authenticated";
+COMMENT ON COLUMN "public"."action_plans"."unlock_rejection_reason" IS 'Stores the admin rejection reason when unlock request is denied';
 
-grant truncate on table "public"."annual_targets" to "authenticated";
 
-grant update on table "public"."annual_targets" to "authenticated";
 
-grant delete on table "public"."annual_targets" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."blocker_reason" IS 'Stores the reason/blocker message when action plan is escalated to Alert status';
 
-grant insert on table "public"."annual_targets" to "service_role";
 
-grant references on table "public"."annual_targets" to "service_role";
 
-grant select on table "public"."annual_targets" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."is_carry_over" IS 'Indicates if this action plan was carried over from a previous month due to Not Achieved status';
 
-grant trigger on table "public"."annual_targets" to "service_role";
 
-grant truncate on table "public"."annual_targets" to "service_role";
 
-grant update on table "public"."annual_targets" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."is_blocked" IS 'Flag for internal blocker reporting. Staff reports to Leader (is_blocked=true), Leader escalates to Management (status=Alert).';
 
-grant delete on table "public"."audit_logs" to "anon";
 
-grant insert on table "public"."audit_logs" to "anon";
 
-grant references on table "public"."audit_logs" to "anon";
+COMMENT ON COLUMN "public"."action_plans"."carry_over_status" IS 'Tracks carry-over history: Normal (fresh), Late_Month_1 (carried once), Late_Month_2 (carried twice, max).';
 
-grant select on table "public"."audit_logs" to "anon";
 
-grant trigger on table "public"."audit_logs" to "anon";
 
-grant truncate on table "public"."audit_logs" to "anon";
+COMMENT ON COLUMN "public"."action_plans"."origin_plan_id" IS 'Self-referencing FK to the original plan this was carried over from.';
 
-grant update on table "public"."audit_logs" to "anon";
 
-grant delete on table "public"."audit_logs" to "authenticated";
 
-grant insert on table "public"."audit_logs" to "authenticated";
+COMMENT ON COLUMN "public"."action_plans"."max_possible_score" IS 'Maximum achievable verification score. Reduced by carry-over penalties (default 100).';
 
-grant references on table "public"."audit_logs" to "authenticated";
 
-grant select on table "public"."audit_logs" to "authenticated";
 
-grant trigger on table "public"."audit_logs" to "authenticated";
+COMMENT ON COLUMN "public"."action_plans"."resolution_type" IS 'Set by resolution wizard: carried_over or dropped. NULL for normal plans.';
 
-grant truncate on table "public"."audit_logs" to "authenticated";
 
-grant update on table "public"."audit_logs" to "authenticated";
 
-grant delete on table "public"."audit_logs" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."carried_to_month" IS 'Target month when carried over, e.g. Feb. NULL otherwise.';
 
-grant insert on table "public"."audit_logs" to "service_role";
 
-grant references on table "public"."audit_logs" to "service_role";
 
-grant select on table "public"."audit_logs" to "service_role";
+COMMENT ON COLUMN "public"."action_plans"."attachments" IS 'Array of evidence attachments. Each element: { type: file|link, name?, url, size?, mime?, title? }';
 
-grant trigger on table "public"."audit_logs" to "service_role";
 
-grant truncate on table "public"."audit_logs" to "service_role";
 
-grant update on table "public"."audit_logs" to "service_role";
+CREATE TABLE IF NOT EXISTS "public"."annual_targets" (
+    "year" integer NOT NULL,
+    "target_percentage" integer DEFAULT 80 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
 
-grant delete on table "public"."departments" to "anon";
 
-grant insert on table "public"."departments" to "anon";
+ALTER TABLE "public"."annual_targets" OWNER TO "postgres";
 
-grant references on table "public"."departments" to "anon";
 
-grant select on table "public"."departments" to "anon";
+CREATE TABLE IF NOT EXISTS "public"."audit_logs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "action_plan_id" "uuid" NOT NULL,
+    "user_id" "uuid",
+    "change_type" "text" NOT NULL,
+    "previous_value" "jsonb",
+    "new_value" "jsonb" NOT NULL,
+    "description" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "audit_logs_change_type_check" CHECK (("change_type" = ANY (ARRAY['STATUS_UPDATE'::"text", 'REMARK_UPDATE'::"text", 'OUTCOME_UPDATE'::"text", 'FULL_UPDATE'::"text", 'CREATED'::"text", 'DELETED'::"text", 'SOFT_DELETE'::"text", 'RESTORE'::"text", 'SUBMITTED_FOR_REVIEW'::"text", 'MARKED_READY'::"text", 'APPROVED'::"text", 'REJECTED'::"text", 'REVISION_REQUESTED'::"text", 'LEADER_BATCH_SUBMIT'::"text", 'GRADE_RESET'::"text", 'UNLOCK_REQUESTED'::"text", 'UNLOCK_APPROVED'::"text", 'UNLOCK_REJECTED'::"text", 'ALERT_RAISED'::"text", 'BLOCKER_UPDATED'::"text", 'BLOCKER_REPORTED'::"text", 'BLOCKER_CLEARED'::"text", 'CARRY_OVER'::"text", 'PLAN_DETAILS_UPDATED'::"text", 'ALERT_RESOLVED'::"text", 'ALERT_CLOSED_FAILED'::"text", 'ESCALATION_CHANGE'::"text"])))
+);
 
-grant trigger on table "public"."departments" to "anon";
 
-grant truncate on table "public"."departments" to "anon";
+ALTER TABLE "public"."audit_logs" OWNER TO "postgres";
 
-grant update on table "public"."departments" to "anon";
 
-grant delete on table "public"."departments" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."profiles" (
+    "id" "uuid" NOT NULL,
+    "email" "text" NOT NULL,
+    "full_name" "text" NOT NULL,
+    "role" "text" NOT NULL,
+    "department_code" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "additional_departments" "text"[] DEFAULT '{}'::"text"[],
+    CONSTRAINT "profiles_role_check" CHECK (("role" = ANY (ARRAY['admin'::"text", 'leader'::"text", 'staff'::"text", 'executive'::"text", 'Administrator'::"text", 'Leader'::"text", 'Staff'::"text", 'Executive'::"text"])))
+);
 
-grant insert on table "public"."departments" to "authenticated";
 
-grant references on table "public"."departments" to "authenticated";
+ALTER TABLE "public"."profiles" OWNER TO "postgres";
 
-grant select on table "public"."departments" to "authenticated";
 
-grant trigger on table "public"."departments" to "authenticated";
+COMMENT ON COLUMN "public"."profiles"."additional_departments" IS 'Secondary departments for access rights. Primary department (department_code) is used for headcount.';
 
-grant truncate on table "public"."departments" to "authenticated";
 
-grant update on table "public"."departments" to "authenticated";
 
-grant delete on table "public"."departments" to "service_role";
+CREATE OR REPLACE VIEW "public"."audit_logs_with_user" AS
+ SELECT "al"."id",
+    "al"."action_plan_id",
+    "al"."user_id",
+    "al"."change_type",
+    "al"."previous_value",
+    "al"."new_value",
+    "al"."description",
+    "al"."created_at",
+    "p"."full_name" AS "user_name",
+    "p"."department_code" AS "user_department",
+    "p"."role" AS "user_role"
+   FROM ("public"."audit_logs" "al"
+     LEFT JOIN "public"."profiles" "p" ON (("al"."user_id" = "p"."id")));
 
-grant insert on table "public"."departments" to "service_role";
 
-grant references on table "public"."departments" to "service_role";
+ALTER VIEW "public"."audit_logs_with_user" OWNER TO "postgres";
 
-grant select on table "public"."departments" to "service_role";
 
-grant trigger on table "public"."departments" to "service_role";
+CREATE TABLE IF NOT EXISTS "public"."departments" (
+    "code" "text" NOT NULL,
+    "name" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"()
+);
 
-grant truncate on table "public"."departments" to "service_role";
 
-grant update on table "public"."departments" to "service_role";
+ALTER TABLE "public"."departments" OWNER TO "postgres";
 
-grant delete on table "public"."drop_requests" to "anon";
 
-grant insert on table "public"."drop_requests" to "anon";
+CREATE TABLE IF NOT EXISTS "public"."drop_requests" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "plan_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "reason" "text" NOT NULL,
+    "status" "text" DEFAULT 'PENDING'::"text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "reviewed_at" timestamp with time zone,
+    "reviewed_by" "uuid",
+    CONSTRAINT "drop_requests_reason_check" CHECK (("length"(TRIM(BOTH FROM "reason")) >= 5)),
+    CONSTRAINT "drop_requests_status_check" CHECK (("status" = ANY (ARRAY['PENDING'::"text", 'APPROVED'::"text", 'REJECTED'::"text", 'CANCELLED'::"text"])))
+);
 
-grant references on table "public"."drop_requests" to "anon";
 
-grant select on table "public"."drop_requests" to "anon";
+ALTER TABLE "public"."drop_requests" OWNER TO "postgres";
 
-grant trigger on table "public"."drop_requests" to "anon";
 
-grant truncate on table "public"."drop_requests" to "anon";
+CREATE TABLE IF NOT EXISTS "public"."dropdown_options" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "category" character varying(50) NOT NULL,
+    "label" character varying(255) NOT NULL,
+    "is_active" boolean DEFAULT true,
+    "sort_order" integer DEFAULT 0,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
 
-grant update on table "public"."drop_requests" to "anon";
 
-grant delete on table "public"."drop_requests" to "authenticated";
+ALTER TABLE "public"."dropdown_options" OWNER TO "postgres";
 
-grant insert on table "public"."drop_requests" to "authenticated";
 
-grant references on table "public"."drop_requests" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."historical_stats" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "department_code" "text" NOT NULL,
+    "year" integer NOT NULL,
+    "month" integer NOT NULL,
+    "completion_rate" numeric(5,2) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "historical_stats_completion_rate_check" CHECK ((("completion_rate" >= (0)::numeric) AND ("completion_rate" <= (100)::numeric))),
+    CONSTRAINT "historical_stats_month_check" CHECK ((("month" >= 1) AND ("month" <= 12)))
+);
 
-grant select on table "public"."drop_requests" to "authenticated";
 
-grant trigger on table "public"."drop_requests" to "authenticated";
+ALTER TABLE "public"."historical_stats" OWNER TO "postgres";
 
-grant truncate on table "public"."drop_requests" to "authenticated";
 
-grant update on table "public"."drop_requests" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."master_options" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "category" character varying(50) NOT NULL,
+    "label" "text" NOT NULL,
+    "value" "text" NOT NULL,
+    "sort_order" integer DEFAULT 0,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
 
-grant delete on table "public"."drop_requests" to "service_role";
 
-grant insert on table "public"."drop_requests" to "service_role";
+ALTER TABLE "public"."master_options" OWNER TO "postgres";
 
-grant references on table "public"."drop_requests" to "service_role";
 
-grant select on table "public"."drop_requests" to "service_role";
+COMMENT ON TABLE "public"."master_options" IS 'Universal lookup table for all admin-managed dropdown options. Use category to group related options (e.g. ROOT_CAUSE, PRIORITY, DEPARTMENT). The value field stores the DB-persisted identifier; label is the user-facing text.';
 
-grant trigger on table "public"."drop_requests" to "service_role";
 
-grant truncate on table "public"."drop_requests" to "service_role";
 
-grant update on table "public"."drop_requests" to "service_role";
+CREATE TABLE IF NOT EXISTS "public"."monthly_lock_schedules" (
+    "id" integer NOT NULL,
+    "month_index" integer NOT NULL,
+    "year" integer NOT NULL,
+    "lock_date" timestamp with time zone NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "created_by" "uuid",
+    "is_force_open" boolean DEFAULT false,
+    CONSTRAINT "monthly_lock_schedules_month_index_check" CHECK ((("month_index" >= 0) AND ("month_index" <= 11))),
+    CONSTRAINT "monthly_lock_schedules_year_check" CHECK ((("year" >= 2020) AND ("year" <= 2100)))
+);
 
-grant delete on table "public"."dropdown_options" to "anon";
 
-grant insert on table "public"."dropdown_options" to "anon";
+ALTER TABLE "public"."monthly_lock_schedules" OWNER TO "postgres";
 
-grant references on table "public"."dropdown_options" to "anon";
 
-grant select on table "public"."dropdown_options" to "anon";
+COMMENT ON COLUMN "public"."monthly_lock_schedules"."is_force_open" IS 'When true, auto-lock is disabled for this month (always open)';
 
-grant trigger on table "public"."dropdown_options" to "anon";
 
-grant truncate on table "public"."dropdown_options" to "anon";
 
-grant update on table "public"."dropdown_options" to "anon";
+CREATE SEQUENCE IF NOT EXISTS "public"."monthly_lock_schedules_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
-grant delete on table "public"."dropdown_options" to "authenticated";
 
-grant insert on table "public"."dropdown_options" to "authenticated";
+ALTER SEQUENCE "public"."monthly_lock_schedules_id_seq" OWNER TO "postgres";
 
-grant references on table "public"."dropdown_options" to "authenticated";
 
-grant select on table "public"."dropdown_options" to "authenticated";
+ALTER SEQUENCE "public"."monthly_lock_schedules_id_seq" OWNED BY "public"."monthly_lock_schedules"."id";
 
-grant trigger on table "public"."dropdown_options" to "authenticated";
 
-grant truncate on table "public"."dropdown_options" to "authenticated";
 
-grant update on table "public"."dropdown_options" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."notifications" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "actor_id" "uuid",
+    "resource_id" "uuid" NOT NULL,
+    "resource_type" "text" NOT NULL,
+    "type" "text" NOT NULL,
+    "title" "text",
+    "message" "text",
+    "is_read" boolean DEFAULT false NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "read_at" timestamp with time zone,
+    CONSTRAINT "notifications_resource_type_check" CHECK (("resource_type" = ANY (ARRAY['ACTION_PLAN'::"text", 'COMMENT'::"text", 'BLOCKER'::"text", 'PROGRESS_LOG'::"text"]))),
+    CONSTRAINT "notifications_type_check" CHECK (("type" = ANY (ARRAY['NEW_COMMENT'::"text", 'MENTION'::"text", 'STATUS_CHANGE'::"text", 'KICKBACK'::"text", 'BLOCKER_REPORTED'::"text", 'BLOCKER_RESOLVED'::"text", 'GRADE_RECEIVED'::"text", 'UNLOCK_APPROVED'::"text", 'UNLOCK_REJECTED'::"text", 'UNLOCK_REVOKED'::"text", 'TASK_ASSIGNED'::"text", 'ESCALATION_LEADER'::"text", 'ESCALATION_BOD'::"text", 'MANAGEMENT_INSTRUCTION'::"text"])))
+);
 
-grant delete on table "public"."dropdown_options" to "service_role";
 
-grant insert on table "public"."dropdown_options" to "service_role";
+ALTER TABLE "public"."notifications" OWNER TO "postgres";
 
-grant references on table "public"."dropdown_options" to "service_role";
 
-grant select on table "public"."dropdown_options" to "service_role";
+COMMENT ON TABLE "public"."notifications" IS 'Notification center for user alerts - comments, status changes, kickbacks, etc.';
 
-grant trigger on table "public"."dropdown_options" to "service_role";
 
-grant truncate on table "public"."dropdown_options" to "service_role";
 
-grant update on table "public"."dropdown_options" to "service_role";
+COMMENT ON COLUMN "public"."notifications"."user_id" IS 'The user who receives this notification';
 
-grant delete on table "public"."historical_stats" to "anon";
 
-grant insert on table "public"."historical_stats" to "anon";
 
-grant references on table "public"."historical_stats" to "anon";
+COMMENT ON COLUMN "public"."notifications"."actor_id" IS 'The user who triggered this notification (e.g., commenter, grader)';
 
-grant select on table "public"."historical_stats" to "anon";
 
-grant trigger on table "public"."historical_stats" to "anon";
 
-grant truncate on table "public"."historical_stats" to "anon";
+COMMENT ON COLUMN "public"."notifications"."resource_id" IS 'ID of the related resource (action_plan, comment, etc.)';
 
-grant update on table "public"."historical_stats" to "anon";
 
-grant delete on table "public"."historical_stats" to "authenticated";
 
-grant insert on table "public"."historical_stats" to "authenticated";
+COMMENT ON COLUMN "public"."notifications"."resource_type" IS 'Type of resource: ACTION_PLAN, COMMENT, BLOCKER, PROGRESS_LOG';
 
-grant references on table "public"."historical_stats" to "authenticated";
 
-grant select on table "public"."historical_stats" to "authenticated";
 
-grant trigger on table "public"."historical_stats" to "authenticated";
+COMMENT ON COLUMN "public"."notifications"."type" IS 'Notification type: NEW_COMMENT, MENTION, STATUS_CHANGE, KICKBACK, etc.';
 
-grant truncate on table "public"."historical_stats" to "authenticated";
 
-grant update on table "public"."historical_stats" to "authenticated";
 
-grant delete on table "public"."historical_stats" to "service_role";
+CREATE TABLE IF NOT EXISTS "public"."progress_logs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "action_plan_id" "uuid" NOT NULL,
+    "user_id" "uuid",
+    "message" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "type" character varying(50) DEFAULT 'comment'::character varying
+);
 
-grant insert on table "public"."historical_stats" to "service_role";
 
-grant references on table "public"."historical_stats" to "service_role";
+ALTER TABLE "public"."progress_logs" OWNER TO "postgres";
 
-grant select on table "public"."historical_stats" to "service_role";
 
-grant trigger on table "public"."historical_stats" to "service_role";
+COMMENT ON TABLE "public"."progress_logs" IS 'Stores progress update messages when action plans are set to On Progress status';
 
-grant truncate on table "public"."historical_stats" to "service_role";
 
-grant update on table "public"."historical_stats" to "service_role";
 
-grant delete on table "public"."master_options" to "anon";
+COMMENT ON COLUMN "public"."progress_logs"."type" IS 'Type of log entry: comment (casual from ViewDetailModal), progress_update (official from ActionPlanModal status update)';
 
-grant insert on table "public"."master_options" to "anon";
 
-grant references on table "public"."master_options" to "anon";
 
-grant select on table "public"."master_options" to "anon";
+CREATE TABLE IF NOT EXISTS "public"."role_permissions" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "role" "text" NOT NULL,
+    "resource" "text" NOT NULL,
+    "action" "text" NOT NULL,
+    "is_allowed" boolean DEFAULT false NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "role_permissions_role_check" CHECK (("role" = ANY (ARRAY['admin'::"text", 'executive'::"text", 'leader'::"text", 'staff'::"text"])))
+);
 
-grant trigger on table "public"."master_options" to "anon";
 
-grant truncate on table "public"."master_options" to "anon";
+ALTER TABLE "public"."role_permissions" OWNER TO "postgres";
 
-grant update on table "public"."master_options" to "anon";
 
-grant delete on table "public"."master_options" to "authenticated";
+CREATE TABLE IF NOT EXISTS "public"."system_settings" (
+    "id" integer DEFAULT 1 NOT NULL,
+    "is_lock_enabled" boolean DEFAULT true,
+    "lock_cutoff_day" integer DEFAULT 6,
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "updated_by" "uuid",
+    "email_config" "jsonb" DEFAULT '{}'::"jsonb",
+    "carry_over_penalty_1" integer DEFAULT 80 NOT NULL,
+    "carry_over_penalty_2" integer DEFAULT 50 NOT NULL,
+    "is_strict_grading_enabled" boolean DEFAULT false NOT NULL,
+    "standard_passing_score" integer DEFAULT 80 NOT NULL,
+    "threshold_uh" integer DEFAULT 100 NOT NULL,
+    "threshold_h" integer DEFAULT 100 NOT NULL,
+    "threshold_m" integer DEFAULT 80 NOT NULL,
+    "threshold_l" integer DEFAULT 70 NOT NULL,
+    "drop_approval_req_uh" boolean DEFAULT false,
+    "drop_approval_req_h" boolean DEFAULT false,
+    "drop_approval_req_m" boolean DEFAULT false,
+    "drop_approval_req_l" boolean DEFAULT false,
+    CONSTRAINT "carry_over_penalty_1_range" CHECK ((("carry_over_penalty_1" >= 0) AND ("carry_over_penalty_1" <= 100))),
+    CONSTRAINT "carry_over_penalty_2_range" CHECK ((("carry_over_penalty_2" >= 0) AND ("carry_over_penalty_2" <= 100))),
+    CONSTRAINT "chk_threshold_h" CHECK ((("threshold_h" >= 1) AND ("threshold_h" <= 100))),
+    CONSTRAINT "chk_threshold_l" CHECK ((("threshold_l" >= 1) AND ("threshold_l" <= 100))),
+    CONSTRAINT "chk_threshold_m" CHECK ((("threshold_m" >= 1) AND ("threshold_m" <= 100))),
+    CONSTRAINT "chk_threshold_uh" CHECK ((("threshold_uh" >= 1) AND ("threshold_uh" <= 100))),
+    CONSTRAINT "standard_passing_score_range" CHECK ((("standard_passing_score" >= 1) AND ("standard_passing_score" <= 100))),
+    CONSTRAINT "system_settings_lock_cutoff_day_check" CHECK ((("lock_cutoff_day" >= 1) AND ("lock_cutoff_day" <= 28)))
+);
 
-grant insert on table "public"."master_options" to "authenticated";
 
-grant references on table "public"."master_options" to "authenticated";
+ALTER TABLE "public"."system_settings" OWNER TO "postgres";
 
-grant select on table "public"."master_options" to "authenticated";
 
-grant trigger on table "public"."master_options" to "authenticated";
+COMMENT ON COLUMN "public"."system_settings"."carry_over_penalty_1" IS 'Max possible score (%) for a plan carried over once (Late Month 1). Default 80.';
 
-grant truncate on table "public"."master_options" to "authenticated";
 
-grant update on table "public"."master_options" to "authenticated";
 
-grant delete on table "public"."master_options" to "service_role";
+COMMENT ON COLUMN "public"."system_settings"."carry_over_penalty_2" IS 'Max possible score (%) for a plan carried over twice (Late Month 2). Default 50.';
 
-grant insert on table "public"."master_options" to "service_role";
 
-grant references on table "public"."master_options" to "service_role";
 
-grant select on table "public"."master_options" to "service_role";
+ALTER TABLE ONLY "public"."monthly_lock_schedules" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."monthly_lock_schedules_id_seq"'::"regclass");
 
-grant trigger on table "public"."master_options" to "service_role";
 
-grant truncate on table "public"."master_options" to "service_role";
 
-grant update on table "public"."master_options" to "service_role";
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_pkey" PRIMARY KEY ("id");
 
-grant delete on table "public"."monthly_lock_schedules" to "anon";
 
-grant insert on table "public"."monthly_lock_schedules" to "anon";
 
-grant references on table "public"."monthly_lock_schedules" to "anon";
+ALTER TABLE ONLY "public"."annual_targets"
+    ADD CONSTRAINT "annual_targets_pkey" PRIMARY KEY ("year");
 
-grant select on table "public"."monthly_lock_schedules" to "anon";
 
-grant trigger on table "public"."monthly_lock_schedules" to "anon";
 
-grant truncate on table "public"."monthly_lock_schedules" to "anon";
+ALTER TABLE ONLY "public"."audit_logs"
+    ADD CONSTRAINT "audit_logs_pkey" PRIMARY KEY ("id");
 
-grant update on table "public"."monthly_lock_schedules" to "anon";
 
-grant delete on table "public"."monthly_lock_schedules" to "authenticated";
 
-grant insert on table "public"."monthly_lock_schedules" to "authenticated";
+ALTER TABLE ONLY "public"."departments"
+    ADD CONSTRAINT "departments_pkey" PRIMARY KEY ("code");
 
-grant references on table "public"."monthly_lock_schedules" to "authenticated";
 
-grant select on table "public"."monthly_lock_schedules" to "authenticated";
 
-grant trigger on table "public"."monthly_lock_schedules" to "authenticated";
+ALTER TABLE ONLY "public"."drop_requests"
+    ADD CONSTRAINT "drop_requests_pkey" PRIMARY KEY ("id");
 
-grant truncate on table "public"."monthly_lock_schedules" to "authenticated";
 
-grant update on table "public"."monthly_lock_schedules" to "authenticated";
 
-grant delete on table "public"."monthly_lock_schedules" to "service_role";
+ALTER TABLE ONLY "public"."dropdown_options"
+    ADD CONSTRAINT "dropdown_options_category_label_key" UNIQUE ("category", "label");
 
-grant insert on table "public"."monthly_lock_schedules" to "service_role";
 
-grant references on table "public"."monthly_lock_schedules" to "service_role";
 
-grant select on table "public"."monthly_lock_schedules" to "service_role";
+ALTER TABLE ONLY "public"."dropdown_options"
+    ADD CONSTRAINT "dropdown_options_pkey" PRIMARY KEY ("id");
 
-grant trigger on table "public"."monthly_lock_schedules" to "service_role";
 
-grant truncate on table "public"."monthly_lock_schedules" to "service_role";
 
-grant update on table "public"."monthly_lock_schedules" to "service_role";
+ALTER TABLE ONLY "public"."historical_stats"
+    ADD CONSTRAINT "historical_stats_department_code_year_month_key" UNIQUE ("department_code", "year", "month");
 
-grant delete on table "public"."notifications" to "anon";
 
-grant insert on table "public"."notifications" to "anon";
 
-grant references on table "public"."notifications" to "anon";
+ALTER TABLE ONLY "public"."historical_stats"
+    ADD CONSTRAINT "historical_stats_pkey" PRIMARY KEY ("id");
 
-grant select on table "public"."notifications" to "anon";
 
-grant trigger on table "public"."notifications" to "anon";
 
-grant truncate on table "public"."notifications" to "anon";
+ALTER TABLE ONLY "public"."master_options"
+    ADD CONSTRAINT "master_options_pkey" PRIMARY KEY ("id");
 
-grant update on table "public"."notifications" to "anon";
 
-grant delete on table "public"."notifications" to "authenticated";
 
-grant insert on table "public"."notifications" to "authenticated";
+ALTER TABLE ONLY "public"."monthly_lock_schedules"
+    ADD CONSTRAINT "monthly_lock_schedules_month_index_year_key" UNIQUE ("month_index", "year");
 
-grant references on table "public"."notifications" to "authenticated";
 
-grant select on table "public"."notifications" to "authenticated";
 
-grant trigger on table "public"."notifications" to "authenticated";
+ALTER TABLE ONLY "public"."monthly_lock_schedules"
+    ADD CONSTRAINT "monthly_lock_schedules_pkey" PRIMARY KEY ("id");
 
-grant truncate on table "public"."notifications" to "authenticated";
 
-grant update on table "public"."notifications" to "authenticated";
 
-grant delete on table "public"."notifications" to "service_role";
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_pkey" PRIMARY KEY ("id");
 
-grant insert on table "public"."notifications" to "service_role";
 
-grant references on table "public"."notifications" to "service_role";
 
-grant select on table "public"."notifications" to "service_role";
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_pkey" PRIMARY KEY ("id");
 
-grant trigger on table "public"."notifications" to "service_role";
 
-grant truncate on table "public"."notifications" to "service_role";
 
-grant update on table "public"."notifications" to "service_role";
+ALTER TABLE ONLY "public"."progress_logs"
+    ADD CONSTRAINT "progress_logs_pkey" PRIMARY KEY ("id");
 
-grant delete on table "public"."profiles" to "anon";
 
-grant insert on table "public"."profiles" to "anon";
 
-grant references on table "public"."profiles" to "anon";
+ALTER TABLE ONLY "public"."role_permissions"
+    ADD CONSTRAINT "role_permissions_pkey" PRIMARY KEY ("id");
 
-grant select on table "public"."profiles" to "anon";
 
-grant trigger on table "public"."profiles" to "anon";
 
-grant truncate on table "public"."profiles" to "anon";
+ALTER TABLE ONLY "public"."role_permissions"
+    ADD CONSTRAINT "role_permissions_unique" UNIQUE ("role", "resource", "action");
 
-grant update on table "public"."profiles" to "anon";
 
-grant delete on table "public"."profiles" to "authenticated";
 
-grant insert on table "public"."profiles" to "authenticated";
+ALTER TABLE ONLY "public"."system_settings"
+    ADD CONSTRAINT "system_settings_pkey" PRIMARY KEY ("id");
 
-grant references on table "public"."profiles" to "authenticated";
 
-grant select on table "public"."profiles" to "authenticated";
 
-grant trigger on table "public"."profiles" to "authenticated";
+CREATE INDEX "idx_action_plans_deleted_at" ON "public"."action_plans" USING "btree" ("deleted_at");
 
-grant truncate on table "public"."profiles" to "authenticated";
 
-grant update on table "public"."profiles" to "authenticated";
 
-grant delete on table "public"."profiles" to "service_role";
+CREATE INDEX "idx_action_plans_deleted_dept" ON "public"."action_plans" USING "btree" ("department_code", "deleted_at") WHERE ("deleted_at" IS NOT NULL);
 
-grant insert on table "public"."profiles" to "service_role";
 
-grant references on table "public"."profiles" to "service_role";
 
-grant select on table "public"."profiles" to "service_role";
+CREATE INDEX "idx_action_plans_department" ON "public"."action_plans" USING "btree" ("department_code");
 
-grant trigger on table "public"."profiles" to "service_role";
 
-grant truncate on table "public"."profiles" to "service_role";
 
-grant update on table "public"."profiles" to "service_role";
+CREATE INDEX "idx_action_plans_gap_category" ON "public"."action_plans" USING "btree" ("gap_category") WHERE ("gap_category" IS NOT NULL);
 
-grant delete on table "public"."progress_logs" to "anon";
 
-grant insert on table "public"."progress_logs" to "anon";
 
-grant references on table "public"."progress_logs" to "anon";
+CREATE INDEX "idx_action_plans_month" ON "public"."action_plans" USING "btree" ("month");
 
-grant select on table "public"."progress_logs" to "anon";
 
-grant trigger on table "public"."progress_logs" to "anon";
 
-grant truncate on table "public"."progress_logs" to "anon";
+CREATE INDEX "idx_action_plans_origin_plan_id" ON "public"."action_plans" USING "btree" ("origin_plan_id") WHERE ("origin_plan_id" IS NOT NULL);
 
-grant update on table "public"."progress_logs" to "anon";
 
-grant delete on table "public"."progress_logs" to "authenticated";
 
-grant insert on table "public"."progress_logs" to "authenticated";
+CREATE INDEX "idx_action_plans_quality_score" ON "public"."action_plans" USING "btree" ("quality_score");
 
-grant references on table "public"."progress_logs" to "authenticated";
 
-grant select on table "public"."progress_logs" to "authenticated";
 
-grant trigger on table "public"."progress_logs" to "authenticated";
+CREATE INDEX "idx_action_plans_status" ON "public"."action_plans" USING "btree" ("status");
 
-grant truncate on table "public"."progress_logs" to "authenticated";
 
-grant update on table "public"."progress_logs" to "authenticated";
 
-grant delete on table "public"."progress_logs" to "service_role";
+CREATE INDEX "idx_action_plans_submission_status" ON "public"."action_plans" USING "btree" ("submission_status");
 
-grant insert on table "public"."progress_logs" to "service_role";
 
-grant references on table "public"."progress_logs" to "service_role";
 
-grant select on table "public"."progress_logs" to "service_role";
+CREATE INDEX "idx_action_plans_year_dept" ON "public"."action_plans" USING "btree" ("year", "department_code");
 
-grant trigger on table "public"."progress_logs" to "service_role";
 
-grant truncate on table "public"."progress_logs" to "service_role";
 
-grant update on table "public"."progress_logs" to "service_role";
+CREATE INDEX "idx_action_plans_year_month" ON "public"."action_plans" USING "btree" ("year", "month");
 
-grant delete on table "public"."role_permissions" to "anon";
 
-grant insert on table "public"."role_permissions" to "anon";
 
-grant references on table "public"."role_permissions" to "anon";
+CREATE INDEX "idx_action_plans_year_status" ON "public"."action_plans" USING "btree" ("year", "status");
 
-grant select on table "public"."role_permissions" to "anon";
 
-grant trigger on table "public"."role_permissions" to "anon";
 
-grant truncate on table "public"."role_permissions" to "anon";
+CREATE INDEX "idx_audit_logs_action_plan" ON "public"."audit_logs" USING "btree" ("action_plan_id");
 
-grant update on table "public"."role_permissions" to "anon";
 
-grant delete on table "public"."role_permissions" to "authenticated";
 
-grant insert on table "public"."role_permissions" to "authenticated";
+CREATE INDEX "idx_audit_logs_created" ON "public"."audit_logs" USING "btree" ("created_at" DESC);
 
-grant references on table "public"."role_permissions" to "authenticated";
 
-grant select on table "public"."role_permissions" to "authenticated";
 
-grant trigger on table "public"."role_permissions" to "authenticated";
+CREATE INDEX "idx_audit_logs_user" ON "public"."audit_logs" USING "btree" ("user_id");
 
-grant truncate on table "public"."role_permissions" to "authenticated";
 
-grant update on table "public"."role_permissions" to "authenticated";
 
-grant delete on table "public"."role_permissions" to "service_role";
+CREATE INDEX "idx_drop_requests_plan_id" ON "public"."drop_requests" USING "btree" ("plan_id");
 
-grant insert on table "public"."role_permissions" to "service_role";
 
-grant references on table "public"."role_permissions" to "service_role";
 
-grant select on table "public"."role_permissions" to "service_role";
+CREATE INDEX "idx_drop_requests_status" ON "public"."drop_requests" USING "btree" ("status");
 
-grant trigger on table "public"."role_permissions" to "service_role";
 
-grant truncate on table "public"."role_permissions" to "service_role";
 
-grant update on table "public"."role_permissions" to "service_role";
+CREATE INDEX "idx_dropdown_options_active" ON "public"."dropdown_options" USING "btree" ("is_active");
 
-grant delete on table "public"."system_settings" to "anon";
 
-grant insert on table "public"."system_settings" to "anon";
 
-grant references on table "public"."system_settings" to "anon";
+CREATE INDEX "idx_dropdown_options_category" ON "public"."dropdown_options" USING "btree" ("category");
 
-grant select on table "public"."system_settings" to "anon";
 
-grant trigger on table "public"."system_settings" to "anon";
 
-grant truncate on table "public"."system_settings" to "anon";
+CREATE INDEX "idx_historical_stats_dept" ON "public"."historical_stats" USING "btree" ("department_code");
 
-grant update on table "public"."system_settings" to "anon";
 
-grant delete on table "public"."system_settings" to "authenticated";
 
-grant insert on table "public"."system_settings" to "authenticated";
+CREATE INDEX "idx_historical_stats_lookup" ON "public"."historical_stats" USING "btree" ("department_code", "year");
 
-grant references on table "public"."system_settings" to "authenticated";
 
-grant select on table "public"."system_settings" to "authenticated";
 
-grant trigger on table "public"."system_settings" to "authenticated";
+CREATE INDEX "idx_historical_stats_year" ON "public"."historical_stats" USING "btree" ("year");
 
-grant truncate on table "public"."system_settings" to "authenticated";
 
-grant update on table "public"."system_settings" to "authenticated";
 
-grant delete on table "public"."system_settings" to "service_role";
+CREATE INDEX "idx_master_options_category" ON "public"."master_options" USING "btree" ("category");
 
-grant insert on table "public"."system_settings" to "service_role";
 
-grant references on table "public"."system_settings" to "service_role";
 
-grant select on table "public"."system_settings" to "service_role";
+CREATE INDEX "idx_master_options_category_active" ON "public"."master_options" USING "btree" ("category", "is_active") WHERE ("is_active" = true);
 
-grant trigger on table "public"."system_settings" to "service_role";
 
-grant truncate on table "public"."system_settings" to "service_role";
 
-grant update on table "public"."system_settings" to "service_role";
+CREATE UNIQUE INDEX "idx_master_options_unique_value" ON "public"."master_options" USING "btree" ("category", "value");
 
 
-  create policy "Admins can DELETE action plans"
-  on "public"."action_plans"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE INDEX "idx_monthly_lock_schedules_month_year" ON "public"."monthly_lock_schedules" USING "btree" ("month_index", "year");
 
 
-  create policy "Admins can INSERT action plans"
-  on "public"."action_plans"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE INDEX "idx_notifications_created_at" ON "public"."notifications" USING "btree" ("created_at" DESC);
 
 
-  create policy "Admins can SELECT all action plans"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE INDEX "idx_notifications_resource" ON "public"."notifications" USING "btree" ("resource_id", "resource_type");
 
 
-  create policy "Admins can UPDATE all action plans"
-  on "public"."action_plans"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE INDEX "idx_notifications_user_id" ON "public"."notifications" USING "btree" ("user_id");
 
 
-  create policy "Dept heads can SELECT own department plans"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'dept_head'::text) AND (profiles.department_code = action_plans.department_code)))));
 
+CREATE INDEX "idx_notifications_user_unread" ON "public"."notifications" USING "btree" ("user_id", "is_read") WHERE ("is_read" = false);
 
 
-  create policy "Dept heads can UPDATE status, outcome, remark only"
-  on "public"."action_plans"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'dept_head'::text) AND (profiles.department_code = action_plans.department_code)))))
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'dept_head'::text) AND (profiles.department_code = action_plans.department_code)))));
 
+CREATE INDEX "idx_profiles_additional_departments" ON "public"."profiles" USING "gin" ("additional_departments");
 
 
-  create policy "Executives can SELECT all action plans"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'executive'::text)))));
 
+CREATE INDEX "idx_profiles_department" ON "public"."profiles" USING "btree" ("department_code");
 
 
-  create policy "action_plans_delete"
-  on "public"."action_plans"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR ((profiles.role = 'leader'::text) AND ((profiles.department_code = action_plans.department_code) OR (action_plans.department_code = ANY (profiles.additional_departments)))))))));
 
+CREATE INDEX "idx_profiles_role" ON "public"."profiles" USING "btree" ("role");
 
 
-  create policy "action_plans_insert"
-  on "public"."action_plans"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR ((profiles.role = 'leader'::text) AND ((profiles.department_code = action_plans.department_code) OR (action_plans.department_code = ANY (profiles.additional_departments)))))))));
 
+CREATE INDEX "idx_progress_logs_action_plan_id" ON "public"."progress_logs" USING "btree" ("action_plan_id");
 
 
-  create policy "action_plans_select"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR (profiles.department_code = action_plans.department_code) OR (action_plans.department_code = ANY (profiles.additional_departments)))))));
 
+CREATE INDEX "idx_progress_logs_created_at" ON "public"."progress_logs" USING "btree" ("created_at" DESC);
 
 
-  create policy "action_plans_update"
-  on "public"."action_plans"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR (((profiles.role = 'leader'::text) OR (profiles.role = 'staff'::text)) AND ((profiles.department_code = action_plans.department_code) OR (action_plans.department_code = ANY (profiles.additional_departments)))))))));
 
+CREATE INDEX "idx_role_permissions_resource" ON "public"."role_permissions" USING "btree" ("resource");
 
 
-  create policy "admins_view_all_action_plans"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role ~~* '%admin%'::text) OR (profiles.role ~~* '%leader%'::text) OR (profiles.role ~~* '%head%'::text))))));
 
+CREATE INDEX "idx_role_permissions_role" ON "public"."role_permissions" USING "btree" ("role");
 
 
-  create policy "users_view_own_department_plans"
-  on "public"."action_plans"
-  as permissive
-  for select
-  to authenticated
-using ((department_code = ( SELECT profiles.department_code
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))));
 
+CREATE UNIQUE INDEX "system_settings_single_row" ON "public"."system_settings" USING "btree" ((("id" = 1)));
 
 
-  create policy "Admins can delete annual_targets"
-  on "public"."annual_targets"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "action_plan_audit_trigger" AFTER INSERT OR UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."log_action_plan_changes"();
 
 
-  create policy "Admins can insert annual_targets"
-  on "public"."annual_targets"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "annual_targets_updated_at" BEFORE UPDATE ON "public"."annual_targets" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
-  create policy "Admins can update annual_targets"
-  on "public"."annual_targets"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "departments_updated_at" BEFORE UPDATE ON "public"."departments" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
-  create policy "Anyone can read annual_targets"
-  on "public"."annual_targets"
-  as permissive
-  for select
-  to public
-using (true);
 
+CREATE OR REPLACE TRIGGER "system_settings_updated_at" BEFORE UPDATE ON "public"."system_settings" FOR EACH ROW EXECUTE FUNCTION "public"."update_system_settings_timestamp"();
 
 
-  create policy "Executives can SELECT all audit logs"
-  on "public"."audit_logs"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'executive'::text)))));
 
+CREATE OR REPLACE TRIGGER "trg_auto_cancel_drop_on_finalization" BEFORE UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."auto_cancel_drop_requests_on_finalization"();
 
 
-  create policy "Users can insert audit logs"
-  on "public"."audit_logs"
-  as permissive
-  for insert
-  to public
-with check ((auth.uid() = user_id));
 
+CREATE OR REPLACE TRIGGER "trg_clamp_quality_score" BEFORE INSERT OR UPDATE OF "quality_score" ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."clamp_quality_score"();
 
 
-  create policy "admins_view_all_logs"
-  on "public"."audit_logs"
-  as permissive
-  for select
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role ~~* '%admin%'::text) OR (profiles.role ~~* '%leader%'::text) OR (profiles.role ~~* '%head%'::text))))));
 
+CREATE OR REPLACE TRIGGER "trg_notify_on_escalation" AFTER UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."notify_on_escalation"();
 
 
-  create policy "audit_logs_select"
-  on "public"."audit_logs"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM (public.profiles
-     JOIN public.action_plans ap ON ((ap.id = audit_logs.action_plan_id)))
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR (ap.department_code = profiles.department_code) OR (ap.department_code = ANY (profiles.additional_departments)))))));
 
+CREATE OR REPLACE TRIGGER "trigger_dropdown_options_updated_at" BEFORE UPDATE ON "public"."dropdown_options" FOR EACH ROW EXECUTE FUNCTION "public"."update_dropdown_options_updated_at"();
 
 
-  create policy "Admins can delete departments"
-  on "public"."departments"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "trigger_notify_on_status_change" AFTER UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."notify_on_status_change"();
 
 
-  create policy "Admins can insert departments"
-  on "public"."departments"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "trigger_notify_status_change" AFTER UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."notify_status_change"();
 
 
-  create policy "Admins can update departments"
-  on "public"."departments"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE OR REPLACE TRIGGER "update_action_plans_updated_at" BEFORE UPDATE ON "public"."action_plans" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
-  create policy "Anyone can read departments"
-  on "public"."departments"
-  as permissive
-  for select
-  to public
-using (true);
 
+CREATE OR REPLACE TRIGGER "update_profiles_updated_at" BEFORE UPDATE ON "public"."profiles" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
 
 
-  create policy "Anyone can view departments"
-  on "public"."departments"
-  as permissive
-  for select
-  to public
-using ((auth.role() = 'authenticated'::text));
 
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_origin_plan_id_fkey" FOREIGN KEY ("origin_plan_id") REFERENCES "public"."action_plans"("id");
 
 
-  create policy "Admins can update drop_requests"
-  on "public"."drop_requests"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (lower(profiles.role) = ANY (ARRAY['admin'::text, 'executive'::text]))))));
 
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_reviewed_by_fkey" FOREIGN KEY ("reviewed_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Authenticated users can read drop_requests"
-  on "public"."drop_requests"
-  as permissive
-  for select
-  to public
-using ((auth.uid() IS NOT NULL));
 
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_submitted_by_fkey" FOREIGN KEY ("submitted_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Users can create their own drop_requests"
-  on "public"."drop_requests"
-  as permissive
-  for insert
-  to public
-with check ((auth.uid() = user_id));
 
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_unlock_approved_by_fkey" FOREIGN KEY ("unlock_approved_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Admins can insert dropdown options"
-  on "public"."dropdown_options"
-  as permissive
-  for insert
-  to authenticated
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."action_plans"
+    ADD CONSTRAINT "action_plans_unlock_requested_by_fkey" FOREIGN KEY ("unlock_requested_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Admins can read all dropdown options"
-  on "public"."dropdown_options"
-  as permissive
-  for select
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."audit_logs"
+    ADD CONSTRAINT "audit_logs_action_plan_id_fkey" FOREIGN KEY ("action_plan_id") REFERENCES "public"."action_plans"("id") ON DELETE CASCADE;
 
 
-  create policy "Admins can update dropdown options"
-  on "public"."dropdown_options"
-  as permissive
-  for update
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."audit_logs"
+    ADD CONSTRAINT "audit_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
 
-  create policy "Anyone can read active dropdown options"
-  on "public"."dropdown_options"
-  as permissive
-  for select
-  to public
-using ((is_active = true));
 
+ALTER TABLE ONLY "public"."drop_requests"
+    ADD CONSTRAINT "drop_requests_plan_id_fkey" FOREIGN KEY ("plan_id") REFERENCES "public"."action_plans"("id") ON DELETE CASCADE;
 
 
-  create policy "Enable all access for authenticated users"
-  on "public"."dropdown_options"
-  as permissive
-  for all
-  to public
-using ((auth.role() = 'authenticated'::text))
-with check ((auth.role() = 'authenticated'::text));
 
+ALTER TABLE ONLY "public"."drop_requests"
+    ADD CONSTRAINT "drop_requests_reviewed_by_fkey" FOREIGN KEY ("reviewed_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Admins can delete historical_stats"
-  on "public"."historical_stats"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."drop_requests"
+    ADD CONSTRAINT "drop_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Admins can insert historical_stats"
-  on "public"."historical_stats"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."monthly_lock_schedules"
+    ADD CONSTRAINT "monthly_lock_schedules_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "Admins can update historical_stats"
-  on "public"."historical_stats"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
 
 
-  create policy "Anyone can read historical_stats"
-  on "public"."historical_stats"
-  as permissive
-  for select
-  to public
-using (true);
 
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
-  create policy "historical_stats_select"
-  on "public"."historical_stats"
-  as permissive
-  for select
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND ((profiles.role = 'admin'::text) OR (profiles.department_code = historical_stats.department_code) OR (historical_stats.department_code = ANY (profiles.additional_departments)))))));
 
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
-  create policy "master_options_delete_admin"
-  on "public"."master_options"
-  as permissive
-  for delete
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."progress_logs"
+    ADD CONSTRAINT "progress_logs_action_plan_id_fkey" FOREIGN KEY ("action_plan_id") REFERENCES "public"."action_plans"("id") ON DELETE CASCADE;
 
 
-  create policy "master_options_insert_admin"
-  on "public"."master_options"
-  as permissive
-  for insert
-  to authenticated
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+ALTER TABLE ONLY "public"."progress_logs"
+    ADD CONSTRAINT "progress_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
 
-  create policy "master_options_read_authenticated"
-  on "public"."master_options"
-  as permissive
-  for select
-  to authenticated
-using (true);
 
+ALTER TABLE ONLY "public"."system_settings"
+    ADD CONSTRAINT "system_settings_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."profiles"("id");
 
 
-  create policy "master_options_update_admin"
-  on "public"."master_options"
-  as permissive
-  for update
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))))
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE POLICY "Admin full access to progress_logs" ON "public"."progress_logs" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Admins can manage monthly lock schedules"
-  on "public"."monthly_lock_schedules"
-  as permissive
-  for all
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (lower(profiles.role) = 'admin'::text)))));
 
+CREATE POLICY "Admins can DELETE action plans" ON "public"."action_plans" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Anyone can read monthly lock schedules"
-  on "public"."monthly_lock_schedules"
-  as permissive
-  for select
-  to public
-using (true);
 
+CREATE POLICY "Admins can INSERT action plans" ON "public"."action_plans" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "System can insert notifications"
-  on "public"."notifications"
-  as permissive
-  for insert
-  to public
-with check (true);
 
+CREATE POLICY "Admins can SELECT all action plans" ON "public"."action_plans" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Users can delete own notifications"
-  on "public"."notifications"
-  as permissive
-  for delete
-  to public
-using ((auth.uid() = user_id));
 
+CREATE POLICY "Admins can UPDATE all action plans" ON "public"."action_plans" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Users can update own notifications"
-  on "public"."notifications"
-  as permissive
-  for update
-  to public
-using ((auth.uid() = user_id))
-with check ((auth.uid() = user_id));
 
+CREATE POLICY "Admins can delete annual_targets" ON "public"."annual_targets" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Users can view own notifications"
-  on "public"."notifications"
-  as permissive
-  for select
-  to public
-using ((auth.uid() = user_id));
 
+CREATE POLICY "Admins can delete departments" ON "public"."departments" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Admins can update all profiles"
-  on "public"."profiles"
-  as permissive
-  for update
-  to public
-using ((( SELECT profiles_1.role
-   FROM public.profiles profiles_1
-  WHERE (profiles_1.id = auth.uid())) = ANY (ARRAY['admin'::text, 'Administrator'::text])))
-with check ((( SELECT profiles_1.role
-   FROM public.profiles profiles_1
-  WHERE (profiles_1.id = auth.uid())) = ANY (ARRAY['admin'::text, 'Administrator'::text])));
 
+CREATE POLICY "Admins can delete historical_stats" ON "public"."historical_stats" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Users can view own profile"
-  on "public"."profiles"
-  as permissive
-  for select
-  to public
-using ((auth.uid() = id));
 
+CREATE POLICY "Admins can insert annual_targets" ON "public"."annual_targets" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "authenticated_read_all_profiles"
-  on "public"."profiles"
-  as permissive
-  for select
-  to authenticated
-using (true);
 
+CREATE POLICY "Admins can insert departments" ON "public"."departments" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "users_insert_own_profile"
-  on "public"."profiles"
-  as permissive
-  for insert
-  to authenticated
-with check ((auth.uid() = id));
 
+CREATE POLICY "Admins can insert dropdown options" ON "public"."dropdown_options" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "users_update_own_profile"
-  on "public"."profiles"
-  as permissive
-  for update
-  to authenticated
-using ((auth.uid() = id))
-with check ((auth.uid() = id));
 
+CREATE POLICY "Admins can insert historical_stats" ON "public"."historical_stats" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Admin full access to progress_logs"
-  on "public"."progress_logs"
-  as permissive
-  for all
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE POLICY "Admins can manage monthly lock schedules" ON "public"."monthly_lock_schedules" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("lower"("profiles"."role") = 'admin'::"text")))));
 
 
-  create policy "Users can insert progress logs for their department"
-  on "public"."progress_logs"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM (public.action_plans ap
-     JOIN public.profiles p ON ((p.id = auth.uid())))
-  WHERE ((ap.id = progress_logs.action_plan_id) AND ((p.role = 'admin'::text) OR (p.role = 'executive'::text) OR (ap.department_code = p.department_code) OR (ap.department_code = ANY (p.additional_departments)))))));
 
+CREATE POLICY "Admins can read all dropdown options" ON "public"."dropdown_options" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Users can view progress logs for accessible action plans"
-  on "public"."progress_logs"
-  as permissive
-  for select
-  to authenticated
-using ((EXISTS ( SELECT 1
-   FROM (public.action_plans ap
-     JOIN public.profiles p ON ((p.id = auth.uid())))
-  WHERE ((ap.id = progress_logs.action_plan_id) AND ((p.role = 'admin'::text) OR (p.role = 'executive'::text) OR (ap.department_code = p.department_code) OR (ap.department_code = ANY (p.additional_departments)))))));
 
+CREATE POLICY "Admins can update all profiles" ON "public"."profiles" FOR UPDATE USING ((( SELECT "profiles_1"."role"
+   FROM "public"."profiles" "profiles_1"
+  WHERE ("profiles_1"."id" = "auth"."uid"())) = ANY (ARRAY['admin'::"text", 'Administrator'::"text"]))) WITH CHECK ((( SELECT "profiles_1"."role"
+   FROM "public"."profiles" "profiles_1"
+  WHERE ("profiles_1"."id" = "auth"."uid"())) = ANY (ARRAY['admin'::"text", 'Administrator'::"text"])));
 
 
-  create policy "role_permissions_admin_delete"
-  on "public"."role_permissions"
-  as permissive
-  for delete
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE POLICY "Admins can update annual_targets" ON "public"."annual_targets" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "role_permissions_admin_insert"
-  on "public"."role_permissions"
-  as permissive
-  for insert
-  to public
-with check ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE POLICY "Admins can update departments" ON "public"."departments" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "role_permissions_admin_update"
-  on "public"."role_permissions"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
+CREATE POLICY "Admins can update drop_requests" ON "public"."drop_requests" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("lower"("profiles"."role") = ANY (ARRAY['admin'::"text", 'executive'::"text"]))))));
 
 
-  create policy "role_permissions_select_all"
-  on "public"."role_permissions"
-  as permissive
-  for select
-  to public
-using (true);
 
+CREATE POLICY "Admins can update dropdown options" ON "public"."dropdown_options" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Admins can update system settings"
-  on "public"."system_settings"
-  as permissive
-  for update
-  to public
-using ((EXISTS ( SELECT 1
-   FROM public.profiles
-  WHERE ((profiles.id = auth.uid()) AND (lower(profiles.role) = 'admin'::text)))));
 
+CREATE POLICY "Admins can update historical_stats" ON "public"."historical_stats" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
 
 
-  create policy "Anyone can read system settings"
-  on "public"."system_settings"
-  as permissive
-  for select
-  to public
-using (true);
 
+CREATE POLICY "Admins can update system settings" ON "public"."system_settings" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("lower"("profiles"."role") = 'admin'::"text")))));
 
-CREATE TRIGGER action_plan_audit_trigger AFTER INSERT OR UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.log_action_plan_changes();
 
-CREATE TRIGGER trg_auto_cancel_drop_on_finalization BEFORE UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.auto_cancel_drop_requests_on_finalization();
 
-CREATE TRIGGER trg_clamp_quality_score BEFORE INSERT OR UPDATE OF quality_score ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.clamp_quality_score();
+CREATE POLICY "Anyone can read active dropdown options" ON "public"."dropdown_options" FOR SELECT USING (("is_active" = true));
 
-CREATE TRIGGER trg_notify_on_escalation AFTER UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.notify_on_escalation();
 
-CREATE TRIGGER trigger_notify_on_status_change AFTER UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.notify_on_status_change();
 
-CREATE TRIGGER trigger_notify_status_change AFTER UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.notify_status_change();
+CREATE POLICY "Anyone can read annual_targets" ON "public"."annual_targets" FOR SELECT USING (true);
 
-CREATE TRIGGER update_action_plans_updated_at BEFORE UPDATE ON public.action_plans FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
-CREATE TRIGGER annual_targets_updated_at BEFORE UPDATE ON public.annual_targets FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
-CREATE TRIGGER departments_updated_at BEFORE UPDATE ON public.departments FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+CREATE POLICY "Anyone can read departments" ON "public"."departments" FOR SELECT USING (true);
 
-CREATE TRIGGER trigger_dropdown_options_updated_at BEFORE UPDATE ON public.dropdown_options FOR EACH ROW EXECUTE FUNCTION public.update_dropdown_options_updated_at();
 
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
-CREATE TRIGGER system_settings_updated_at BEFORE UPDATE ON public.system_settings FOR EACH ROW EXECUTE FUNCTION public.update_system_settings_timestamp();
+CREATE POLICY "Anyone can read historical_stats" ON "public"."historical_stats" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "Anyone can read monthly lock schedules" ON "public"."monthly_lock_schedules" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "Anyone can read system settings" ON "public"."system_settings" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "Anyone can view departments" ON "public"."departments" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "Authenticated users can read drop_requests" ON "public"."drop_requests" FOR SELECT USING (("auth"."uid"() IS NOT NULL));
+
+
+
+CREATE POLICY "Dept heads can SELECT own department plans" ON "public"."action_plans" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'dept_head'::"text") AND ("profiles"."department_code" = "action_plans"."department_code")))));
+
+
+
+CREATE POLICY "Dept heads can UPDATE status, outcome, remark only" ON "public"."action_plans" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'dept_head'::"text") AND ("profiles"."department_code" = "action_plans"."department_code"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'dept_head'::"text") AND ("profiles"."department_code" = "action_plans"."department_code")))));
+
+
+
+CREATE POLICY "Enable all access for authenticated users" ON "public"."dropdown_options" USING (("auth"."role"() = 'authenticated'::"text")) WITH CHECK (("auth"."role"() = 'authenticated'::"text"));
+
+
+
+CREATE POLICY "Executives can SELECT all action plans" ON "public"."action_plans" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'executive'::"text")))));
+
+
+
+CREATE POLICY "Executives can SELECT all audit logs" ON "public"."audit_logs" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'executive'::"text")))));
+
+
+
+CREATE POLICY "System can insert notifications" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "Users can create their own drop_requests" ON "public"."drop_requests" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can delete own notifications" ON "public"."notifications" FOR DELETE USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can insert audit logs" ON "public"."audit_logs" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can insert progress logs for their department" ON "public"."progress_logs" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM ("public"."action_plans" "ap"
+     JOIN "public"."profiles" "p" ON (("p"."id" = "auth"."uid"())))
+  WHERE (("ap"."id" = "progress_logs"."action_plan_id") AND (("p"."role" = 'admin'::"text") OR ("p"."role" = 'executive'::"text") OR ("ap"."department_code" = "p"."department_code") OR ("ap"."department_code" = ANY ("p"."additional_departments")))))));
+
+
+
+CREATE POLICY "Users can update own notifications" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can view own notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
+
+
+
+CREATE POLICY "Users can view progress logs for accessible action plans" ON "public"."progress_logs" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM ("public"."action_plans" "ap"
+     JOIN "public"."profiles" "p" ON (("p"."id" = "auth"."uid"())))
+  WHERE (("ap"."id" = "progress_logs"."action_plan_id") AND (("p"."role" = 'admin'::"text") OR ("p"."role" = 'executive'::"text") OR ("ap"."department_code" = "p"."department_code") OR ("ap"."department_code" = ANY ("p"."additional_departments")))))));
+
+
+
+ALTER TABLE "public"."action_plans" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "action_plans_delete" ON "public"."action_plans" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR (("profiles"."role" = 'leader'::"text") AND (("profiles"."department_code" = "action_plans"."department_code") OR ("action_plans"."department_code" = ANY ("profiles"."additional_departments")))))))));
+
+
+
+COMMENT ON POLICY "action_plans_delete" ON "public"."action_plans" IS 'Leaders can delete action plans in their primary or additional departments';
+
+
+
+CREATE POLICY "action_plans_insert" ON "public"."action_plans" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR (("profiles"."role" = 'leader'::"text") AND (("profiles"."department_code" = "action_plans"."department_code") OR ("action_plans"."department_code" = ANY ("profiles"."additional_departments")))))))));
+
+
+
+COMMENT ON POLICY "action_plans_insert" ON "public"."action_plans" IS 'Leaders can create action plans in their primary or additional departments';
+
+
+
+CREATE POLICY "action_plans_select" ON "public"."action_plans" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR ("profiles"."department_code" = "action_plans"."department_code") OR ("action_plans"."department_code" = ANY ("profiles"."additional_departments")))))));
+
+
+
+COMMENT ON POLICY "action_plans_select" ON "public"."action_plans" IS 'Users can view action plans from their primary department (department_code) and any additional departments (additional_departments array)';
+
+
+
+CREATE POLICY "action_plans_update" ON "public"."action_plans" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR ((("profiles"."role" = 'leader'::"text") OR ("profiles"."role" = 'staff'::"text")) AND (("profiles"."department_code" = "action_plans"."department_code") OR ("action_plans"."department_code" = ANY ("profiles"."additional_departments")))))))));
+
+
+
+COMMENT ON POLICY "action_plans_update" ON "public"."action_plans" IS 'Leaders and Staff can update action plans in their primary or additional departments';
+
+
+
+CREATE POLICY "admins_view_all_action_plans" ON "public"."action_plans" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" ~~* '%admin%'::"text") OR ("profiles"."role" ~~* '%leader%'::"text") OR ("profiles"."role" ~~* '%head%'::"text"))))));
+
+
+
+CREATE POLICY "admins_view_all_logs" ON "public"."audit_logs" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" ~~* '%admin%'::"text") OR ("profiles"."role" ~~* '%leader%'::"text") OR ("profiles"."role" ~~* '%head%'::"text"))))));
+
+
+
+ALTER TABLE "public"."annual_targets" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."audit_logs" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "audit_logs_select" ON "public"."audit_logs" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM ("public"."profiles"
+     JOIN "public"."action_plans" "ap" ON (("ap"."id" = "audit_logs"."action_plan_id")))
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR ("ap"."department_code" = "profiles"."department_code") OR ("ap"."department_code" = ANY ("profiles"."additional_departments")))))));
+
+
+
+CREATE POLICY "authenticated_read_all_profiles" ON "public"."profiles" FOR SELECT TO "authenticated" USING (true);
+
+
+
+ALTER TABLE "public"."departments" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."drop_requests" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."dropdown_options" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."historical_stats" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "historical_stats_select" ON "public"."historical_stats" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."role" = 'admin'::"text") OR ("profiles"."department_code" = "historical_stats"."department_code") OR ("historical_stats"."department_code" = ANY ("profiles"."additional_departments")))))));
+
+
+
+ALTER TABLE "public"."master_options" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "master_options_delete_admin" ON "public"."master_options" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+CREATE POLICY "master_options_insert_admin" ON "public"."master_options" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+CREATE POLICY "master_options_read_authenticated" ON "public"."master_options" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "master_options_update_admin" ON "public"."master_options" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+ALTER TABLE "public"."monthly_lock_schedules" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."progress_logs" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."role_permissions" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "role_permissions_admin_delete" ON "public"."role_permissions" FOR DELETE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+CREATE POLICY "role_permissions_admin_insert" ON "public"."role_permissions" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+CREATE POLICY "role_permissions_admin_update" ON "public"."role_permissions" FOR UPDATE USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'admin'::"text")))));
+
+
+
+CREATE POLICY "role_permissions_select_all" ON "public"."role_permissions" FOR SELECT USING (true);
+
+
+
+ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "users_insert_own_profile" ON "public"."profiles" FOR INSERT TO "authenticated" WITH CHECK (("auth"."uid"() = "id"));
+
+
+
+CREATE POLICY "users_update_own_profile" ON "public"."profiles" FOR UPDATE TO "authenticated" USING (("auth"."uid"() = "id")) WITH CHECK (("auth"."uid"() = "id"));
+
+
+
+CREATE POLICY "users_view_own_department_plans" ON "public"."action_plans" FOR SELECT TO "authenticated" USING (("department_code" = ( SELECT "profiles"."department_code"
+   FROM "public"."profiles"
+  WHERE ("profiles"."id" = "auth"."uid"()))));
+
+
+
+
+
+ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
+
+
+
+
+
+
+SET SESSION AUTHORIZATION "postgres";
+RESET SESSION AUTHORIZATION;
+
+
+
+GRANT USAGE ON SCHEMA "public" TO "postgres";
+GRANT USAGE ON SCHEMA "public" TO "anon";
+GRANT USAGE ON SCHEMA "public" TO "authenticated";
+GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+GRANT ALL ON FUNCTION "public"."approve_drop_request"("p_request_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."approve_drop_request"("p_request_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."approve_drop_request"("p_request_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."approve_drop_request_v2"("p_plan_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."approve_drop_request_v2"("p_plan_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."approve_drop_request_v2"("p_plan_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() TO "anon";
+GRANT ALL ON FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."auto_cancel_drop_requests_on_finalization"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."carry_over_plan"("p_plan_id" "uuid", "p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."carry_over_plan"("p_plan_id" "uuid", "p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."carry_over_plan"("p_plan_id" "uuid", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."clamp_quality_score"() TO "anon";
+GRANT ALL ON FUNCTION "public"."clamp_quality_score"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."clamp_quality_score"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text", "p_message" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text", "p_message" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_notification"("p_user_id" "uuid", "p_actor_id" "uuid", "p_resource_id" "uuid", "p_resource_type" "text", "p_type" "text", "p_title" "text", "p_message" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_carry_over_settings"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_carry_over_settings"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_carry_over_settings"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."grade_action_plan"("p_plan_id" "uuid", "p_input_score" integer, "p_status" "text", "p_admin_feedback" "text", "p_reviewed_by" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."grade_action_plan"("p_plan_id" "uuid", "p_input_score" integer, "p_status" "text", "p_admin_feedback" "text", "p_reviewed_by" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."grade_action_plan"("p_plan_id" "uuid", "p_input_score" integer, "p_status" "text", "p_admin_feedback" "text", "p_reviewed_by" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "anon";
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."log_action_plan_changes"() TO "anon";
+GRANT ALL ON FUNCTION "public"."log_action_plan_changes"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_action_plan_changes"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_on_escalation"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_on_escalation"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_on_escalation"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_on_status_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_on_status_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_on_status_change"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_status_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_status_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_status_change"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."process_unlock_request"("p_plan_id" "uuid", "p_action" "text", "p_admin_id" "uuid", "p_expiry_date" timestamp with time zone, "p_rejection_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."process_unlock_request"("p_plan_id" "uuid", "p_action" "text", "p_admin_id" "uuid", "p_expiry_date" timestamp with time zone, "p_rejection_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."process_unlock_request"("p_plan_id" "uuid", "p_action" "text", "p_admin_id" "uuid", "p_expiry_date" timestamp with time zone, "p_rejection_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reject_drop_request"("p_request_id" "uuid", "p_rejection_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."reject_drop_request"("p_request_id" "uuid", "p_rejection_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reject_drop_request"("p_request_id" "uuid", "p_rejection_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reject_drop_request_v2"("p_plan_id" "uuid", "p_rejection_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."reject_drop_request_v2"("p_plan_id" "uuid", "p_rejection_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reject_drop_request_v2"("p_plan_id" "uuid", "p_rejection_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."relock_expired_unlocks"() TO "anon";
+GRANT ALL ON FUNCTION "public"."relock_expired_unlocks"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."relock_expired_unlocks"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."report_action_plan_blocker"("p_plan_id" "uuid", "p_blocker_reason" "text", "p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."report_action_plan_blocker"("p_plan_id" "uuid", "p_blocker_reason" "text", "p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."report_action_plan_blocker"("p_plan_id" "uuid", "p_blocker_reason" "text", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reset_action_plans_safe"() TO "anon";
+GRANT ALL ON FUNCTION "public"."reset_action_plans_safe"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reset_action_plans_safe"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reset_simulation_data"() TO "anon";
+GRANT ALL ON FUNCTION "public"."reset_simulation_data"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reset_simulation_data"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."resolve_and_submit_report"("p_department_code" "text", "p_month" "text", "p_year" integer, "p_resolutions" "jsonb", "p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."resolve_and_submit_report"("p_department_code" "text", "p_month" "text", "p_year" integer, "p_resolutions" "jsonb", "p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."resolve_and_submit_report"("p_department_code" "text", "p_month" "text", "p_year" integer, "p_resolutions" "jsonb", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."revoke_unlock_access"("p_plan_id" "uuid", "p_admin_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."revoke_unlock_access"("p_plan_id" "uuid", "p_admin_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."revoke_unlock_access"("p_plan_id" "uuid", "p_admin_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."submit_drop_request"("p_plan_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."submit_drop_request"("p_plan_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."submit_drop_request"("p_plan_id" "uuid", "p_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_carry_over_settings"("p_penalty_1" integer, "p_penalty_2" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."update_carry_over_settings"("p_penalty_1" integer, "p_penalty_2" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_carry_over_settings"("p_penalty_1" integer, "p_penalty_2" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_dropdown_options_updated_at"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_dropdown_options_updated_at"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_dropdown_options_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text", "p_attachments" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text", "p_attachments" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_plan_evidence"("p_plan_id" "uuid", "p_evidence" "text", "p_attachments" "jsonb") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_system_settings_timestamp"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_system_settings_timestamp"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_system_settings_timestamp"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."upsert_master_options"("p_items" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."upsert_master_options"("p_items" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."upsert_master_options"("p_items" "jsonb") TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+SET SESSION AUTHORIZATION "postgres";
+RESET SESSION AUTHORIZATION;
+
+
+
+SET SESSION AUTHORIZATION "postgres";
+RESET SESSION AUTHORIZATION;
+
+
+
+
+
+
+
+
+
+GRANT ALL ON TABLE "public"."action_plans" TO "anon";
+GRANT ALL ON TABLE "public"."action_plans" TO "authenticated";
+GRANT ALL ON TABLE "public"."action_plans" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."annual_targets" TO "anon";
+GRANT ALL ON TABLE "public"."annual_targets" TO "authenticated";
+GRANT ALL ON TABLE "public"."annual_targets" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."audit_logs" TO "anon";
+GRANT ALL ON TABLE "public"."audit_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."audit_logs" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."profiles" TO "anon";
+GRANT ALL ON TABLE "public"."profiles" TO "authenticated";
+GRANT ALL ON TABLE "public"."profiles" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."audit_logs_with_user" TO "anon";
+GRANT ALL ON TABLE "public"."audit_logs_with_user" TO "authenticated";
+GRANT ALL ON TABLE "public"."audit_logs_with_user" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."departments" TO "anon";
+GRANT ALL ON TABLE "public"."departments" TO "authenticated";
+GRANT ALL ON TABLE "public"."departments" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."drop_requests" TO "anon";
+GRANT ALL ON TABLE "public"."drop_requests" TO "authenticated";
+GRANT ALL ON TABLE "public"."drop_requests" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."dropdown_options" TO "anon";
+GRANT ALL ON TABLE "public"."dropdown_options" TO "authenticated";
+GRANT ALL ON TABLE "public"."dropdown_options" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."historical_stats" TO "anon";
+GRANT ALL ON TABLE "public"."historical_stats" TO "authenticated";
+GRANT ALL ON TABLE "public"."historical_stats" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."master_options" TO "anon";
+GRANT ALL ON TABLE "public"."master_options" TO "authenticated";
+GRANT ALL ON TABLE "public"."master_options" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."monthly_lock_schedules" TO "anon";
+GRANT ALL ON TABLE "public"."monthly_lock_schedules" TO "authenticated";
+GRANT ALL ON TABLE "public"."monthly_lock_schedules" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."monthly_lock_schedules_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."monthly_lock_schedules_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."monthly_lock_schedules_id_seq" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."notifications" TO "anon";
+GRANT ALL ON TABLE "public"."notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."notifications" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."progress_logs" TO "anon";
+GRANT ALL ON TABLE "public"."progress_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."progress_logs" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."role_permissions" TO "anon";
+GRANT ALL ON TABLE "public"."role_permissions" TO "authenticated";
+GRANT ALL ON TABLE "public"."role_permissions" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."system_settings" TO "anon";
+GRANT ALL ON TABLE "public"."system_settings" TO "authenticated";
+GRANT ALL ON TABLE "public"."system_settings" TO "service_role";
+
+
+
+
+
+
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "service_role";
+
+
+
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "service_role";
+
+
+
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+drop extension if exists "pg_net";
+
+alter table "public"."action_plans" drop constraint "action_plans_submission_status_check";
+
+alter table "public"."action_plans" add constraint "action_plans_submission_status_check" CHECK (((submission_status)::text = ANY ((ARRAY['draft'::character varying, 'submitted'::character varying])::text[]))) not valid;
+
+alter table "public"."action_plans" validate constraint "action_plans_submission_status_check";
 
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 

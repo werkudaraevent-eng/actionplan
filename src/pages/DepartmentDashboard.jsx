@@ -4,6 +4,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Respons
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useAuth } from '../context/AuthContext';
 import { useDepartmentContext } from '../context/DepartmentContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
@@ -107,12 +108,13 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Use global department context
   const { currentDept } = useDepartmentContext();
   const { profile, isStaff } = useAuth();
-  
+
   // Use currentDept from context (falls back to prop for compatibility)
   const activeDepartmentCode = currentDept || departmentCode;
-  
-  const { plans, loading, refetch } = useActionPlans(activeDepartmentCode);
-  const { departments } = useDepartments();
+
+  const { activeCompanyId } = useCompanyContext();
+  const { plans, loading, refetch } = useActionPlans(activeDepartmentCode, activeCompanyId);
+  const { departments } = useDepartments(activeCompanyId);
 
   // Staff users should not navigate from KPI cards - they can only view
   const canNavigate = onNavigate && !isStaff;
@@ -157,7 +159,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Get department info
   const deptInfo = departments.find((d) => d.code === activeDepartmentCode);
   const deptName = deptInfo?.name || activeDepartmentCode;
-  
+
   // Helper functions for filter management
   const clearDateFilters = () => { setStartMonth('Jan'); setEndMonth('Dec'); setSelectedPeriod('FY'); };
 
@@ -455,7 +457,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // YTD-filtered plans for charts (only plans where month <= current month when in YTD mode)
   const ytdFilteredPlans = useMemo(() => {
     if (!isYTDMode) return yearFilteredPlans;
-    
+
     return yearFilteredPlans.filter(p => {
       const planMonthIdx = MONTH_ORDER[p.month];
       return planMonthIdx !== undefined && planMonthIdx <= currentMonthIndex;
@@ -466,7 +468,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Uses YTD-filtered plans when in YTD mode to ensure fair comparison
   const breakdownChartData = useMemo(() => {
     const dataMap = {};
-    
+
     // Use YTD-filtered plans for breakdown chart
     const plansToUse = isYTDMode ? ytdFilteredPlans : yearFilteredPlans;
 
@@ -1148,13 +1150,13 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             const startIdx = MONTH_ORDER[startMonth] ?? 0;
             const endIdx = MONTH_ORDER[endMonth] ?? 11;
             if (monthIdx < startIdx || monthIdx > endIdx) return false;
-            
+
             // Apply YTD cutoff if in YTD mode
             if (isYTDMode) {
               const currentMonthIndex = new Date().getMonth();
               if (monthIdx > currentMonthIndex) return false;
             }
-            
+
             return true;
           })}
           scope="department"
@@ -1198,9 +1200,9 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                 <h3 className="text-lg font-bold text-gray-800">{breakdownTitle}</h3>
                 {/* Subtitle: Dynamic date context - clean gray text, no badges */}
                 <p className="text-xs font-medium text-gray-500 mt-1">
-                  {isYTDMode 
+                  {isYTDMode
                     ? `Jan - ${MONTHS_ORDER[currentMonthIndex]} ${selectedYear} (Year to Date)`
-                    : selectedPeriod === 'Custom' 
+                    : selectedPeriod === 'Custom'
                       ? `Period: ${startMonth}${startMonth !== endMonth ? ` - ${endMonth}` : ''} ${selectedYear}`
                       : selectedPeriod !== 'FY'
                         ? `${selectedPeriod === 'Q1' ? 'Jan - Mar' : selectedPeriod === 'Q2' ? 'Apr - Jun' : selectedPeriod === 'Q3' ? 'Jul - Sep' : 'Oct - Dec'} ${selectedYear} (${selectedPeriod})`

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { usePermission } from '../../hooks/usePermission';
 import UserModal from './UserModal';
 import ConfirmationModal from '../common/ConfirmationModal';
@@ -13,9 +14,10 @@ const TEMP_PASSWORD = 'Werkudara123!';
 
 export default function UserManagement({ initialFilter = '' }) {
   const { isAdmin } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { can } = usePermission();
   const { toast } = useToast();
-  const { departments, loading: deptLoading } = useDepartments();
+  const { departments, loading: deptLoading } = useDepartments(activeCompanyId);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,14 +45,21 @@ export default function UserManagement({ initialFilter = '' }) {
     }
   }, [initialFilter]);
 
-  // Fetch users
+  // Fetch users — scoped to active company
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
+
+      // MULTI-TENANT: filter by company_id
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setUsers(data || []);
@@ -63,7 +72,7 @@ export default function UserManagement({ initialFilter = '' }) {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [activeCompanyId]);
 
   // Filter users by search AND department AND role
   const filteredUsers = useMemo(() => {
@@ -74,15 +83,15 @@ export default function UserManagement({ initialFilter = '' }) {
         user.email?.toLowerCase().includes(searchQuery.toLowerCase());
 
       // Condition B: Department filter (primary OR additional)
-      const matchesDept = selectedDept === 'All' || 
+      const matchesDept = selectedDept === 'All' ||
         user.department_code === selectedDept ||
         user.additional_departments?.includes(selectedDept);
 
       // Condition C: Role filter (case-insensitive)
-      const matchesRole = selectedRole === 'All Roles' || 
+      const matchesRole = selectedRole === 'All Roles' ||
         (user.role || '').toLowerCase() === selectedRole.toLowerCase() ||
         // Handle 'Administrator' mapping to 'admin'
-        (selectedRole === 'Administrator' && (user.role || '').toLowerCase() === 'admin');
+        (selectedRole === 'Administrator' && ((user.role || '').toLowerCase() === 'admin' || (user.role || '').toLowerCase() === 'holding_admin'));
 
       return matchesSearch && matchesDept && matchesRole;
     });
@@ -138,7 +147,9 @@ export default function UserManagement({ initialFilter = '' }) {
           fullName: formData.full_name,
           role: formData.role,
           department_code: formData.department_code,
-          additional_departments: formData.additional_departments
+          additional_departments: formData.additional_departments,
+          // MULTI-TENANT: stamp company_id so the new user belongs to the active tenant
+          company_id: activeCompanyId || undefined,
         };
 
         const { data, error } = await supabase.functions.invoke('create-user', {
@@ -344,7 +355,7 @@ export default function UserManagement({ initialFilter = '' }) {
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'admin' ? 'bg-purple-500' : user.role === 'executive' ? 'bg-indigo-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'holding_admin' ? 'bg-amber-500' : user.role === 'admin' ? 'bg-purple-500' : user.role === 'executive' ? 'bg-indigo-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
                           }`}>
                           {getInitials(user.full_name)}
                         </div>
@@ -355,20 +366,22 @@ export default function UserManagement({ initialFilter = '' }) {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${user.role === 'admin'
-                        ? 'bg-purple-100 text-purple-700'
-                        : user.role === 'executive'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : user.role === 'staff'
-                            ? 'bg-gray-100 text-gray-700'
-                            : 'bg-teal-100 text-teal-700'
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${user.role === 'holding_admin'
+                        ? 'bg-amber-100 text-amber-700'
+                        : user.role === 'admin'
+                          ? 'bg-purple-100 text-purple-700'
+                          : user.role === 'executive'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : user.role === 'staff'
+                              ? 'bg-gray-100 text-gray-700'
+                              : 'bg-teal-100 text-teal-700'
                         }`}>
-                        {user.role === 'admin' || user.role === 'executive' ? (
+                        {user.role === 'holding_admin' || user.role === 'admin' || user.role === 'executive' ? (
                           <Shield className="w-3 h-3" />
                         ) : (
                           <User className="w-3 h-3" />
                         )}
-                        {user.role === 'admin' ? 'Admin' : user.role === 'executive' ? 'Executive' : user.role === 'staff' ? 'Staff' : 'Leader'}
+                        {user.role === 'holding_admin' ? 'Holding Admin' : user.role === 'admin' ? 'Admin' : user.role === 'executive' ? 'Executive' : user.role === 'staff' ? 'Staff' : 'Leader'}
                       </span>
                     </td>
                     <td className="px-6 py-4">

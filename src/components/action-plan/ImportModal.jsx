@@ -3,6 +3,7 @@ import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader2
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { useToast } from '../common/Toast';
 
 const TEMPLATE_HEADERS = [
@@ -39,12 +40,12 @@ const MONTH_MAP = {
  */
 const parseMonths = (periodString) => {
   if (!periodString) return [];
-  
+
   // Normalize: lowercase, remove years (e.g., "2026"), remove extra spaces
   let raw = periodString.toLowerCase().replace(/20\d\d/g, '').trim();
-  
+
   const months = [];
-  
+
   // SCENARIO A: Range (e.g., "Jan - Mar", "Jan to Dec")
   if (raw.includes('-') || raw.includes(' to ')) {
     const parts = raw.split(/-| to /).map(s => s.trim());
@@ -53,11 +54,11 @@ const parseMonths = (periodString) => {
       const endKey = parts[1].substring(0, 3);
       const startMonth = MONTH_MAP[startKey];
       const endMonth = MONTH_MAP[endKey];
-      
+
       if (startMonth && endMonth) {
         const startIndex = VALID_MONTHS.indexOf(startMonth);
         const endIndex = VALID_MONTHS.indexOf(endMonth);
-        
+
         if (startIndex !== -1 && endIndex !== -1 && startIndex <= endIndex) {
           for (let i = startIndex; i <= endIndex; i++) {
             months.push(VALID_MONTHS[i]);
@@ -81,7 +82,7 @@ const parseMonths = (periodString) => {
     const m = MONTH_MAP[key];
     if (m) months.push(m);
   }
-  
+
   // Remove duplicates and return
   return [...new Set(months)];
 };
@@ -92,7 +93,8 @@ const AVAILABLE_YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 export default function ImportModal({ isOpen, onClose, onImportComplete }) {
   const { toast } = useToast();
-  const { departments } = useDepartments();
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
   const [step, setStep] = useState(1); // 1: upload, 2: processing, 3: results
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [dragActive, setDragActive] = useState(false);
@@ -111,12 +113,12 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
       ['HR', 'Feb', 'Priority', 'Talent Development', 'Talent Acquisition', 'Hire 5 engineers', '5 hires completed', 'HR Manager', 'Hiring tracker updated', 'Achieved', 'https://drive.google.com/example', 'Completed ahead of schedule'],
       ['IT', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Open', '', 'Multi-month project']
     ];
-    
+
     // Create workbook and worksheet
     const ws = XLSX.utils.aoa_to_sheet(sampleData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Action Plans');
-    
+
     // Set column widths for better readability
     ws['!cols'] = [
       { wch: 15 }, // Department Code
@@ -132,7 +134,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
       { wch: 35 }, // Proof of Evidence
       { wch: 30 }  // Remarks
     ];
-    
+
     // Download the file
     XLSX.writeFile(wb, `action_plans_template_${selectedYear}.xlsx`);
   };
@@ -151,7 +153,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0]);
     }
@@ -166,7 +168,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
   const handleFile = (file) => {
     const validExtensions = ['.xlsx', '.xls'];
     const fileExt = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    
+
     if (!validExtensions.includes(fileExt)) {
       toast({ title: 'Invalid File', description: 'Please upload an Excel file (.xlsx or .xls)', variant: 'warning' });
       return;
@@ -176,7 +178,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
   const validateRow = (row) => {
     const errors = [];
-    
+
     // Map CSV headers to row keys (PapaParse uses exact header names as keys)
     const deptCode = row['Department Code'];
     const monthRaw = row['Month'];
@@ -184,55 +186,55 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     const actionPlan = row['Action Plan'];
     const indicator = row['Indicator'];
     const pic = row['PIC'];
-    
+
     const validDeptCodes = departments.map(d => d.code);
     if (!deptCode || !validDeptCodes.includes(deptCode.toUpperCase())) {
       errors.push(`Invalid Department Code: "${deptCode}"`);
     }
-    
+
     // Use smart month parser
     const parsedMonths = parseMonths(monthRaw);
     if (parsedMonths.length === 0) {
       errors.push(`Invalid Month: "${monthRaw}". Use: Jan, Feb, Mar, etc. or ranges like "Jan - Mar"`);
     }
-    
+
     if (!goalStrategy?.trim()) errors.push('Missing Goal/Strategy');
     if (!actionPlan?.trim()) errors.push('Missing Action Plan');
     if (!indicator?.trim()) errors.push('Missing Indicator');
     if (!pic?.trim()) errors.push('Missing PIC');
-    
+
     return { errors, parsedMonths };
   };
 
   const processImport = async () => {
     if (!file) return;
-    
+
     setProcessing(true);
     setStep(2);
-    
+
     try {
       const reader = new FileReader();
-      
+
       reader.onload = async (evt) => {
         try {
           const bstr = evt.target.result;
           const workbook = XLSX.read(bstr, { type: 'binary' });
-          
+
           // Get the first sheet
           const wsname = workbook.SheetNames[0];
           const ws = workbook.Sheets[wsname];
-          
+
           // Convert to JSON (Array of Objects)
           // defval: "" ensures empty cells aren't undefined
           const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-          
+
           let successCount = 0;
           let failedCount = 0;
           const errorDetails = [];
-          
+
           for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            
+
             // Flexible header mapping (handles various Excel header formats)
             const mappedRow = {
               'Department Code': row['Department Code'] || row['DEPT'] || row['Dept'] || row['Department'],
@@ -248,15 +250,15 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               'Proof of Evidence': row['Proof of Evidence'] || row['PROOF OF EVIDENCE'] || row['Outcome Link'] || row['Outcome'],
               'Remarks': row['Remarks'] || row['REMARK'] || row['Remark'] || row['REMARKS']
             };
-            
+
             const { errors: rowErrors, parsedMonths } = validateRow(mappedRow);
-            
+
             if (rowErrors.length > 0) {
               failedCount++;
               errorDetails.push({ row: i + 2, errors: rowErrors });
               continue;
             }
-            
+
             // Create one record per parsed month (handles ranges like "Jan - Mar")
             for (const month of parsedMonths) {
               // NOTE: Score is NOT imported - it is graded later on the web by Management
@@ -274,10 +276,11 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 status: 'Open', // Always start as Open for new imports
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
                 remark: mappedRow['Remarks']?.toString().trim() || null,
+                company_id: activeCompanyId, // MULTI-TENANT: stamp company_id on imported rows
               };
-              
+
               const { error } = await supabase.from('action_plans').insert(insertData);
-              
+
               if (error) {
                 failedCount++;
                 errorDetails.push({ row: i + 2, errors: [`${month}: ${error.message}`] });
@@ -286,11 +289,11 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               }
             }
           }
-          
+
           setResults({ success: successCount, failed: failedCount, errors: errorDetails });
           setStep(3);
           setProcessing(false);
-          
+
           if (successCount > 0) {
             onImportComplete?.();
           }
@@ -301,13 +304,13 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
           setProcessing(false);
         }
       };
-      
+
       reader.onerror = () => {
         setResults({ success: 0, failed: 1, errors: [{ row: 0, errors: ['Failed to read file'] }] });
         setStep(3);
         setProcessing(false);
       };
-      
+
       reader.readAsBinaryString(file);
     } catch (error) {
       console.error('Import error:', error);
@@ -367,11 +370,10 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                     <button
                       key={year}
                       onClick={() => setSelectedYear(year)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedYear === year
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedYear === year
                           ? 'bg-amber-600 text-white'
                           : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'
-                      }`}
+                        }`}
                     >
                       {year}
                     </button>
@@ -398,9 +400,8 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Step 2: Upload Your File</p>
                 <div
-                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
-                    dragActive ? 'border-teal-500 bg-teal-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                  }`}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${dragActive ? 'border-teal-500 bg-teal-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                    }`}
                   onDragEnter={handleDrag}
                   onDragLeave={handleDrag}
                   onDragOver={handleDrag}

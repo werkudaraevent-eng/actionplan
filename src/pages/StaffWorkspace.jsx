@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ClipboardList } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDepartmentContext } from '../context/DepartmentContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
 import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
@@ -32,8 +33,9 @@ export default function StaffWorkspace() {
   // Use currentDept if available, fallback to departmentCode (primary department)
   const activeDept = currentDept || departmentCode;
 
-  const { plans, loading, updatePlan, updateStatus, refetch } = useActionPlans(activeDept);
-  const { departments } = useDepartments();
+  const { activeCompanyId } = useCompanyContext();
+  const { plans, loading, updatePlan, updateStatus, refetch } = useActionPlans(activeDept, activeCompanyId);
+  const { departments } = useDepartments(activeCompanyId);
   const { toast } = useToast();
 
   const [isModalOpen, setIsModalOpen] = useState(false);

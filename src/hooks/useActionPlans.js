@@ -7,7 +7,7 @@ import { checkLockStatusServerSide } from '../utils/lockUtils';
 // This ensures consistent, detailed logging without duplicates.
 // See migration: enhanced_audit_trigger_super_detailed
 
-export function useActionPlans(departmentCode = null) {
+export function useActionPlans(departmentCode = null, companyId = null) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,11 +34,16 @@ export function useActionPlans(departmentCode = null) {
         query = query.eq('department_code', departmentCode);
       }
 
+      // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant
+      if (companyId) {
+        query = query.eq('company_id', companyId);
+      }
+
       const { data, error: fetchError } = await withTimeout(query, 10000);
 
       if (fetchError) throw fetchError;
 
-      console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'})`);
+      console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'}, company: ${companyId || 'ALL'})`);
 
       setPlans(data || []);
     } catch (err) {
@@ -48,7 +53,7 @@ export function useActionPlans(departmentCode = null) {
     } finally {
       setLoading(false);
     }
-  }, [departmentCode]);
+  }, [departmentCode, companyId]);
 
   useEffect(() => {
     fetchPlans();
@@ -70,8 +75,8 @@ export function useActionPlans(departmentCode = null) {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            // Only add if not soft-deleted
-            if (!payload.new.deleted_at) {
+            // Only add if not soft-deleted and matches current company filter
+            if (!payload.new.deleted_at && (!companyId || payload.new.company_id === companyId)) {
               setPlans((prev) => [...prev, payload.new]);
             }
           } else if (payload.eventType === 'UPDATE') {
@@ -93,7 +98,7 @@ export function useActionPlans(departmentCode = null) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [departmentCode]);
+  }, [departmentCode, companyId]);
 
   // Get current user ID and name
   const getCurrentUser = async () => {
@@ -121,9 +126,15 @@ export function useActionPlans(departmentCode = null) {
 
   // Create new plan with audit logging
   const createPlan = async (planData) => {
+    // MULTI-TENANT: Always stamp company_id on new plans
+    const insertData = { ...planData };
+    if (companyId && !insertData.company_id) {
+      insertData.company_id = companyId;
+    }
+
     const { data, error } = await supabase
       .from('action_plans')
-      .insert([planData])
+      .insert([insertData])
       .select()
       .single();
 
@@ -139,9 +150,15 @@ export function useActionPlans(departmentCode = null) {
 
   // Bulk create plans (for recurring tasks)
   const bulkCreatePlans = async (plansData) => {
+    // MULTI-TENANT: Stamp company_id on every plan in the batch
+    const stampedData = plansData.map(plan => ({
+      ...plan,
+      company_id: plan.company_id || companyId || undefined,
+    }));
+
     const { data, error } = await supabase
       .from('action_plans')
-      .insert(plansData)
+      .insert(stampedData)
       .select();
 
     if (error) throw error;
@@ -324,6 +341,11 @@ export function useActionPlans(departmentCode = null) {
 
     if (departmentCode) {
       query = query.eq('department_code', departmentCode);
+    }
+
+    // MULTI-TENANT FILTER
+    if (companyId) {
+      query = query.eq('company_id', companyId);
     }
 
     const { data, error } = await query;

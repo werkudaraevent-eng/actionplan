@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { User, Mail, Building2, Shield, Lock, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from '../components/common/Toast';
@@ -8,8 +9,9 @@ import { useToast } from '../components/common/Toast';
 export default function UserProfile() {
   const { profile, isAdmin, isStaff, isLeader, departmentCode } = useAuth();
   const { toast } = useToast();
-  const { departments } = useDepartments();
-  
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
+
   // Password change state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -42,18 +44,18 @@ export default function UserProfile() {
   // Handle password update
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
-    
+
     // Validation
     if (!newPassword || !confirmPassword) {
       toast({ title: 'Missing Fields', description: 'Please fill in both password fields.', variant: 'warning' });
       return;
     }
-    
+
     if (newPassword !== confirmPassword) {
       toast({ title: 'Passwords Do Not Match', description: 'Please make sure both passwords are identical.', variant: 'error' });
       return;
     }
-    
+
     if (newPassword.length < 6) {
       toast({ title: 'Password Too Short', description: 'Password must be at least 6 characters long.', variant: 'warning' });
       return;
@@ -61,17 +63,17 @@ export default function UserProfile() {
 
     setLoading(true);
     setSuccess(false);
-    
+
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
-      
+
       if (error) throw error;
-      
+
       setSuccess(true);
       setNewPassword('');
       setConfirmPassword('');
       toast({ title: 'Password Updated', description: 'Your password has been changed successfully.', variant: 'success' });
-      
+
       // Reset success state after 3 seconds
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
@@ -124,7 +126,7 @@ export default function UserProfile() {
                 </div>
               </div>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Mail className="w-5 h-5 text-gray-400" />
@@ -133,7 +135,7 @@ export default function UserProfile() {
                   <p className="text-gray-800 font-medium">{profile?.email || 'N/A'}</p>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Building2 className="w-5 h-5 text-gray-400" />
                 <div className="flex-1">
@@ -142,7 +144,7 @@ export default function UserProfile() {
                   {departmentCode && (
                     <p className="text-xs text-gray-400">Code: {departmentCode}</p>
                   )}
-                  
+
                   {/* Additional Access Section */}
                   {profile?.additional_departments && profile.additional_departments.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-gray-200">
@@ -151,8 +153,8 @@ export default function UserProfile() {
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {profile.additional_departments.map(code => (
-                          <span 
-                            key={code} 
+                          <span
+                            key={code}
                             className="px-2.5 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-md text-xs font-mono font-medium"
                           >
                             {code}
@@ -163,7 +165,7 @@ export default function UserProfile() {
                   )}
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Shield className="w-5 h-5 text-gray-400" />
                 <div>
@@ -190,7 +192,7 @@ export default function UserProfile() {
                 </div>
               </div>
             </div>
-            
+
             <form onSubmit={handlePasswordUpdate} className="p-6 space-y-4">
               {/* Success Message */}
               {success && (
@@ -199,7 +201,7 @@ export default function UserProfile() {
                   <span className="text-sm font-medium">Password updated successfully!</span>
                 </div>
               )}
-              
+
               {/* New Password */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -223,7 +225,7 @@ export default function UserProfile() {
                   </button>
                 </div>
               </div>
-              
+
               {/* Confirm Password */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -235,11 +237,10 @@ export default function UserProfile() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm new password"
-                    className={`w-full px-3 py-2.5 pr-10 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                      confirmPassword && newPassword !== confirmPassword
+                    className={`w-full px-3 py-2.5 pr-10 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${confirmPassword && newPassword !== confirmPassword
                         ? 'border-red-300 bg-red-50'
                         : 'border-gray-300'
-                    }`}
+                      }`}
                     minLength={6}
                   />
                   <button
@@ -254,7 +255,7 @@ export default function UserProfile() {
                   <p className="text-red-500 text-xs mt-1">Passwords do not match</p>
                 )}
               </div>
-              
+
               {/* Password Requirements */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-xs text-gray-500 font-medium mb-1">Password Requirements:</p>
@@ -264,7 +265,7 @@ export default function UserProfile() {
                   </li>
                 </ul>
               </div>
-              
+
               {/* Submit Button */}
               <button
                 type="submit"

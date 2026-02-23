@@ -18,11 +18,11 @@ export function AuthProvider({ children }) {
       console.log('Profile already fetched, skipping...');
       return;
     }
-    
+
     profileFetchedRef.current = true;
     console.log('Fetching profile for:', userId);
     setProfileError(null);
-    
+
     try {
       const result = await withTimeout(
         supabase
@@ -73,13 +73,13 @@ export function AuthProvider({ children }) {
     // Get initial session first
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (!mounted) return;
-      
+
       if (error) {
         console.error('Session error:', error);
         setLoading(false);
         return;
       }
-      
+
       if (session?.user) {
         setUser(session.user);
         fetchProfile(session.user.id);
@@ -92,9 +92,9 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         console.log('Auth event:', event);
-        
+
         if (!mounted) return;
-        
+
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
@@ -103,7 +103,7 @@ export function AuthProvider({ children }) {
           profileFetchedRef.current = false;
           return;
         }
-        
+
         if (event === 'SIGNED_IN' && session?.user) {
           // Reset flag for new sign in
           profileFetchedRef.current = false;
@@ -123,7 +123,7 @@ export function AuthProvider({ children }) {
     setLoading(true);
     setProfileError(null);
     profileFetchedRef.current = false;
-    
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -166,7 +166,8 @@ export function AuthProvider({ children }) {
     profile,
     loading,
     profileError,
-    isAdmin: profile?.role === 'admin',
+    isHoldingAdmin: profile?.role === 'holding_admin',
+    isAdmin: profile?.role === 'admin' || profile?.role === 'holding_admin',
     isExecutive: profile?.role === 'executive',
     isLeader: profile?.role === 'leader' || profile?.role === 'dept_head', // Support both during migration
     isStaff: profile?.role === 'staff',

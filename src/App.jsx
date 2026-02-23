@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CompanyProvider } from './context/CompanyContext';
 import { DepartmentProvider } from './context/DepartmentContext';
 import { ToastProvider } from './components/common/Toast';
 import LoginPage from './pages/LoginPage';
@@ -20,6 +21,7 @@ import DepartmentDashboard from './pages/DepartmentDashboard';
 import DepartmentView from './pages/DepartmentView';
 import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
+import HoldingManagement from './pages/HoldingManagement';
 import { AlertCircle, LogOut, ShieldAlert } from 'lucide-react';
 
 // Error screen for missing profile
@@ -83,6 +85,7 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   if (allowedRoles.length > 0) {
     const hasAccess = allowedRoles.some(role => {
       if (role === 'admin') return isAdmin;
+      if (role === 'holding_admin') return isAdmin; // holding_admin has God Mode access
       if (role === 'executive') return isExecutive;
       if (role === 'leader') return isLeader;
       if (role === 'staff') return isStaff;
@@ -282,6 +285,13 @@ function AppRoutes() {
             </ProtectedRoute>
           } />
 
+          {/* Holding Admin — Manage Subsidiaries */}
+          <Route path="/holding" element={
+            <ProtectedRoute allowedRoles={['holding_admin']}>
+              <HoldingManagement />
+            </ProtectedRoute>
+          } />
+
           {/* Department Routes (Admin + Leaders + Staff for dashboard) */}
           <Route path="/dept/:deptCode/dashboard" element={
             <DepartmentRoute>
@@ -319,11 +329,13 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <DepartmentProvider>
-          <ToastProvider>
-            <AppRoutes />
-          </ToastProvider>
-        </DepartmentProvider>
+        <CompanyProvider>
+          <DepartmentProvider>
+            <ToastProvider>
+              <AppRoutes />
+            </ToastProvider>
+          </DepartmentProvider>
+        </CompanyProvider>
       </AuthProvider>
     </Router>
   );

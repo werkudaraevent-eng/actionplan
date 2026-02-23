@@ -8,6 +8,7 @@ import { useToast } from '../components/common/Toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmailSettingsSection from '../components/settings/EmailSettingsSection';
 import OptionManager from '../components/settings/OptionManager';
+import { useCompanyContext } from '../context/CompanyContext';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -78,6 +79,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
 // ==================== DEPARTMENTS TAB ====================
 function DepartmentsTab({ onNavigateToUsers }) {
   const { toast } = useToast();
+  const { activeCompanyId } = useCompanyContext();
   const [departments, setDepartments] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +127,12 @@ function DepartmentsTab({ onNavigateToUsers }) {
     try {
       const { error } = await supabase
         .from('departments')
-        .insert({ code: newCode.toUpperCase().trim(), name: newName.trim() });
+        .insert({
+          code: newCode.toUpperCase().trim(),
+          name: newName.trim(),
+          // MULTI-TENANT: stamp company_id on new departments
+          ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
+        });
 
       if (error) throw error;
 

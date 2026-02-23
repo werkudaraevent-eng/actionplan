@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Pencil, Trash2, ExternalLink, Target, Loader2, Clock, Lock, Star, MessageSquare, ClipboardCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Columns3, RotateCcw, GripVertical, Eye, EyeOff, MoreHorizontal, Info, LockKeyhole, Unlock, X, XCircle, AlertTriangle, FastForward, Check, Circle, Megaphone, Flame, Hourglass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { usePermission } from '../../hooks/usePermission';
 import { STATUS_OPTIONS, supabase } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -574,7 +575,8 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
 
 export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, onRequestUnlock, onCarryOver, onRefresh, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false, showPendingOnly = false, highlightPlanId = '', onEditModalClosed }) {
   const { isAdmin, isStaff, isLeader, profile } = useAuth();
-  const { departments } = useDepartments();
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
   const [searchParams, setSearchParams] = useSearchParams();
   const { can, permissions, loading: permissionsLoading } = usePermission();
 

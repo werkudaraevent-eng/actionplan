@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
 import { usePermission } from '../hooks/usePermission';
@@ -33,8 +34,9 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '', highlightPlanId = '' }) {
   const { isAdmin, isExecutive, isLeader } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { toast } = useToast();
-  const { departments } = useDepartments();
+  const { departments } = useDepartments(activeCompanyId);
   const { can } = usePermission();
 
   // Permission-based access control
@@ -44,7 +46,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const canManagePlans = (isAdmin || isLeader) && !isExecutive && canCreatePlan; // Executives cannot manage plans
   const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
-  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode);
+  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode, activeCompanyId);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -1497,7 +1499,9 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         category: item.category,
         status: 'Open',
         is_carry_over: true,
-        submission_status: 'draft'
+        submission_status: 'draft',
+        // MULTI-TENANT: stamp company_id on carried-over plans
+        ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
       };
 
       const { error } = await supabase

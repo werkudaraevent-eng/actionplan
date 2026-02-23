@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare, LockKeyhole, ToggleLeft, ToggleRight, ShieldAlert, CheckCircle, CircleArrowRight, Hourglass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { usePermission } from '../../hooks/usePermission';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, BLOCKER_CATEGORIES, ATTENTION_LEVELS } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
@@ -13,9 +14,10 @@ import EvidenceManager from './EvidenceManager';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isExecutive, isLeader, departmentCode: userDeptCode } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { can } = usePermission();
   const { toast } = useToast();
-  const { departments } = useDepartments();
+  const { departments } = useDepartments(activeCompanyId);
 
   // Permission checks - granular access control
   const canCreate = can('action_plan', 'create');
@@ -227,7 +229,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const [attachments, setAttachments] = useState([]);
 
   // Use the new hook to fetch department users (includes primary + additional access)
-  const { users: departmentUsers, loading: loadingStaff } = useDepartmentUsers(formData.department_code);
+  // MULTI-TENANT: scope to active company
+  const { users: departmentUsers, loading: loadingStaff } = useDepartmentUsers(formData.department_code, activeCompanyId);
 
   const [failureReasons, setFailureReasons] = useState([]); // Dynamic failure reasons from DB (Admin Settings)
   const [loadingReasons, setLoadingReasons] = useState(false);

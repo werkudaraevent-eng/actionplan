@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
@@ -10,10 +11,14 @@ import { supabase } from '../../lib/supabase';
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile, isAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
-  const { departments, loading: deptLoading } = useDepartments();
+  const { profile, isAdmin, isHoldingAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
   const { can } = usePermission();
+  const { companies, activeCompanyId, activeCompany, setActiveCompanyId, canSwitchCompany } = useCompanyContext();
+
+  // MULTI-TENANT: Use company-scoped departments for the sidebar list
+  // This is the same hook used by DepartmentContext, scoped to activeCompanyId
+  const { departments, loading: deptLoading } = useDepartments(activeCompanyId);
 
   // Pending unlock requests count (Admin only)
   const [pendingCount, setPendingCount] = useState(0);
@@ -24,13 +29,19 @@ export default function Sidebar() {
   useEffect(() => {
     if (!isAdmin || !supabase) return;
 
-    // Fetch initial count
+    // Fetch initial count — scoped to active company
     const fetchCount = async () => {
-      const { count, error } = await supabase
+      let query = supabase
         .from('action_plans')
         .select('*', { count: 'exact', head: true })
         .eq('unlock_status', 'pending');
 
+      // MULTI-TENANT: scope to active company
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { count, error } = await query;
       if (!error) setPendingCount(count || 0);
     };
 
@@ -47,7 +58,7 @@ export default function Sidebar() {
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [isAdmin]);
+  }, [isAdmin, activeCompanyId]);
 
   // Fetch pending drop requests count (Admin + Executive) — from action_plans directly
   useEffect(() => {
@@ -55,11 +66,18 @@ export default function Sidebar() {
     if (!supabase) return;
 
     const fetchDropCount = async () => {
-      const { count, error } = await supabase
+      let query = supabase
         .from('action_plans')
         .select('*', { count: 'exact', head: true })
         .eq('is_drop_pending', true)
         .is('deleted_at', null);
+
+      // MULTI-TENANT: scope to active company
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { count, error } = await query;
       if (!error) setPendingDropCount(count || 0);
     };
 
@@ -75,7 +93,7 @@ export default function Sidebar() {
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [isAdmin, isExecutive]);
+  }, [isAdmin, isExecutive, activeCompanyId]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -100,6 +118,7 @@ export default function Sidebar() {
     if (path === '/approvals') return location.pathname === '/approvals';
     if (path === '/action-center') return location.pathname === '/action-center';
     if (path === '/audit-log') return location.pathname === '/audit-log';
+    if (path === '/holding') return location.pathname === '/holding';
     // Department routes
     if (path.startsWith('/dept/')) {
       return location.pathname === path || location.pathname.startsWith(path + '/');
@@ -128,10 +147,35 @@ export default function Sidebar() {
           <p className="text-teal-300 text-xs uppercase tracking-wider">Logged in as</p>
           <p className="text-white font-medium text-sm truncate">{profile?.full_name}</p>
           <p className="text-teal-400 text-xs truncate">
-            {isAdmin ? 'Administrator' : isExecutive ? 'Executive (View-Only)' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
+            {isHoldingAdmin ? 'Holding Administrator' : isAdmin ? 'Administrator' : isExecutive ? 'Executive (View-Only)' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
           </p>
         </div>
       </div>
+
+      {/* Company Switcher — visible only to holding_admin with multiple companies */}
+      {canSwitchCompany && (
+        <div className="px-3 pb-3 flex-shrink-0">
+          <div className="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border border-amber-500/30 rounded-lg p-2.5">
+            <label className="text-amber-300 text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1.5">
+              <Building2 className="w-3 h-3" />
+              Active Subsidiary
+            </label>
+            <select
+              id="company-switcher"
+              value={activeCompanyId || ''}
+              onChange={(e) => setActiveCompanyId(e.target.value)}
+              className="w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
+            >
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* Navigation - Scrollable with hidden scrollbar */}
       <nav className="flex-1 p-3 overflow-y-auto scrollbar-hidden">
@@ -242,6 +286,21 @@ export default function Sidebar() {
                 >
                   <Settings className="w-4 h-4" />
                   <span className="text-sm">Admin Settings</span>
+                </button>
+              </>
+            )}
+
+            {/* Holding Admin — only for holding_admin users */}
+            {isHoldingAdmin && (
+              <>
+                <p className="text-amber-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">Holding Admin</p>
+                <button
+                  onClick={() => navigate('/holding')}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/holding') ? 'bg-amber-600/80 text-white' : 'text-amber-200 hover:bg-amber-700/30'
+                    }`}
+                >
+                  <Crown className="w-4 h-4" />
+                  <span className="text-sm">Manage Subsidiaries</span>
                 </button>
               </>
             )}

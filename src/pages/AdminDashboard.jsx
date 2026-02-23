@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
@@ -99,8 +100,9 @@ function SortDropdown({ value, onChange }) {
 
 
 export default function AdminDashboard({ onNavigate }) {
-  const { plans, loading, refetch } = useActionPlans(null);
-  const { departments } = useDepartments();
+  const { activeCompanyId } = useCompanyContext();
+  const { plans, loading, refetch } = useActionPlans(null, activeCompanyId);
+  const { departments } = useDepartments(activeCompanyId);
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
@@ -187,17 +189,20 @@ export default function AdminDashboard({ onNavigate }) {
   const fetchAuditLogs = async () => {
     const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
 
-    // FIX: Use audit_logs_with_user view to get ACTOR information (who performed the action)
-    // This ensures we show "Hanung changed status" not "Yulia changed status" when admin edits
-    // NOTE: No .limit() here - we need ALL logs for accurate chart totals
-    // The "Latest Updates" list is sliced later in weeklyActivityData for UI display
-    // Include user_role to filter admin actions from chart (organic activity only)
-    const { data, error } = await supabase
-      .from('audit_logs_with_user')
-      .select('id, action_plan_id, change_type, created_at, user_id, description, user_name, user_department, user_role')
+    // FIX: Use audit_logs table directly with profile join to get ACTOR information
+    // MULTI-TENANT: join action_plan to filter by company_id
+    let query = supabase
+      .from('audit_logs')
+      .select(`
+        id, action_plan_id, change_type, created_at, user_id, description,
+        profile:user_id ( full_name, department_code, role ),
+        action_plan:action_plan_id ( company_id )
+      `)
       .gte('created_at', startOfWeek.toISOString())
       .lte('created_at', endOfWeek.toISOString())
       .order('created_at', { ascending: false });
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching audit logs:', error);
@@ -205,18 +210,16 @@ export default function AdminDashboard({ onNavigate }) {
       return;
     }
 
-    // DEBUG: Log first record to verify user_name is being fetched
-    if (data && data.length > 0) {
-      console.log('Sample audit log:', {
-        user_id: data[0].user_id,
-        user_name: data[0].user_name,
-        user_department: data[0].user_department,
-        change_type: data[0].change_type
-      });
+    // MULTI-TENANT: client-side filter for company_id (server-side FK filter not always reliable)
+    let filteredData = data || [];
+    if (activeCompanyId) {
+      filteredData = filteredData.filter(log =>
+        log.action_plan?.company_id === activeCompanyId
+      );
     }
 
     // SANITIZE & NORMALIZE the data
-    const sanitizedLogs = (data || []).map(log => {
+    const sanitizedLogs = filteredData.map(log => {
       let cleanDescription = log.description || '';
       if (cleanDescription.startsWith('["')) {
         cleanDescription = cleanDescription.replace(/^\["|"\]$/g, '');
@@ -234,9 +237,12 @@ export default function AdminDashboard({ onNavigate }) {
         timestampDate: new Date(log.created_at),
         localDateKey: new Date(log.created_at).toLocaleDateString('en-CA'),
         // ACTOR INFO: The person who performed the action (not the plan owner)
-        actor_name: log.user_name || 'System',
-        actor_department: log.user_department,
-        actor_role: log.user_role || 'unknown'
+        user_name: log.profile?.full_name || 'System',
+        user_department: log.profile?.department_code,
+        user_role: log.profile?.role || 'unknown',
+        actor_name: log.profile?.full_name || 'System',
+        actor_department: log.profile?.department_code,
+        actor_role: log.profile?.role || 'unknown'
       };
     });
 
@@ -246,7 +252,7 @@ export default function AdminDashboard({ onNavigate }) {
   // 2. USE EFFECT: Panggil fungsi tadi saat tanggal berubah (Load Awal)
   useEffect(() => {
     fetchAuditLogs();
-  }, [currentDate]);
+  }, [currentDate, activeCompanyId]);
 
   // Filter plans by year first, then by date range
   const yearFilteredPlans = useMemo(() => {
@@ -410,18 +416,18 @@ export default function AdminDashboard({ onNavigate }) {
       const currentMonthName = MONTHS_ORDER[currentMonthIndex];
       return `Jan - ${currentMonthName} ${selectedYear} (Year to Date)`;
     }
-    
+
     // Case 2: Full Year (past year or explicit FY selection)
     if (selectedPeriod === 'FY' && startMonth === 'Jan' && endMonth === 'Dec') {
       return `Jan - Dec ${selectedYear} (Full Year)`;
     }
-    
+
     // Case 3: Quarter Selection
     if (selectedPeriod === 'Q1') return `Jan - Mar ${selectedYear} (Q1)`;
     if (selectedPeriod === 'Q2') return `Apr - Jun ${selectedYear} (Q2)`;
     if (selectedPeriod === 'Q3') return `Jul - Sep ${selectedYear} (Q3)`;
     if (selectedPeriod === 'Q4') return `Oct - Dec ${selectedYear} (Q4)`;
-    
+
     // Case 4: Custom Range
     if (startMonth === endMonth) {
       return `Period: ${startMonth} ${selectedYear}`;

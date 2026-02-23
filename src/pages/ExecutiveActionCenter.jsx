@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useDepartments } from '../hooks/useDepartments';
 import { useActionPlans } from '../hooks/useActionPlans';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase, withTimeout } from '../lib/supabase';
 import { useToast } from '../components/common/Toast';
 import ViewDetailModal from '../components/action-plan/ViewDetailModal';
@@ -45,8 +46,9 @@ function timeAgo(dateStr) {
 
 export default function ExecutiveActionCenter() {
     const { isAdmin, isExecutive } = useAuth();
-    const { departments } = useDepartments();
-    const { plans, loading: plansLoading, updatePlan, updateStatus, gradePlan, refetch } = useActionPlans(null);
+    const { activeCompanyId } = useCompanyContext();
+    const { departments } = useDepartments(activeCompanyId);
+    const { plans, loading: plansLoading, updatePlan, updateStatus, gradePlan, refetch } = useActionPlans(null, activeCompanyId);
     const { toast } = useToast();
 
     const [activeTab, setActiveTab] = useState('needs_grading');

@@ -4,8 +4,10 @@ import { supabase } from '../lib/supabase';
 /**
  * Custom hook to fetch departments from Supabase
  * Returns departments sorted alphabetically by name
+ * 
+ * @param {string|null} companyId - Optional company_id to filter departments by tenant
  */
-export function useDepartments() {
+export function useDepartments(companyId = null) {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,13 +26,20 @@ export function useDepartments() {
 
         // Primary approach: Fetch without is_active filter first (most reliable)
         // This prevents errors if is_active column doesn't exist
-        let { data, error: fetchError } = await supabase
+        let query = supabase
           .from('departments')
           .select('*')  // Select all to check which columns exist
           .order('name', { ascending: true });
 
+        // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant
+        if (companyId) {
+          query = query.eq('company_id', companyId);
+        }
+
+        let { data, error: fetchError } = await query;
+
         // DEBUG: Log raw result
-        console.log('useDepartments: Raw fetch result:', data?.length || 0, 'departments', data);
+        console.log('useDepartments: Raw fetch result:', data?.length || 0, 'departments', companyId ? `(company: ${companyId})` : '(all companies)');
 
         if (fetchError) {
           console.error('useDepartments: Error fetching departments:', fetchError);
@@ -47,7 +56,8 @@ export function useDepartments() {
         // Map to only return required fields
         const cleanData = (data || []).map(d => ({
           code: d.code,
-          name: d.name
+          name: d.name,
+          company_id: d.company_id || null,
         }));
 
         console.log('useDepartments: Final result:', cleanData.length, 'departments');
@@ -85,7 +95,8 @@ export function useDepartments() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [companyId]);
 
   return { departments, loading, error };
 }
+

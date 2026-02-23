@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
 import { usePermission } from '../hooks/usePermission';
@@ -28,9 +29,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const canEdit = !isExecutive; // Executives have read-only access
   const canExport = can('report', 'export');
   const { toast } = useToast();
-  const { departments } = useDepartments();
-  // Fetch ALL plans (no department filter)
-  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan } = useActionPlans(null);
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
+  // Fetch ALL plans (no department filter) scoped to active company
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan } = useActionPlans(null, activeCompanyId);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);

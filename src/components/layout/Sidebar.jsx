@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -14,7 +14,7 @@ export default function Sidebar() {
   const { profile, isAdmin, isHoldingAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
   const { can } = usePermission();
-  const { companies, activeCompanyId, activeCompany, setActiveCompanyId, canSwitchCompany } = useCompanyContext();
+  const { companies, activeCompanyId, activeCompany, setActiveCompanyId, canSwitchCompany, isHoldingContext } = useCompanyContext();
 
   // MULTI-TENANT: Use company-scoped departments for the sidebar list
   // This is the same hook used by DepartmentContext, scoped to activeCompanyId
@@ -115,7 +115,6 @@ export default function Sidebar() {
     if (path === '/permissions') return location.pathname === '/permissions';
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/workspace') return location.pathname === '/workspace';
-    if (path === '/approvals') return location.pathname === '/approvals';
     if (path === '/action-center') return location.pathname === '/action-center';
     if (path === '/audit-log') return location.pathname === '/audit-log';
     if (path === '/holding') return location.pathname === '/holding';
@@ -141,14 +140,18 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* User Info */}
-      <div className="p-3 flex-shrink-0">
-        <div className="bg-teal-700/50 rounded-lg px-3 py-2 mb-3 overflow-hidden">
-          <p className="text-teal-300 text-xs uppercase tracking-wider">Logged in as</p>
-          <p className="text-white font-medium text-sm truncate">{profile?.full_name}</p>
-          <p className="text-teal-400 text-xs truncate">
-            {isHoldingAdmin ? 'Holding Administrator' : isAdmin ? 'Administrator' : isExecutive ? 'Executive (View-Only)' : isStaff ? `Staff - ${departmentCode}` : `Leader - ${departmentCode}`}
-          </p>
+      {/* User Info — Compact */}
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2.5 bg-teal-700/40 rounded-lg px-2.5 py-2 mb-2">
+          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs ${isHoldingAdmin ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-teal-600'}`}>
+            {isHoldingAdmin ? <Crown className="w-4 h-4" /> : (profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?')}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-white font-medium text-sm truncate leading-tight">{profile?.full_name}</p>
+            <p className="text-teal-400 text-[10px] truncate leading-tight">
+              {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff · ${departmentCode}` : `Leader · ${departmentCode}`}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -157,17 +160,37 @@ export default function Sidebar() {
         <div className="px-3 pb-3 flex-shrink-0">
           <div className="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border border-amber-500/30 rounded-lg p-2.5">
             <label className="text-amber-300 text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1.5">
-              <Building2 className="w-3 h-3" />
-              Active Subsidiary
+              {isHoldingContext ? (
+                <>
+                  <Globe className="w-3 h-3" />
+                  Active Context: Holding
+                </>
+              ) : (
+                <>
+                  <Building2 className="w-3 h-3" />
+                  Active Subsidiary
+                </>
+              )}
             </label>
             <select
               id="company-switcher"
               value={activeCompanyId || ''}
               onChange={(e) => setActiveCompanyId(e.target.value)}
-              className="w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900"
+              className="w-full max-w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900 overflow-hidden text-ellipsis"
               style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
             >
-              {companies.map(c => (
+              {/* Holding entity at the top */}
+              {companies.filter(c => c.name === 'Werkudara Group').map(c => (
+                <option key={c.id} value={c.id}>
+                  Group Overview
+                </option>
+              ))}
+              {/* Separator */}
+              {companies.some(c => c.name === 'Werkudara Group') && companies.some(c => c.name !== 'Werkudara Group') && (
+                <option disabled>{'\u2500\u2500 Subsidiaries \u2500\u2500'}</option>
+              )}
+              {/* Operational subsidiaries */}
+              {companies.filter(c => c.name !== 'Werkudara Group').map(c => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
@@ -208,16 +231,21 @@ export default function Sidebar() {
             >
               <Gavel className="w-4 h-4" />
               <span className="text-sm flex-1">Action Center</span>
-              {pendingDropCount > 0 && (
+              {(pendingDropCount + (isAdmin ? pendingCount : 0)) > 0 && (
                 <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                  {pendingDropCount > 99 ? '99+' : pendingDropCount}
+                  {(() => { const total = pendingDropCount + (isAdmin ? pendingCount : 0); return total > 99 ? '99+' : total; })()}
                 </span>
               )}
             </button>
 
             <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Departments</p>
             <div className="space-y-1">
-              {deptLoading ? (
+              {isHoldingContext ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-teal-400/80 text-[11px]">
+                  <Globe className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
+                  <span>Select a subsidiary to view departments</span>
+                </div>
+              ) : deptLoading ? (
                 <div className="px-3 py-2 text-teal-300 text-sm">Loading departments...</div>
               ) : departments.length === 0 ? (
                 <div className="px-3 py-2 text-teal-300 text-sm">No departments found</div>
@@ -242,19 +270,6 @@ export default function Sidebar() {
             {isAdmin && (
               <>
                 <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
-                <button
-                  onClick={() => navigate('/approvals')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/approvals') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                    }`}
-                >
-                  <Inbox className="w-4 h-4" />
-                  <span className="text-sm flex-1">Approvals</span>
-                  {pendingCount > 0 && (
-                    <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                      {pendingCount > 99 ? '99+' : pendingCount}
-                    </span>
-                  )}
-                </button>
                 <button
                   onClick={() => navigate('/users')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'

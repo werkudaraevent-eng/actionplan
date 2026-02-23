@@ -143,7 +143,7 @@ export async function parseExcelOptions(file, category) {
  * @returns {Promise<{ success: boolean, count?: number, error?: string }>}
  */
 export async function exportOptionsToExcel(category, options = {}) {
-    const { includeInactive = false } = options;
+    const { includeInactive = false, companyId = null } = options;
 
     try {
         if (!category || category.trim() === '') {
@@ -159,6 +159,11 @@ export async function exportOptionsToExcel(category, options = {}) {
 
         if (!includeInactive) {
             query = query.eq('is_active', true);
+        }
+
+        // MULTI-TENANT: scope to company if provided
+        if (companyId) {
+            query = query.eq('company_id', companyId);
         }
 
         const { data, error } = await query;
@@ -258,7 +263,7 @@ export async function bulkUpsertOptions(items) {
  * @param {boolean} [includeInactive=false]
  * @returns {Promise<{ data: object[], error?: string }>}
  */
-export async function fetchMasterOptions(category, includeInactive = false) {
+export async function fetchMasterOptions(category, includeInactive = false, companyId = null) {
     try {
         let query = supabase
             .from('master_options')
@@ -268,6 +273,11 @@ export async function fetchMasterOptions(category, includeInactive = false) {
 
         if (!includeInactive) {
             query = query.eq('is_active', true);
+        }
+
+        // MULTI-TENANT: scope to company if provided
+        if (companyId) {
+            query = query.eq('company_id', companyId);
         }
 
         const { data, error } = await query;

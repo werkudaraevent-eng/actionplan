@@ -12,7 +12,7 @@ import Sidebar from './components/layout/Sidebar';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
 import AdminPermissions from './pages/AdminPermissions';
-import ApprovalInbox from './pages/ApprovalInbox';
+
 import ExecutiveActionCenter from './pages/ExecutiveActionCenter';
 import GlobalAuditLog from './pages/GlobalAuditLog';
 import UserManagement from './components/user/UserManagement';
@@ -267,14 +267,10 @@ function AppRoutes() {
             </ProtectedRoute>
           } />
 
-          <Route path="/approvals" element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <ApprovalInbox />
-            </ProtectedRoute>
-          } />
+
 
           <Route path="/action-center" element={
-            <ProtectedRoute allowedRoles={['admin', 'executive']}>
+            <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
               <ExecutiveActionCenter />
             </ProtectedRoute>
           } />

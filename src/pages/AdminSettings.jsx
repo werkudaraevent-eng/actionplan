@@ -93,14 +93,20 @@ function DepartmentsTab({ onNavigateToUsers }) {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [activeCompanyId]);
 
   const fetchData = async () => {
-    // Fetch departments and profiles in parallel
-    const [deptResult, profileResult] = await Promise.all([
-      supabase.from('departments').select('*').order('code'),
-      supabase.from('profiles').select('id, full_name, role, department_code')
-    ]);
+    setLoading(true);
+    // MULTI-TENANT: scope both queries to the active company
+    let deptQuery = supabase.from('departments').select('*').order('code');
+    let profileQuery = supabase.from('profiles').select('id, full_name, role, department_code');
+
+    if (activeCompanyId) {
+      deptQuery = deptQuery.eq('company_id', activeCompanyId);
+      profileQuery = profileQuery.eq('company_id', activeCompanyId);
+    }
+
+    const [deptResult, profileResult] = await Promise.all([deptQuery, profileQuery]);
 
     if (deptResult.error) console.error('Error fetching departments:', deptResult.error);
     if (profileResult.error) console.error('Error fetching profiles:', profileResult.error);
@@ -371,20 +377,28 @@ function DepartmentsTab({ onNavigateToUsers }) {
 // ==================== TARGETS TAB ====================
 function TargetsTab() {
   const { toast } = useToast();
+  const { activeCompanyId } = useCompanyContext();
   const [targets, setTargets] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
 
   useEffect(() => {
     fetchTargets();
-  }, []);
+  }, [activeCompanyId]);
 
   const fetchTargets = async () => {
-    const { data, error } = await supabase.from('annual_targets').select('*');
+    setLoading(true);
+    let query = supabase.from('annual_targets').select('*');
+    if (activeCompanyId) {
+      query = query.eq('company_id', activeCompanyId);
+    }
+    const { data, error } = await query;
     if (!error && data) {
       const map = {};
       data.forEach((t) => (map[t.year] = t.target_percentage));
       setTargets(map);
+    } else {
+      setTargets({});
     }
     setLoading(false);
   };
@@ -399,12 +413,15 @@ function TargetsTab() {
     setSaving(year);
     const value = targets[year] ?? 80;
 
+    const upsertData = { year, target_percentage: value };
+    if (activeCompanyId) upsertData.company_id = activeCompanyId;
+
     const { error } = await supabase
       .from('annual_targets')
-      .upsert({ year, target_percentage: value }, { onConflict: 'year' });
+      .upsert(upsertData, { onConflict: 'year,company_id' });
 
     if (error) {
-      toast({ title: 'Failed to Save', description: 'Could not save target', variant: 'error' });
+      toast({ title: 'Failed to Save', description: error.message || 'Could not save target', variant: 'error' });
     } else {
       toast({ title: 'Target Saved', description: `${year} target set to ${value}%`, variant: 'success' });
     }
@@ -458,6 +475,7 @@ const CSV_MONTH_HEADERS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug
 
 function HistoricalTab() {
   const { toast } = useToast();
+  const { activeCompanyId } = useCompanyContext();
   const [departments, setDepartments] = useState([]);
   const [gridData, setGridData] = useState({}); // { "DEPT_CODE": { 1: 80, 2: 75, ... } }
   const [quickFill, setQuickFill] = useState({}); // { "DEPT_CODE": "80" }
@@ -470,20 +488,28 @@ function HistoricalTab() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedYear]);
+  }, [selectedYear, activeCompanyId]);
 
   const fetchData = async () => {
     setLoading(true);
 
-    // Fetch departments
-    const { data: depts } = await supabase.from('departments').select('*').order('code');
+    // Fetch departments — scoped to active company
+    let deptQuery = supabase.from('departments').select('*').order('code');
+    if (activeCompanyId) {
+      deptQuery = deptQuery.eq('company_id', activeCompanyId);
+    }
+    const { data: depts } = await deptQuery;
     setDepartments(depts || []);
 
-    // Fetch historical stats for selected year
-    const { data: stats } = await supabase
+    // Fetch historical stats for selected year — scoped to company
+    let statsQuery = supabase
       .from('historical_stats')
       .select('*')
       .eq('year', selectedYear);
+    if (activeCompanyId) {
+      statsQuery = statsQuery.eq('company_id', activeCompanyId);
+    }
+    const { data: stats } = await statsQuery;
 
     // Build grid data structure
     const grid = {};
@@ -563,17 +589,20 @@ function HistoricalTab() {
               department_code: deptCode,
               year: selectedYear,
               month: parseInt(month, 10),
-              completion_rate: parseFloat(value)
+              completion_rate: parseFloat(value),
+              ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
             });
           }
         });
       });
 
-      // Delete existing records for this year first (to handle cleared cells)
-      await supabase
+      // Delete existing records for this year + company first (to handle cleared cells)
+      let deleteQuery = supabase
         .from('historical_stats')
         .delete()
         .eq('year', selectedYear);
+      if (activeCompanyId) deleteQuery = deleteQuery.eq('company_id', activeCompanyId);
+      await deleteQuery;
 
       // Insert all records
       if (records.length > 0) {
@@ -659,7 +688,8 @@ function HistoricalTab() {
                   department_code: deptCode,
                   year: year,
                   month: monthNum,
-                  completion_rate: value
+                  completion_rate: value,
+                  ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
                 });
               }
             });
@@ -676,12 +706,14 @@ function HistoricalTab() {
           // Get unique years from import
           const importYears = [...new Set(records.map(r => r.year))];
 
-          // Delete existing records for imported years
+          // Delete existing records for imported years (scoped to company)
           for (const year of importYears) {
-            await supabase
+            let delQuery = supabase
               .from('historical_stats')
               .delete()
               .eq('year', year);
+            if (activeCompanyId) delQuery = delQuery.eq('company_id', activeCompanyId);
+            await delQuery;
           }
 
           // Bulk insert
@@ -945,6 +977,7 @@ function LoadingState() {
 // ==================== DATA MANAGEMENT TAB ====================
 function DataManagementTab() {
   const { toast } = useToast();
+  const { activeCompanyId } = useCompanyContext();
   const [showImportModal, setShowImportModal] = useState(false);
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -953,14 +986,20 @@ function DataManagementTab() {
 
   useEffect(() => {
     fetchPlans();
-  }, []);
+  }, [activeCompanyId]);
 
   const fetchPlans = async () => {
-    const { data, error } = await supabase
+    let query = supabase
       .from('action_plans')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
+
+    if (activeCompanyId) {
+      query = query.eq('company_id', activeCompanyId);
+    }
+
+    const { data, error } = await query;
 
     if (error) console.error('Error fetching plans:', error);
     setPlans(data || []);
@@ -1169,7 +1208,7 @@ function DataManagementTab() {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Step 1: Export Template */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm font-semibold text-gray-700 mb-2">ðŸ“„ Step 1: Get Template</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Download className="w-4 h-4 text-purple-500" /> Step 1: Get Template</p>
                 <p className="text-xs text-gray-500 mb-3">
                   Download a template with IDs and reference columns. Add your update columns.
                 </p>
@@ -1185,7 +1224,7 @@ function DataManagementTab() {
 
               {/* Step 2: Upload Update File */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-sm font-semibold text-gray-700 mb-2">ðŸ“¤ Step 2: Upload Updates</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><Upload className="w-4 h-4 text-purple-500" /> Step 2: Upload Updates</p>
                 <p className="text-xs text-gray-500 mb-3">
                   Upload your filled Excel file to update matching records.
                 </p>

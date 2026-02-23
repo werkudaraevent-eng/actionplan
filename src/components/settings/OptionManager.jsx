@@ -8,6 +8,7 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
+import { useCompanyContext } from '../../context/CompanyContext';
 import {
     parseExcelOptions,
     exportOptionsToExcel,
@@ -34,6 +35,7 @@ export default function OptionManager({
     customToggleNote = '',
 }) {
     const { toast } = useToast();
+    const { activeCompanyId } = useCompanyContext();
     const fileInputRef = useRef(null);
 
     // Resolve table name from source
@@ -72,11 +74,18 @@ export default function OptionManager({
                 ? 'id, category, label, sort_order, is_active'
                 : '*';
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from(tableName)
                 .select(selectCols)
                 .eq('category', categoryKey)
                 .order('sort_order', { ascending: true });
+
+            // MULTI-TENANT: scope to active company
+            if (activeCompanyId) {
+                query = query.eq('company_id', activeCompanyId);
+            }
+
+            const { data, error } = await query;
 
             if (error) throw error;
 
@@ -93,7 +102,7 @@ export default function OptionManager({
         } finally {
             setLoading(false);
         }
-    }, [categoryKey, tableName, source, title, toast]);
+    }, [categoryKey, tableName, source, title, toast, activeCompanyId]);
 
     useEffect(() => {
         loadOptions();
@@ -142,8 +151,8 @@ export default function OptionManager({
             const maxSort = options.length > 0 ? Math.max(...options.map(o => o.sort_order || 0)) : 0;
 
             const insertData = source === 'dropdown'
-                ? { category: categoryKey, label, sort_order: maxSort + 1, is_active: true }
-                : { category: categoryKey, label, value, sort_order: maxSort + 1, is_active: true };
+                ? { category: categoryKey, label, sort_order: maxSort + 1, is_active: true, ...(activeCompanyId ? { company_id: activeCompanyId } : {}) }
+                : { category: categoryKey, label, value, sort_order: maxSort + 1, is_active: true, ...(activeCompanyId ? { company_id: activeCompanyId } : {}) };
 
             const { error } = await supabase.from(tableName).insert(insertData);
             if (error) throw error;
@@ -357,7 +366,7 @@ export default function OptionManager({
         try {
             if (source === 'master') {
                 // Use the master_options utility
-                const result = await exportOptionsToExcel(categoryKey, { includeInactive: true });
+                const result = await exportOptionsToExcel(categoryKey, { includeInactive: true, companyId: activeCompanyId });
                 if (result.success) {
                     toast({ title: 'Export Complete', description: `Exported ${result.count} items.`, variant: 'success' });
                 } else {
@@ -480,6 +489,7 @@ export default function OptionManager({
                     maxSort++;
                     const { error } = await supabase.from('dropdown_options').insert({
                         category: categoryKey, label: item.label, is_active: item.is_active, sort_order: maxSort,
+                        ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
                     });
                     if (!error) { addedCount++; existingLabels.push(item.label.toLowerCase()); }
                 }

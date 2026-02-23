@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { useToast } from '../components/common/Toast';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import { 
-  Inbox, 
-  Clock, 
-  Check, 
-  X, 
-  User, 
-  Calendar, 
+import {
+  Inbox,
+  Clock,
+  Check,
+  X,
+  User,
+  Calendar,
   AlertCircle,
   Loader2,
   RefreshCw,
@@ -74,10 +75,11 @@ function formatTimeRemaining(expiryDate) {
 
 export default function ApprovalInbox() {
   const { profile } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState('pending');
-  
+
   // Pending requests state
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,14 +103,18 @@ export default function ApprovalInbox() {
   const fetchRequests = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error } = await withTimeout(
-        supabase
-          .from('action_plans')
-          .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_at, unlock_requested_by')
-          .eq('unlock_status', 'pending')
-          .order('unlock_requested_at', { ascending: false }),
-        10000
-      );
+      let query = supabase
+        .from('action_plans')
+        .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_at, unlock_requested_by')
+        .eq('unlock_status', 'pending')
+        .order('unlock_requested_at', { ascending: false });
+
+      // MULTI-TENANT: scope to active company
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { data, error } = await withTimeout(query, 10000);
       if (error) throw error;
 
       const requesterIds = [...new Set(data?.map(r => r.unlock_requested_by).filter(Boolean))];
@@ -128,22 +134,26 @@ export default function ApprovalInbox() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, activeCompanyId]);
 
   // Fetch active (approved) unlocks
   const fetchActiveUnlocks = useCallback(async () => {
     try {
       setActiveLoading(true);
-      const { data, error } = await withTimeout(
-        supabase
-          .from('action_plans')
-          .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_by, approved_until, unlock_approved_at')
-          .eq('unlock_status', 'approved')
-          .not('approved_until', 'is', null)
-          .gt('approved_until', new Date().toISOString())
-          .order('approved_until', { ascending: true }),
-        10000
-      );
+      let query = supabase
+        .from('action_plans')
+        .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_by, approved_until, unlock_approved_at')
+        .eq('unlock_status', 'approved')
+        .not('approved_until', 'is', null)
+        .gt('approved_until', new Date().toISOString())
+        .order('approved_until', { ascending: true });
+
+      // MULTI-TENANT: scope to active company
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { data, error } = await withTimeout(query, 10000);
       if (error) throw error;
 
       const requesterIds = [...new Set(data?.map(r => r.unlock_requested_by).filter(Boolean))];
@@ -163,7 +173,7 @@ export default function ApprovalInbox() {
     } finally {
       setActiveLoading(false);
     }
-  }, [toast]);
+  }, [toast, activeCompanyId]);
 
   useEffect(() => {
     fetchRequests();
@@ -393,7 +403,7 @@ export default function ApprovalInbox() {
                 <Check className="w-8 h-8 text-gray-400" />
               </div>
               <h3 className="text-lg font-medium text-gray-800 mb-2">All caught up!</h3>
-              <p className="text-gray-500">No pending unlock requests at the moment.</p>
+              <p className="text-gray-500">No pending unlock requests for this subsidiary.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -483,7 +493,7 @@ export default function ApprovalInbox() {
                 <Lock className="w-8 h-8 text-gray-400" />
               </div>
               <h3 className="text-lg font-medium text-gray-800 mb-2">No active unlocks</h3>
-              <p className="text-gray-500">All plans are currently locked or have expired.</p>
+              <p className="text-gray-500">All plans in this subsidiary are currently locked or have expired.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -523,11 +533,10 @@ export default function ApprovalInbox() {
 
                           {/* Time remaining badge */}
                           <div className="flex items-center gap-3 mb-3">
-                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-                              urgencyColor === 'red' ? 'bg-red-50 text-red-700' :
-                              urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' :
-                              'bg-teal-50 text-teal-700'
-                            }`}>
+                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${urgencyColor === 'red' ? 'bg-red-50 text-red-700' :
+                                urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' :
+                                  'bg-teal-50 text-teal-700'
+                              }`}>
                               <Timer className="w-4 h-4" />
                               <span className="text-sm font-semibold">{timeRemaining}</span>
                             </div>

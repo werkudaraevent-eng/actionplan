@@ -80,10 +80,14 @@ export function CompanyProvider({ children }) {
         return companies.find(c => c.id === activeCompanyId) || null;
     }, [companies, activeCompanyId]);
 
+    // Whether the active context is the holding parent entity (not an operational subsidiary)
+    const isHoldingContext = activeCompany?.name === 'Werkudara Group';
+
     const value = {
         companies,
         activeCompanyId,
         activeCompany,
+        isHoldingContext,
         setActiveCompanyId,
         loading,
         // Convenience: whether the user can switch tenants

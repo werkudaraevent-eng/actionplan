@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle, Crown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 
 const ROLES = [
+  { value: 'holding_admin', label: 'Holding Admin', icon: Crown, description: 'Absolute access to all subsidiaries and holding-level settings', color: 'amber', restricted: true },
   { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings', color: 'purple' },
   { value: 'executive', label: 'Executive', icon: Shield, description: 'View-only access to Company Dashboard & All Plans', color: 'indigo' },
   { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team', color: 'teal' },
@@ -10,6 +12,11 @@ const ROLES = [
 ];
 
 export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], isAdmin = false }) {
+  const { profile } = useAuth();
+  const isHoldingAdmin = profile?.role === 'holding_admin';
+
+  // Filter roles: only holding_admin users can see/assign the holding_admin role
+  const visibleRoles = ROLES.filter(r => !r.restricted || isHoldingAdmin);
   const [formData, setFormData] = useState({
     email: '',
     full_name: '',
@@ -247,22 +254,25 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                 Role
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {ROLES.map((role) => {
+                {visibleRoles.map((role) => {
                   const Icon = role.icon;
                   const isSelected = formData.role === role.value;
                   const colorClasses = {
+                    amber: isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : 'border-gray-200 hover:border-gray-300',
                     purple: isSelected ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500' : 'border-gray-200 hover:border-gray-300',
                     indigo: isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500' : 'border-gray-200 hover:border-gray-300',
                     teal: isSelected ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500' : 'border-gray-200 hover:border-gray-300',
                     gray: isSelected ? 'border-gray-500 bg-gray-50 ring-2 ring-gray-500' : 'border-gray-200 hover:border-gray-300',
                   };
                   const iconColorClasses = {
+                    amber: isSelected ? 'text-amber-600' : 'text-gray-400',
                     purple: isSelected ? 'text-purple-600' : 'text-gray-400',
                     indigo: isSelected ? 'text-indigo-600' : 'text-gray-400',
                     teal: isSelected ? 'text-teal-600' : 'text-gray-400',
                     gray: isSelected ? 'text-gray-600' : 'text-gray-400',
                   };
                   const textColorClasses = {
+                    amber: isSelected ? 'text-amber-700' : 'text-gray-700',
                     purple: isSelected ? 'text-purple-700' : 'text-gray-700',
                     indigo: isSelected ? 'text-indigo-700' : 'text-gray-700',
                     teal: isSelected ? 'text-teal-700' : 'text-gray-700',
@@ -380,8 +390,8 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                   {/* Security Message */}
                   {securityMessage.text && (
                     <div className={`px-3 py-2 rounded-lg text-xs mb-3 ${securityMessage.type === 'success'
-                        ? 'bg-green-50 border border-green-200 text-green-700'
-                        : 'bg-red-50 border border-red-200 text-red-700'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
                       }`}>
                       {securityMessage.text}
                     </div>

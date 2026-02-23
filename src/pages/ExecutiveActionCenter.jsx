@@ -4,6 +4,9 @@ import {
     CheckCircle2, XCircle, Megaphone, Eye, User, Clock, ArrowRight,
     CheckCircle, RefreshCw, MessageSquare, Search,
     Target, Crosshair, ClipboardCheck, Star,
+    Unlock, Timer, ShieldOff, Lock, Calendar, FileStack,
+    ChevronDown, ChevronUp, Users, AlertCircle, Inbox, X,
+    Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDepartments } from '../hooks/useDepartments';
@@ -43,13 +46,61 @@ function timeAgo(dateStr) {
     return `${days}d ago`;
 }
 
+// ─── Unlock/Approval Helpers (merged from ApprovalInbox) ───
+function formatRelativeTime(dateString) {
+    if (!dateString) return 'Unknown';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+}
+
+function formatDatetimeLocal(date) {
+    const d = new Date(date);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatExpiryDisplay(isoOrLocal) {
+    if (!isoOrLocal) return '';
+    const d = new Date(isoOrLocal);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+    });
+}
+
+function formatTimeRemaining(expiryDate) {
+    if (!expiryDate) return 'No expiry';
+    const now = new Date();
+    const expiry = new Date(expiryDate);
+    const diffMs = expiry - now;
+    if (diffMs <= 0) return 'Expired';
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h remaining`;
+    if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m remaining`;
+    return `${diffMins}m remaining`;
+}
+
 
 export default function ExecutiveActionCenter() {
-    const { isAdmin, isExecutive } = useAuth();
+    const { isAdmin, isExecutive, isHoldingAdmin, profile } = useAuth();
     const { activeCompanyId } = useCompanyContext();
     const { departments } = useDepartments(activeCompanyId);
     const { plans, loading: plansLoading, updatePlan, updateStatus, gradePlan, refetch } = useActionPlans(null, activeCompanyId);
     const { toast } = useToast();
+
+    const canSeeSystemTasks = isAdmin || isHoldingAdmin;
 
     const [activeTab, setActiveTab] = useState('needs_grading');
 
@@ -76,6 +127,26 @@ export default function ExecutiveActionCenter() {
     // ─── Grading State ───
     const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
     const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
+
+    // ═══ SYSTEM TASKS STATE (merged from ApprovalInbox) ═══
+    // ─── Unlock Requests State ───
+    const [unlockRequests, setUnlockRequests] = useState([]);
+    const [unlockLoading, setUnlockLoading] = useState(true);
+    const [unlockProcessingKey, setUnlockProcessingKey] = useState(null);
+    const [unlockExpandedKey, setUnlockExpandedKey] = useState(null);
+    const [unlockRejectModalOpen, setUnlockRejectModalOpen] = useState(false);
+    const [unlockRejectingGroup, setUnlockRejectingGroup] = useState(null);
+    const [unlockRejectReason, setUnlockRejectReason] = useState('');
+    const [durationModalOpen, setDurationModalOpen] = useState(false);
+    const [approvingGroup, setApprovingGroup] = useState(null);
+    const [customExpiryDate, setCustomExpiryDate] = useState('');
+
+    // ─── Active Unlocks State ───
+    const [activeUnlocks, setActiveUnlocks] = useState([]);
+    const [activeUnlocksLoading, setActiveUnlocksLoading] = useState(true);
+    const [revokingId, setRevokingId] = useState(null);
+    const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+    const [revokeTarget, setRevokeTarget] = useState(null);
 
     // ─── Fetch drop requests from action_plans directly ───
     const fetchDropRequests = useCallback(async () => {
@@ -120,6 +191,70 @@ export default function ExecutiveActionCenter() {
 
         return () => supabase.removeChannel(channel);
     }, [fetchDropRequests]);
+
+    // ═══ SYSTEM TASKS FETCHERS (merged from ApprovalInbox) ═══
+    const fetchUnlockRequests = useCallback(async () => {
+        if (!canSeeSystemTasks) return;
+        try {
+            setUnlockLoading(true);
+            let query = supabase
+                .from('action_plans')
+                .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_at, unlock_requested_by')
+                .eq('unlock_status', 'pending')
+                .order('unlock_requested_at', { ascending: false });
+            if (activeCompanyId) query = query.eq('company_id', activeCompanyId);
+
+            const { data, error } = await withTimeout(query, 10000);
+            if (error) throw error;
+
+            const requesterIds = [...new Set(data?.map(r => r.unlock_requested_by).filter(Boolean))];
+            let profilesMap = {};
+            if (requesterIds.length > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, email, department_code').in('id', requesterIds);
+                profilesMap = (profiles || []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+            }
+            setUnlockRequests((data || []).map(req => ({ ...req, requester: profilesMap[req.unlock_requested_by] || null })));
+        } catch (err) {
+            console.error('Error fetching unlock requests:', err);
+        } finally {
+            setUnlockLoading(false);
+        }
+    }, [canSeeSystemTasks, activeCompanyId]);
+
+    const fetchActiveUnlocks = useCallback(async () => {
+        if (!canSeeSystemTasks) return;
+        try {
+            setActiveUnlocksLoading(true);
+            let query = supabase
+                .from('action_plans')
+                .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_by, approved_until, unlock_approved_at')
+                .eq('unlock_status', 'approved')
+                .not('approved_until', 'is', null)
+                .gt('approved_until', new Date().toISOString())
+                .order('approved_until', { ascending: true });
+            if (activeCompanyId) query = query.eq('company_id', activeCompanyId);
+
+            const { data, error } = await withTimeout(query, 10000);
+            if (error) throw error;
+
+            const requesterIds = [...new Set(data?.map(r => r.unlock_requested_by).filter(Boolean))];
+            let profilesMap = {};
+            if (requesterIds.length > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, email, department_code').in('id', requesterIds);
+                profilesMap = (profiles || []).reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+            }
+            setActiveUnlocks((data || []).map(item => ({ ...item, requester: profilesMap[item.unlock_requested_by] || null })));
+        } catch (err) {
+            console.error('Error fetching active unlocks:', err);
+        } finally {
+            setActiveUnlocksLoading(false);
+        }
+    }, [canSeeSystemTasks, activeCompanyId]);
+
+    useEffect(() => {
+        fetchUnlockRequests();
+        fetchActiveUnlocks();
+    }, [fetchUnlockRequests, fetchActiveUnlocks]);
 
     // ─── Grading data ───
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -168,6 +303,48 @@ export default function ExecutiveActionCenter() {
     const escalationCount = useMemo(() => {
         return plans.filter(p => p.status === 'Blocked' && p.attention_level === 'Management_BOD').length;
     }, [plans]);
+
+    // ─── Unlock grouping (merged from ApprovalInbox) ───
+    const groupedUnlockRequests = useMemo(() => {
+        const groups = {};
+        unlockRequests.forEach(req => {
+            const groupKey = `${req.department_code}-${req.month}-${req.year}-${req.unlock_requested_by}`;
+            if (!groups[groupKey]) {
+                groups[groupKey] = {
+                    key: groupKey, department_code: req.department_code, month: req.month, year: req.year,
+                    requester: req.requester, unlock_reason: req.unlock_reason,
+                    unlock_requested_at: req.unlock_requested_at, items: []
+                };
+            }
+            groups[groupKey].items.push(req);
+            if (new Date(req.unlock_requested_at) < new Date(groups[groupKey].unlock_requested_at)) {
+                groups[groupKey].unlock_requested_at = req.unlock_requested_at;
+            }
+        });
+        return Object.values(groups).sort((a, b) => new Date(b.unlock_requested_at) - new Date(a.unlock_requested_at));
+    }, [unlockRequests]);
+
+    const groupedActiveUnlocks = useMemo(() => {
+        const groups = {};
+        activeUnlocks.forEach(item => {
+            const groupKey = `${item.department_code}-${item.month}-${item.year}-${item.unlock_requested_by}`;
+            if (!groups[groupKey]) {
+                groups[groupKey] = {
+                    key: groupKey, department_code: item.department_code, month: item.month, year: item.year,
+                    requester: item.requester, unlock_reason: item.unlock_reason,
+                    approved_until: item.approved_until, unlock_approved_at: item.unlock_approved_at, items: []
+                };
+            }
+            groups[groupKey].items.push(item);
+            if (new Date(item.approved_until) > new Date(groups[groupKey].approved_until)) {
+                groups[groupKey].approved_until = item.approved_until;
+            }
+        });
+        return Object.values(groups).sort((a, b) => new Date(a.approved_until) - new Date(b.approved_until));
+    }, [activeUnlocks]);
+
+    const pendingUnlockCount = unlockRequests.length;
+    const activeUnlockCount = activeUnlocks.length;
 
     // Fetch instruction status for escalation cards
     useEffect(() => {
@@ -278,6 +455,99 @@ export default function ExecutiveActionCenter() {
 
     const pendingDropCount = dropRequests.length;
 
+    // ═══ SYSTEM TASKS HANDLERS (merged from ApprovalInbox) ═══
+    const openDurationModal = (group) => {
+        setApprovingGroup(group);
+        setCustomExpiryDate(formatDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000)));
+        setDurationModalOpen(true);
+    };
+
+    const setPresetDuration = (hours) => {
+        setCustomExpiryDate(formatDatetimeLocal(new Date(Date.now() + hours * 60 * 60 * 1000)));
+    };
+
+    const handleConfirmApprove = async () => {
+        if (!approvingGroup) return;
+        setUnlockProcessingKey(approvingGroup.key);
+        try {
+            const expiryISO = new Date(customExpiryDate).toISOString();
+            const planIds = approvingGroup.items.map(item => item.id);
+            const results = await Promise.all(
+                planIds.map(planId => withTimeout(supabase.rpc('process_unlock_request', {
+                    p_plan_id: planId, p_action: 'APPROVE', p_admin_id: profile.id, p_expiry_date: expiryISO,
+                }), 10000))
+            );
+            const failed = results.filter(r => r.error);
+            if (failed.length > 0) throw failed[0].error;
+            setUnlockRequests(prev => prev.filter(r => !planIds.includes(r.id)));
+            toast({ title: 'Batch Approved', description: `${planIds.length} item(s) unlocked until ${formatExpiryDisplay(expiryISO)}.`, variant: 'success' });
+            setDurationModalOpen(false);
+            setApprovingGroup(null);
+            fetchActiveUnlocks();
+        } catch (err) {
+            toast({ title: 'Error', description: err.message || 'Failed to approve', variant: 'error' });
+        } finally {
+            setUnlockProcessingKey(null);
+        }
+    };
+
+    const openUnlockRejectModal = (group) => {
+        setUnlockRejectingGroup(group);
+        setUnlockRejectReason('');
+        setUnlockRejectModalOpen(true);
+    };
+
+    const handleUnlockBatchReject = async () => {
+        if (!unlockRejectingGroup) return;
+        setUnlockProcessingKey(unlockRejectingGroup.key);
+        try {
+            const planIds = unlockRejectingGroup.items.map(item => item.id);
+            const results = await Promise.all(
+                planIds.map(planId => withTimeout(supabase.rpc('process_unlock_request', {
+                    p_plan_id: planId, p_action: 'REJECT', p_admin_id: profile.id, p_rejection_reason: unlockRejectReason || null,
+                }), 10000))
+            );
+            const failed = results.filter(r => r.error);
+            if (failed.length > 0) throw failed[0].error;
+            setUnlockRequests(prev => prev.filter(r => !planIds.includes(r.id)));
+            toast({ title: 'Batch Rejected', description: `${planIds.length} item(s) rejected.`, variant: 'default' });
+            setUnlockRejectModalOpen(false);
+            setUnlockRejectingGroup(null);
+        } catch (err) {
+            toast({ title: 'Error', description: err.message || 'Failed to reject', variant: 'error' });
+        } finally {
+            setUnlockProcessingKey(null);
+        }
+    };
+
+    const openRevokeConfirm = (group) => {
+        setRevokeTarget(group);
+        setRevokeConfirmOpen(true);
+    };
+
+    const handleRevoke = async () => {
+        if (!revokeTarget) return;
+        const planIds = revokeTarget.items.map(item => item.id);
+        setRevokingId(revokeTarget.key);
+        try {
+            const results = await Promise.all(
+                planIds.map(planId => withTimeout(supabase.rpc('revoke_unlock_access', {
+                    p_plan_id: planId, p_admin_id: profile.id,
+                }), 10000))
+            );
+            const failed = results.filter(r => r.error);
+            if (failed.length > 0) throw failed[0].error;
+            setActiveUnlocks(prev => prev.filter(item => !planIds.includes(item.id)));
+            toast({ title: 'Access Revoked', description: `${planIds.length} item(s) re-locked.`, variant: 'success' });
+            setRevokeConfirmOpen(false);
+            setRevokeTarget(null);
+        } catch (err) {
+            toast({ title: 'Error', description: err.message || 'Failed to revoke', variant: 'error' });
+        } finally {
+            setRevokingId(null);
+        }
+    };
+
     // ─── Filtered Drop Requests ───
     const filteredDropRequests = useMemo(() => {
         return dropRequests.filter(plan => {
@@ -296,7 +566,7 @@ export default function ExecutiveActionCenter() {
     const hasActiveFilters = searchQuery || selectedDept !== 'All' || selectedMonth !== 'All' || selectedPriority !== 'All';
 
     // ─── Summary counts for header ───
-    const totalActionItems = pendingDropCount + needsGradingCount + escalationCount;
+    const totalActionItems = pendingDropCount + needsGradingCount + escalationCount + (canSeeSystemTasks ? pendingUnlockCount : 0);
 
     return (
         <div className="flex-1 bg-gray-50 min-h-full">
@@ -318,7 +588,7 @@ export default function ExecutiveActionCenter() {
                             </div>
                         </div>
                         <button
-                            onClick={() => { fetchDropRequests(); refetch(); }}
+                            onClick={() => { fetchDropRequests(); refetch(); if (canSeeSystemTasks) { fetchUnlockRequests(); fetchActiveUnlocks(); } }}
                             className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                         >
                             <RefreshCw className="w-4 h-4" />
@@ -379,6 +649,45 @@ export default function ExecutiveActionCenter() {
                                 </span>
                             )}
                         </button>
+
+                        {/* ─── System Tasks (Admin/Holding Admin only) ─── */}
+                        {canSeeSystemTasks && (
+                            <>
+                                <div className="w-px h-6 bg-gray-300 mx-1" />
+                                <button
+                                    onClick={() => setActiveTab('unlock_requests')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'unlock_requests'
+                                        ? 'bg-white shadow text-teal-700'
+                                        : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                >
+                                    <Lock className="w-4 h-4" />
+                                    Unlock Requests
+                                    {pendingUnlockCount > 0 && (
+                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold min-w-[20px] text-center ${activeTab === 'unlock_requests' ? 'bg-teal-100 text-teal-700' : 'bg-red-500 text-white'
+                                            }`}>
+                                            {pendingUnlockCount}
+                                        </span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('active_unlocks')}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'active_unlocks'
+                                        ? 'bg-white shadow text-emerald-700'
+                                        : 'text-gray-500 hover:text-gray-700'
+                                        }`}
+                                >
+                                    <Unlock className="w-4 h-4" />
+                                    Active Unlocks
+                                    {activeUnlockCount > 0 && (
+                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold min-w-[20px] text-center ${activeTab === 'active_unlocks' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-400 text-white'
+                                            }`}>
+                                            {activeUnlockCount}
+                                        </span>
+                                    )}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -822,6 +1131,183 @@ export default function ExecutiveActionCenter() {
                         )}
                     </>
                 )}
+
+                {/* ═══ UNLOCK REQUESTS TAB (Admin/Holding Admin only) ═══ */}
+                {activeTab === 'unlock_requests' && canSeeSystemTasks && (
+                    <>
+                        {unlockLoading ? (
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                                <span className="ml-2 text-gray-500">Loading unlock requests...</span>
+                            </div>
+                        ) : groupedUnlockRequests.length === 0 ? (
+                            <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+                                <div className="flex flex-col items-center gap-4">
+                                    <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
+                                        <Check className="w-10 h-10 text-gray-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-semibold text-gray-800">All Caught Up</h3>
+                                        <p className="text-gray-500 mt-1">No pending unlock requests.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {groupedUnlockRequests.map((group) => (
+                                    <div key={group.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+                                        <div className="p-5">
+                                            <div className="flex items-start gap-4">
+                                                <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                    <User className="w-6 h-6 text-white" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="font-semibold text-gray-800 text-lg">{group.requester?.full_name || 'Unknown User'}</span>
+                                                        <span className="text-xs px-2.5 py-1 bg-teal-100 text-teal-700 rounded-full font-medium">{group.department_code}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <Calendar className="w-5 h-5 text-amber-500" />
+                                                        <h2 className="text-xl font-bold text-gray-900">Request Unlock: {group.month} {group.year}</h2>
+                                                    </div>
+                                                    <div className="flex items-center gap-4 mb-3">
+                                                        <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-lg">
+                                                            <FileStack className="w-4 h-4 text-blue-600" />
+                                                            <span className="text-sm font-semibold text-blue-700">{group.items.length} Item{group.items.length !== 1 ? 's' : ''}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 text-xs text-gray-400">
+                                                            <Clock className="w-3.5 h-3.5" />
+                                                            Requested {formatRelativeTime(group.unlock_requested_at)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700">
+                                                        <span className="text-gray-500 font-medium mr-1">Reason:</span>
+                                                        {group.unlock_reason || 'No reason provided'}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col gap-2 flex-shrink-0">
+                                                    <button onClick={() => openDurationModal(group)} disabled={unlockProcessingKey === group.key}
+                                                        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500 text-white text-sm font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                                        {unlockProcessingKey === group.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                                        Approve Batch
+                                                    </button>
+                                                    <button onClick={() => openUnlockRejectModal(group)} disabled={unlockProcessingKey === group.key}
+                                                        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                                        <X className="w-4 h-4" />
+                                                        Reject Batch
+                                                    </button>
+                                                    <button onClick={() => setUnlockExpandedKey(unlockExpandedKey === group.key ? null : group.key)}
+                                                        className="flex items-center justify-center gap-1 px-3 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors text-sm">
+                                                        {unlockExpandedKey === group.key ? (<><ChevronUp className="w-4 h-4" />Hide Items</>) : (<><ChevronDown className="w-4 h-4" />Show Items</>)}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {unlockExpandedKey === group.key && (
+                                            <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Users className="w-4 h-4 text-gray-500" />
+                                                    <span className="text-sm font-medium text-gray-600">Items in this batch ({group.items.length})</span>
+                                                </div>
+                                                <div className="space-y-2 max-h-64 overflow-y-auto">
+                                                    {group.items.map((item, idx) => (
+                                                        <div key={item.id} className="flex items-start gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                                                            <span className="flex-shrink-0 w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center text-xs font-medium text-gray-600">{idx + 1}</span>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-sm font-medium text-gray-800 truncate" title={item.goal_strategy}>{item.goal_strategy || 'No goal specified'}</p>
+                                                                <p className="text-xs text-gray-500 truncate mt-0.5" title={item.action_plan}>{item.action_plan || 'No action plan specified'}</p>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* ═══ ACTIVE UNLOCKS TAB (Admin/Holding Admin only) ═══ */}
+                {activeTab === 'active_unlocks' && canSeeSystemTasks && (
+                    <>
+                        {activeUnlocksLoading ? (
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                                <span className="ml-2 text-gray-500">Loading active unlocks...</span>
+                            </div>
+                        ) : groupedActiveUnlocks.length === 0 ? (
+                            <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+                                <div className="flex flex-col items-center gap-4">
+                                    <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
+                                        <Lock className="w-10 h-10 text-gray-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-semibold text-gray-800">No Active Unlocks</h3>
+                                        <p className="text-gray-500 mt-1">All plans are currently locked or have expired.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {groupedActiveUnlocks.map((group) => {
+                                    const timeRemaining = formatTimeRemaining(group.approved_until);
+                                    const expiryDate = new Date(group.approved_until);
+                                    const hoursLeft = (expiryDate - new Date()) / 3600000;
+                                    const urgencyColor = hoursLeft < 2 ? 'red' : hoursLeft < 12 ? 'amber' : 'teal';
+
+                                    return (
+                                        <div key={group.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
+                                            <div className="p-5">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                        <User className="w-6 h-6 text-white" />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <span className="font-semibold text-gray-800 text-lg">{group.requester?.full_name || 'Unknown User'}</span>
+                                                            <span className="text-xs px-2.5 py-1 bg-teal-100 text-teal-700 rounded-full font-medium">{group.department_code}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <Unlock className="w-5 h-5 text-teal-500" />
+                                                            <h2 className="text-xl font-bold text-gray-900">{group.month} {group.year}</h2>
+                                                            <span className="text-sm text-gray-500">•</span>
+                                                            <span className="text-sm font-medium text-gray-600">{group.items.length} item{group.items.length !== 1 ? 's' : ''}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 mb-3">
+                                                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${urgencyColor === 'red' ? 'bg-red-50 text-red-700' : urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-teal-50 text-teal-700'}`}>
+                                                                <Timer className="w-4 h-4" />
+                                                                <span className="text-sm font-semibold">{timeRemaining}</span>
+                                                            </div>
+                                                            <span className="text-xs text-gray-400">Expires {formatExpiryDisplay(group.approved_until)}</span>
+                                                        </div>
+                                                        {group.unlock_reason && (
+                                                            <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700">
+                                                                <span className="text-gray-500 font-medium mr-1">Reason:</span>
+                                                                {group.unlock_reason}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex flex-col gap-2 flex-shrink-0">
+                                                        <button
+                                                            onClick={() => openRevokeConfirm(group)}
+                                                            disabled={revokingId === group.key}
+                                                            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                                        >
+                                                            {revokingId === group.key ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldOff className="w-4 h-4" />}
+                                                            Revoke Access
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
+                )}
             </main>
 
             {/* ─── Reject Drop Modal ─── */}
@@ -910,6 +1396,128 @@ export default function ExecutiveActionCenter() {
                     onEscalate={undefined}
                     onRefresh={refetch}
                 />
+            )}
+
+            {/* ═══ SYSTEM TASK MODALS (merged from ApprovalInbox) ═══ */}
+
+            {/* Unlock Reject Modal */}
+            {unlockRejectModalOpen && unlockRejectingGroup && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                <AlertCircle className="w-5 h-5 text-red-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Reject Batch Request</h3>
+                                <p className="text-sm text-gray-500">{unlockRejectingGroup.month} {unlockRejectingGroup.year} • {unlockRejectingGroup.items.length} item(s)</p>
+                            </div>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                            <p className="text-sm text-amber-800">
+                                <strong>⚠️ Warning:</strong> Rejecting will force the user to Carry Over or Drop these {unlockRejectingGroup.items.length} item(s) via the Resolution Wizard.
+                            </p>
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason (Optional)</label>
+                            <textarea value={unlockRejectReason} onChange={(e) => setUnlockRejectReason(e.target.value)}
+                                placeholder="Explain why this batch request is being rejected..."
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none" rows={3} />
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => { setUnlockRejectModalOpen(false); setUnlockRejectingGroup(null); }}
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                            <button onClick={handleUnlockBatchReject} disabled={unlockProcessingKey === unlockRejectingGroup?.key}
+                                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors">
+                                {unlockProcessingKey === unlockRejectingGroup?.key ? 'Rejecting...' : `Reject ${unlockRejectingGroup.items.length} Item(s)`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Duration Picker Modal */}
+            {durationModalOpen && approvingGroup && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
+                                <Timer className="w-5 h-5 text-teal-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Set Unlock Duration</h3>
+                                <p className="text-sm text-gray-500">{approvingGroup.month} {approvingGroup.year} • {approvingGroup.items.length} item(s)</p>
+                            </div>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-4">How long should the user have access to edit these locked plans?</p>
+                        <div className="flex gap-2 mb-4">
+                            {[{ label: '24 Hours', hours: 24 }, { label: '48 Hours', hours: 48 }, { label: '1 Week', hours: 168 }].map(({ label, hours }) => (
+                                <button key={hours} onClick={() => setPresetDuration(hours)}
+                                    className="flex-1 px-3 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-teal-50 hover:border-teal-300 hover:text-teal-700 transition-colors">{label}</button>
+                            ))}
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Custom Deadline</label>
+                            <input type="datetime-local" value={customExpiryDate} onChange={(e) => setCustomExpiryDate(e.target.value)}
+                                min={formatDatetimeLocal(new Date())}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+                        </div>
+                        {customExpiryDate && (
+                            <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+                                <Unlock className="w-4 h-4 text-teal-600 flex-shrink-0" />
+                                <p className="text-sm text-teal-800">Will re-lock on <strong>{formatExpiryDisplay(customExpiryDate)}</strong></p>
+                            </div>
+                        )}
+                        <div className="flex gap-3">
+                            <button onClick={() => { setDurationModalOpen(false); setApprovingGroup(null); }}
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                            <button onClick={handleConfirmApprove} disabled={!customExpiryDate || unlockProcessingKey === approvingGroup?.key}
+                                className="flex-1 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors font-medium">
+                                {unlockProcessingKey === approvingGroup?.key ? (
+                                    <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Approving...</span>
+                                ) : 'Confirm & Unlock'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Revoke Confirmation Modal */}
+            {revokeConfirmOpen && revokeTarget && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                <ShieldOff className="w-5 h-5 text-red-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">Revoke Access</h3>
+                                <p className="text-sm text-gray-500">
+                                    {revokeTarget.requester?.full_name || 'Unknown'} • {revokeTarget.month} {revokeTarget.year} • {revokeTarget.items.length} item(s)
+                                </p>
+                            </div>
+                        </div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                            <p className="text-sm text-red-800">
+                                This will immediately re-lock {revokeTarget.items.length} plan(s). The user will lose edit access. They can submit a new unlock request if needed.
+                            </p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg px-4 py-3 mb-4 text-sm text-gray-600">
+                            <span className="font-medium">Current expiry:</span> {formatExpiryDisplay(revokeTarget.approved_until)}
+                            <span className="ml-2 text-gray-400">({formatTimeRemaining(revokeTarget.approved_until)})</span>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={() => { setRevokeConfirmOpen(false); setRevokeTarget(null); }}
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                            <button onClick={handleRevoke} disabled={revokingId === revokeTarget?.key}
+                                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors font-medium">
+                                {revokingId === revokeTarget?.key ? (
+                                    <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Revoking...</span>
+                                ) : 'Revoke Now'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

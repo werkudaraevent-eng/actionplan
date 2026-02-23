@@ -100,9 +100,11 @@ function SortDropdown({ value, onChange }) {
 
 
 export default function AdminDashboard({ onNavigate }) {
-  const { activeCompanyId } = useCompanyContext();
-  const { plans, loading, refetch } = useActionPlans(null, activeCompanyId);
-  const { departments } = useDepartments(activeCompanyId);
+  const { activeCompanyId, isHoldingContext } = useCompanyContext();
+  // When in holding context, pass null to get consolidated data from ALL companies
+  const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
+  const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId);
+  const { departments } = useDepartments(effectiveCompanyId);
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
@@ -210,11 +212,11 @@ export default function AdminDashboard({ onNavigate }) {
       return;
     }
 
-    // MULTI-TENANT: client-side filter for company_id (server-side FK filter not always reliable)
+    // MULTI-TENANT: client-side filter for company_id (skip when in holding context for consolidated view)
     let filteredData = data || [];
-    if (activeCompanyId) {
+    if (effectiveCompanyId) {
       filteredData = filteredData.filter(log =>
-        log.action_plan?.company_id === activeCompanyId
+        log.action_plan?.company_id === effectiveCompanyId
       );
     }
 
@@ -252,7 +254,7 @@ export default function AdminDashboard({ onNavigate }) {
   // 2. USE EFFECT: Panggil fungsi tadi saat tanggal berubah (Load Awal)
   useEffect(() => {
     fetchAuditLogs();
-  }, [currentDate, activeCompanyId]);
+  }, [currentDate, effectiveCompanyId]);
 
   // Filter plans by year first, then by date range
   const yearFilteredPlans = useMemo(() => {

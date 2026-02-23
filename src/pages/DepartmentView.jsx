@@ -338,7 +338,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     // Get all locked items for this month (not already approved, pending, or in grace period)
     const lockedItems = monthPlans.filter(p =>
       p.unlock_status !== 'approved' && p.unlock_status !== 'pending' &&
-      !(p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date())
+      !(p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date()) &&
+      !(p.unlock_status === 'approved' && p.approved_until && new Date(p.approved_until) > new Date())
     );
 
     return {
@@ -534,12 +535,24 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     }
 
     try {
-      // Get all locked items for the specified month
+      // First, verify that the month itself is date-locked
+      const isMonthLocked = isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings);
+
+      // Get all plans for the specified month
       const monthPlans = plans.filter(p => p.month === month);
-      const lockedItems = monthPlans.filter(p =>
-        p.unlock_status !== 'approved' && p.unlock_status !== 'pending' &&
-        isPlanLocked(month, CURRENT_YEAR, p.unlock_status, p.approved_until, lockSettings, p.temporary_unlock_expiry)
-      );
+
+      // FIX: Instead of re-checking isPlanLocked() per-plan (which can produce false negatives
+      // when per-plan unlock fields cause early returns), we check the month-level lock first,
+      // then collect all plans that aren't already approved, pending, or in an active grace period.
+      // This matches how the UI calculates the locked count for display.
+      const lockedItems = isMonthLocked
+        ? monthPlans.filter(p =>
+          p.unlock_status !== 'approved' &&
+          p.unlock_status !== 'pending' &&
+          !(p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date()) &&
+          !(p.unlock_status === 'approved' && p.approved_until && new Date(p.approved_until) > new Date())
+        )
+        : [];
 
       if (lockedItems.length === 0) {
         toast({ title: 'No Items', description: 'No locked items found to unlock.', variant: 'info' });
@@ -1601,18 +1614,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   // Open bulk unlock modal for a specific month (called from ReportStatusMenu)
   const handleOpenBulkUnlockForMonth = (month) => {
-    // Calculate locked items for the specified month
+    // FIX: Use month-level lock check, then count plans not already approved/pending/in grace period
+    const isMonthLocked = isPlanLocked(month, CURRENT_YEAR, null, null, lockSettings);
     const monthPlans = plans.filter(p => p.month === month);
-    const lockedItems = monthPlans.filter(p =>
-      p.unlock_status !== 'approved' && p.unlock_status !== 'pending' &&
-      isPlanLocked(month, CURRENT_YEAR, p.unlock_status, p.approved_until, lockSettings, p.temporary_unlock_expiry)
-    );
+    const lockedCount = isMonthLocked
+      ? monthPlans.filter(p =>
+        p.unlock_status !== 'approved' &&
+        p.unlock_status !== 'pending' &&
+        !(p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date()) &&
+        !(p.unlock_status === 'approved' && p.approved_until && new Date(p.approved_until) > new Date())
+      ).length
+      : 0;
 
     setBulkUnlockModal({
       isOpen: true,
       month: month,
       year: CURRENT_YEAR,
-      lockedCount: lockedItems.length
+      lockedCount: lockedCount
     });
     setBulkUnlockReason('');
   };
@@ -1626,8 +1644,28 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
     setBulkUnlocking(true);
     try {
-      // Get all locked item IDs for this month
-      const lockedIds = monthLockStatus.lockedItems.map(p => p.id);
+      // FIX: Re-derive locked items at submission time using the same month-level check.
+      // Previously relied on monthLockStatus.lockedItems which could be empty if 
+      // per-plan isPlanLocked() checks returned false despite the month being locked.
+      const targetMonth = bulkUnlockModal.month || selectedMonth;
+      const isMonthLocked = isPlanLocked(targetMonth, CURRENT_YEAR, null, null, lockSettings);
+
+      let lockedIds;
+      if (isMonthLocked) {
+        // Month is date-locked: collect all plans not already approved, pending, or in grace period
+        const monthPlans = plans.filter(p => p.month === targetMonth);
+        lockedIds = monthPlans
+          .filter(p =>
+            p.unlock_status !== 'approved' &&
+            p.unlock_status !== 'pending' &&
+            !(p.temporary_unlock_expiry && new Date(p.temporary_unlock_expiry) > new Date()) &&
+            !(p.unlock_status === 'approved' && p.approved_until && new Date(p.approved_until) > new Date())
+          )
+          .map(p => p.id);
+      } else {
+        // Fallback to the memoized value if month-level check says unlocked
+        lockedIds = monthLockStatus.lockedItems.map(p => p.id);
+      }
 
       if (lockedIds.length === 0) {
         toast({ title: 'No Items', description: 'No locked items found to unlock.', variant: 'info' });

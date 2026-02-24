@@ -58,9 +58,17 @@ ALTER TABLE public.annual_targets
 -- Department codes may overlap across companies, so add company_id.
 ALTER TABLE public.historical_stats
     DROP CONSTRAINT IF EXISTS historical_stats_department_code_year_month_key;
-ALTER TABLE public.historical_stats
-    ADD CONSTRAINT historical_stats_dept_year_month_company_key
-    UNIQUE (department_code, year, month, company_id);
+DO $$
+BEGIN
+    -- Hapus aturan jika sudah pernah ada sebelumnya
+    ALTER TABLE public.historical_stats 
+        DROP CONSTRAINT IF EXISTS historical_stats_dept_year_month_company_key;
+    
+    -- Pasang kembali aturan secara bersih
+    ALTER TABLE public.historical_stats
+        ADD CONSTRAINT historical_stats_dept_year_month_company_key
+        UNIQUE (department_code, year, month, company_id);
+END $$;
 
 
 -- ─── 5. ENABLE RLS AND CREATE TENANT ISOLATION POLICIES ────────────────────

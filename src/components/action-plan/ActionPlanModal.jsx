@@ -6,13 +6,16 @@ import { usePermission } from '../../hooks/usePermission';
 import { supabase, MONTHS, STATUS_OPTIONS, REPORT_FORMATS, BLOCKER_CATEGORIES, ATTENTION_LEVELS } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useDepartmentUsers } from '../../hooks/useDepartmentUsers';
+import { useScoringPolicies } from '../../hooks/usePicProfiles';
+import { getPicDisplayName, batchResolveProfiles, isUserPicOfPlan } from '../../utils/picUtils';
 import { useToast } from '../common/Toast';
 import { getLockStatus, getLockStatusMessage } from '../../utils/lockUtils';
 import { validateBlockerReason, getMinReasonLength, buildBlockerResetFields, getFilteredAttentionLevels } from '../../utils/escalationUtils';
 import { fetchDropPolicySettings, isDropApprovalRequired } from '../../utils/resolutionWizardUtils';
 import EvidenceManager from './EvidenceManager';
+import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
-export default function ActionPlanModal({ isOpen, onClose, onSave, editData, departmentCode, staffMode = false, onRecall }) {
+export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, editData, departmentCode, staffMode = false, onRecall }) {
   const { profile, isAdmin, isExecutive, isLeader, departmentCode: userDeptCode } = useAuth();
   const { activeCompanyId } = useCompanyContext();
   const { can } = usePermission();
@@ -24,13 +27,18 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const canEditFull = can('action_plan', 'edit'); // Full edit access (planning details)
   const canUpdateStatus = can('action_plan', 'update_status'); // Status/evidence updates only
 
+  // Ownership check: if user is PIC (main or support) of THIS plan, grant submission access
+  // This ensures staff members assigned as PIC can always see the Save button
+  const isOwnerOfPlan = editData ? isUserPicOfPlan(editData, profile) : false;
+
   // Determine access mode:
   // - isFullEditMode: Can edit ALL fields (planning + execution)
   // - isSubmissionMode: Can ONLY edit execution fields (status, evidence, remarks)
+  //   Now also grants access when user is the assigned PIC (ownership override)
   // - isReadOnly: Cannot edit anything
   const isCreating = !editData;
   const isFullEditMode = isCreating ? canCreate : canEditFull;
-  const isSubmissionMode = !isFullEditMode && canUpdateStatus && !isCreating;
+  const isSubmissionMode = !isFullEditMode && (canUpdateStatus || isOwnerOfPlan) && !isCreating;
 
   // Executives have read-only access regardless of permissions
   const isReadOnly = isExecutive || (!isFullEditMode && !isSubmissionMode);
@@ -84,9 +92,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   useEffect(() => {
     const fetchLockSettings = async () => {
       try {
+        // MULTI-TENANT: scope both queries to the active company
         const [settingsResult, schedulesResult] = await Promise.all([
-          supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day').eq('id', 1).single(),
-          supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open')
+          supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day').eq('company_id', activeCompanyId).maybeSingle(),
+          supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open').eq('company_id', activeCompanyId)
         ]);
 
         setLockSettings({
@@ -101,7 +110,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
 
     const loadDropPolicy = async () => {
       try {
-        const policy = await fetchDropPolicySettings();
+        const policy = await fetchDropPolicySettings(activeCompanyId);
         setDropPolicy(policy);
       } catch (err) {
         console.error('Error fetching drop policy:', err);
@@ -179,13 +188,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       staffMode,
       isAdmin,
       isLeader,
+      isOwnerOfPlan,
       userDept,
       planDept,
       profileDept: profile?.department_code,
       isMatch: userDept === planDept,
       isFullEditMode,
       isSubmissionMode,
-      result: staffMode ? 'STAFF_MODE' : isAdmin ? 'ADMIN' : isFullEditMode ? 'FULL_EDIT' : isSubmissionMode ? 'SUBMISSION_ONLY' : 'NO_ACCESS'
+      result: staffMode ? 'STAFF_MODE' : isAdmin ? 'ADMIN' : isFullEditMode ? 'FULL_EDIT' : isSubmissionMode ? 'SUBMISSION_ONLY' : isOwnerOfPlan ? 'OWNER_SUBMISSION' : 'NO_ACCESS'
     });
 
     // If in submission-only mode, return false for full access (but submission fields will still be editable)
@@ -215,7 +225,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     goal_strategy: '',
     action_plan: '',
     indicator: '',
-    pic: '',
+    pic_ids: [],
+    support_pic_ids: [],
     evidence: '',
     report_format: 'Monthly Report',
     status: 'Open',
@@ -224,6 +235,34 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     blocker_category: null,
     attention_level: 'Standard',
   });
+
+  // Fetch scoring policies (allow_multiple_pics toggle)
+  const { policies: scoringPolicies } = useScoringPolicies(activeCompanyId);
+  const allowMultiplePics = scoringPolicies.allow_multiple_pics;
+
+  // Profile map for resolving edit data PIC names (display in read-only section)
+  const [editPicNames, setEditPicNames] = useState('');
+  const [editSupportPicNames, setEditSupportPicNames] = useState('');
+
+  // Resolve PIC names for edit data display
+  useEffect(() => {
+    if (!editData) return;
+    const uuids = [
+      ...(editData.pic_ids || []),
+      ...(editData.support_pic_ids || []),
+    ].filter(Boolean);
+    if (uuids.length === 0) {
+      setEditPicNames(editData.legacy_pic_text || editData.pic || '—');
+      setEditSupportPicNames('');
+      return;
+    }
+    batchResolveProfiles(uuids).then(map => {
+      const picNames = (editData.pic_ids || []).map(id => map.get(id)?.full_name).filter(Boolean).join(', ');
+      setEditPicNames(picNames || editData.legacy_pic_text || editData.pic || '—');
+      const supportNames = (editData.support_pic_ids || []).map(id => map.get(id)?.full_name).filter(Boolean).join(', ');
+      setEditSupportPicNames(supportNames);
+    });
+  }, [editData]);
 
   // Attachments state (multi-file evidence)
   const [attachments, setAttachments] = useState([]);
@@ -313,11 +352,19 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const fetchFailureReasons = async () => {
     setLoadingReasons(true);
     try {
+      // HYDRATION GUARD
+      if (!activeCompanyId) {
+        setFailureReasons([]);
+        setLoadingReasons(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('dropdown_options')
         .select('id, label, sort_order')
         .eq('category', 'failure_reason')
         .eq('is_active', true)
+        .eq('company_id', activeCompanyId)
         .order('sort_order', { ascending: true });
 
       if (error) throw error;
@@ -334,22 +381,36 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
   const fetchDropdownOptions = async () => {
     setLoadingDropdowns(true);
     try {
+      // HYDRATION GUARD: Don't fetch until company context resolves
+      if (!activeCompanyId) {
+        setAreaFocusOptions([]);
+        setCategoryOptions([]);
+        setGoalOptions([]);
+        setActionPlanOptions([]);
+        setLoadingDropdowns(false);
+        return;
+      }
+
       // Fetch standard dropdown_options (category, goal, action_plan)
+      // MULTI-TENANT: Strict company_id filter to prevent cross-tenant leakage
       const { data: dropdownData, error: dropdownErr } = await supabase
         .from('dropdown_options')
         .select('id, label, category, sort_order')
         .in('category', ['category', 'goal', 'action_plan'])
         .eq('is_active', true)
+        .eq('company_id', activeCompanyId)
         .order('sort_order', { ascending: true });
 
       if (dropdownErr) throw dropdownErr;
 
       // Fetch AREA_OF_FOCUS from master_options
+      // MULTI-TENANT: Strict company_id filter
       const { data: areaData, error: areaErr } = await supabase
         .from('master_options')
         .select('id, label, value, category, sort_order, is_active')
         .eq('category', 'AREA_OF_FOCUS')
         .eq('is_active', true)
+        .eq('company_id', activeCompanyId)
         .order('sort_order', { ascending: true });
 
       if (areaErr) throw areaErr;
@@ -395,6 +456,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     if (editData) {
       setFormData({
         ...editData,
+        pic_ids: editData.pic_ids || [],
+        support_pic_ids: editData.support_pic_ids || [],
         blocker_category: editData.blocker_category ?? null,
         attention_level: editData.attention_level ?? 'Standard',
         // If _prefillStatus is set (e.g., from "Resolve Blocker" button), override the status
@@ -538,7 +601,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         goal_strategy: '',
         action_plan: '',
         indicator: '',
-        pic: '',
+        pic_ids: [],
+        support_pic_ids: [],
         report_format: 'Monthly Report',
         status: 'Open',
         outcome_link: '',
@@ -571,7 +635,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
     setFormData(prev => ({
       ...prev,
       department_code: newDeptCode,
-      pic: '' // Reset PIC when department changes
+      pic_ids: [], // Reset PICs when department changes
+      support_pic_ids: [],
     }));
   };
 
@@ -694,6 +759,18 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
       // Prepare the final form data
       let finalFormData = { ...formData };
 
+      // MULTI-PIC: Ensure pic_ids and support_pic_ids are clean UUID arrays
+      finalFormData.pic_ids = Array.isArray(formData.pic_ids) ? formData.pic_ids.filter(Boolean) : [];
+      finalFormData.support_pic_ids = Array.isArray(formData.support_pic_ids) ? formData.support_pic_ids.filter(Boolean) : [];
+
+      // Remove legacy fields from payload — never overwrite legacy_pic_text or old 'pic' column
+      delete finalFormData.pic;
+      delete finalFormData.legacy_pic_text;
+
+      // Remove internal-only fields that shouldn't be sent to DB
+      delete finalFormData._prefillStatus;
+      delete finalFormData._blockerPrefill;
+
       // Attach multi-file evidence array + backward-compat outcome_link
       finalFormData.attachments = attachments;
       if (attachments.length > 0) {
@@ -790,6 +867,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
         }));
 
         await onSave(payloads, true); // Pass true to indicate bulk insert
+        toast({
+          title: '✅ Plans Created',
+          description: `Successfully created ${payloads.length} action plans.`,
+          variant: 'success'
+        });
       } else {
         // Single create/update
         console.log('[ActionPlanModal.handleSubmit] Calling onSave...');
@@ -814,6 +896,41 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
             // Don't fail the whole operation, just log the error
           }
         }
+
+        // IMMEDIATE CARRY-OVER: If user selected "Carry Over", trigger via parent's handler
+        // The parent's carryOverPlan() calls the RPC AND updates React state automatically
+        if (editData?.id && followUpAction === 'carry_over' && onCarryOver) {
+          console.log('🔍 [ActionPlanModal] Triggering immediate carry-over for plan:', editData.id);
+          try {
+            const coResult = await onCarryOver(editData.id);
+            console.log('✅ [ActionPlanModal] Carry-over success:', coResult);
+            toast({
+              title: '⏭️ Carried Over Successfully',
+              description: `Plan saved and carried over to ${coResult?.next_month || 'next month'} ${coResult?.next_year || ''} (max score: ${coResult?.max_possible_score ?? 80}%).`,
+              variant: 'success'
+            });
+            // Skip the regular success toast since we showed the carry-over one
+            onClose();
+            return;
+          } catch (coError) {
+            console.error('🚨 CARRY OVER FAILED (ActionPlanModal):', coError.message, coError);
+            // Save succeeded but carry-over failed — warn user but don't block
+            toast({
+              title: '⚠️ Carry Over Failed',
+              description: `Changes saved, but carry-over failed: ${coError.message}. The plan will be carried over when the report is submitted.`,
+              variant: 'warning'
+            });
+          }
+        }
+
+        // Show contextual success toast
+        toast({
+          title: editData ? '✅ Changes Saved' : '✅ Action Plan Created',
+          description: editData
+            ? `"${finalFormData.action_plan?.substring(0, 50) || 'Action plan'}${(finalFormData.action_plan?.length || 0) > 50 ? '...' : ''}" updated successfully.`
+            : `New action plan created successfully.`,
+          variant: 'success'
+        });
       }
       onClose();
     } catch (error) {
@@ -861,6 +978,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
 
         {/* SCROLLABLE BODY */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Subsidiary context badge — only for new plan creation */}
+          {!editData && <SubsidiaryBanner />}
           {/* REVISION REQUESTED ALERT - Shows when Management sent item back for revision */}
           {editData?.admin_feedback &&
             editData?.submission_status !== 'submitted' &&
@@ -1327,35 +1446,90 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   PIC (Person In Charge)
+                  {allowMultiplePics && (
+                    <span className="ml-2 text-xs text-teal-600 font-normal">(Multi-select enabled)</span>
+                  )}
                 </label>
                 <div className="relative">
-                  <select
-                    value={formData.pic}
-                    onChange={(e) => setFormData({ ...formData, pic: e.target.value })}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''
-                      }`}
-                    required
-                    disabled={!formData.department_code || loadingStaff}
-                  >
-                    <option value="">
-                      {!formData.department_code
-                        ? 'Select department first'
-                        : loadingStaff
-                          ? 'Loading...'
-                          : filteredStaff.length === 0
-                            ? 'No staff in this dept'
-                            : 'Select PIC'}
-                    </option>
-                    {filteredStaff.map((staff) => (
-                      <option key={staff.id} value={staff.full_name}>
-                        {staff.full_name}
-                        {staff.role === 'leader' ? ' (Leader)' : ''}
-                        {staff.isPrimary ? ' - Primary' : staff.isSecondary ? ' - Access Rights' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {loadingStaff && (
-                    <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                  {allowMultiplePics ? (
+                    /* Multi-select mode: Checkbox list */
+                    <div className={`w-full border border-gray-300 rounded-lg overflow-hidden ${!formData.department_code ? 'bg-gray-50' : ''}`}>
+                      {!formData.department_code ? (
+                        <p className="px-3 py-2 text-sm text-gray-400">Select department first</p>
+                      ) : loadingStaff ? (
+                        <p className="px-3 py-2 text-sm text-gray-400 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                        </p>
+                      ) : filteredStaff.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-400">No staff in this dept</p>
+                      ) : (
+                        <div className="max-h-40 overflow-y-auto">
+                          {filteredStaff.map((staff) => (
+                            <label
+                              key={staff.id}
+                              className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-teal-50 text-sm transition-colors ${(formData.pic_ids || []).includes(staff.id) ? 'bg-teal-50 text-teal-800' : 'text-gray-700'
+                                }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={(formData.pic_ids || []).includes(staff.id)}
+                                onChange={(e) => {
+                                  const currentIds = formData.pic_ids || [];
+                                  const newIds = e.target.checked
+                                    ? [...currentIds, staff.id]
+                                    : currentIds.filter(id => id !== staff.id);
+                                  setFormData({ ...formData, pic_ids: newIds });
+                                }}
+                                className="rounded text-teal-600 focus:ring-teal-500"
+                              />
+                              <span>{staff.full_name}</span>
+                              {staff.role === 'leader' && <span className="text-xs text-teal-600">(Leader)</span>}
+                              {staff.isPrimary ? (
+                                <span className="text-xs text-gray-400">Primary</span>
+                              ) : staff.isSecondary ? (
+                                <span className="text-xs text-gray-400">Access Rights</span>
+                              ) : null}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {(formData.pic_ids || []).length > 0 && (
+                        <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+                          {(formData.pic_ids || []).length} PIC(s) selected
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Single-select mode: Standard dropdown */
+                    <>
+                      <select
+                        value={(formData.pic_ids || [])[0] || ''}
+                        onChange={(e) => setFormData({ ...formData, pic_ids: e.target.value ? [e.target.value] : [] })}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''}`}
+                        required
+                        disabled={!formData.department_code || loadingStaff}
+                      >
+                        <option value="">
+                          {!formData.department_code
+                            ? 'Select department first'
+                            : loadingStaff
+                              ? 'Loading...'
+                              : filteredStaff.length === 0
+                                ? 'No staff in this dept'
+                                : 'Select PIC'}
+                        </option>
+                        {filteredStaff.map((staff) => (
+                          <option key={staff.id} value={staff.id}>
+                            {staff.full_name}
+                            {staff.role === 'leader' ? ' (Leader)' : ''}
+                            {staff.isPrimary ? ' - Primary' : staff.isSecondary ? ' - Access Rights' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {loadingStaff && (
+                        <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                      )}
+                    </>
                   )}
                 </div>
                 {formData.department_code && filteredStaff.length === 0 && !loadingStaff && (
@@ -1364,6 +1538,55 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
                     No team members found. Add users in Team Management.
                   </p>
                 )}
+              </div>
+
+              {/* Row 5c: Support / Contributors (Optional Multi-select) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Contributors / Support <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                </label>
+                <div className={`w-full border border-gray-300 rounded-lg overflow-hidden ${!formData.department_code ? 'bg-gray-50' : ''}`}>
+                  {!formData.department_code ? (
+                    <p className="px-3 py-2 text-sm text-gray-400">Select department first</p>
+                  ) : loadingStaff ? (
+                    <p className="px-3 py-2 text-sm text-gray-400 flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                    </p>
+                  ) : filteredStaff.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-gray-400">No staff available</p>
+                  ) : (
+                    <div className="max-h-32 overflow-y-auto">
+                      {filteredStaff
+                        .filter(s => !(formData.pic_ids || []).includes(s.id)) // Exclude main PICs
+                        .map((staff) => (
+                          <label
+                            key={staff.id}
+                            className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm transition-colors ${(formData.support_pic_ids || []).includes(staff.id) ? 'bg-blue-50 text-blue-800' : 'text-gray-700'
+                              }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={(formData.support_pic_ids || []).includes(staff.id)}
+                              onChange={(e) => {
+                                const currentIds = formData.support_pic_ids || [];
+                                const newIds = e.target.checked
+                                  ? [...currentIds, staff.id]
+                                  : currentIds.filter(id => id !== staff.id);
+                                setFormData({ ...formData, support_pic_ids: newIds });
+                              }}
+                              className="rounded text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>{staff.full_name}</span>
+                          </label>
+                        ))}
+                    </div>
+                  )}
+                  {(formData.support_pic_ids || []).length > 0 && (
+                    <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+                      {(formData.support_pic_ids || []).length} contributor(s) selected
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Row 6: Evidence (Full Width) */}
@@ -1420,8 +1643,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, editData, dep
               </div>
               <div className="text-sm">
                 <span className="text-gray-500">PIC:</span>
-                <span className="ml-2 font-medium text-gray-800">{editData.pic}</span>
+                <span className="ml-2 font-medium text-gray-800">{editPicNames}</span>
               </div>
+              {editSupportPicNames && (
+                <div className="text-sm">
+                  <span className="text-gray-500">Support:</span>
+                  <span className="ml-2 font-medium text-gray-800">{editSupportPicNames}</span>
+                </div>
+              )}
               {editData.evidence && (
                 <div>
                   <span className="text-gray-500 text-sm">Evidence (Target Output):</span>

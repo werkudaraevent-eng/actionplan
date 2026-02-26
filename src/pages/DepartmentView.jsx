@@ -46,7 +46,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const canManagePlans = (isAdmin || isLeader) && !isExecutive && canCreatePlan; // Executives cannot manage plans
   const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
-  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode, activeCompanyId);
+  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, carryOverPlan, refetch } = useActionPlans(departmentCode, activeCompanyId);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -134,16 +134,16 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // Fetch lock settings on mount
   useEffect(() => {
     const fetchLockSettings = async () => {
-      try {
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('is_lock_enabled, lock_cutoff_day')
-          .eq('id', 1)
-          .single();
+      // HYDRATION GUARD: wait for company context
+      if (!activeCompanyId) return;
 
-        const { data: schedulesData } = await supabase
-          .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date, is_force_open');
+      try {
+        // MULTI-TENANT: always scope to active company
+        let settingsQuery = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day').eq('company_id', activeCompanyId);
+        let schedulesQuery = supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open').eq('company_id', activeCompanyId);
+
+        const { data: settingsData } = await settingsQuery.maybeSingle();
+        const { data: schedulesData } = await schedulesQuery;
 
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
@@ -156,7 +156,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     };
 
     fetchLockSettings();
-  }, []);
+  }, [activeCompanyId]);
 
   // REALTIME: Subscribe to lock settings changes (prevents stale state bug)
   // When admin updates deadlines, users see changes immediately without refresh
@@ -169,12 +169,12 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         { event: '*', schema: 'public', table: 'system_settings' },
         async (payload) => {
           console.log('[Realtime] system_settings changed:', payload);
-          // Re-fetch settings on any change
-          const { data } = await supabase
-            .from('system_settings')
-            .select('is_lock_enabled, lock_cutoff_day')
-            .eq('id', 1)
-            .single();
+          // MULTI-TENANT: re-fetch scoped to active company
+          let query = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day');
+          if (activeCompanyId) {
+            query = query.eq('company_id', activeCompanyId);
+          }
+          const { data } = await query.maybeSingle();
 
           if (data) {
             setLockSettings(prev => ({
@@ -430,7 +430,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           plan.goal_strategy,
           plan.action_plan,
           plan.indicator,
-          plan.pic,
+          plan.legacy_pic_text || plan.pic,
           plan.remark,
         ].filter(Boolean);
 
@@ -484,7 +484,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         row.action_plan,
         row.indicator,
         row.evidence,
-        row.pic
+        (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic
       ].map(val => String(val || '').trim().toLowerCase()).join('|');
       grouped.add(fingerprint);
     });
@@ -1340,7 +1340,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             goal_strategy: formData.goal_strategy,
             action_plan: formData.action_plan,
             indicator: formData.indicator,
-            pic: formData.pic,
+            pic_ids: formData.pic_ids,
+            support_pic_ids: formData.support_pic_ids,
             report_format: formData.report_format,
             status: formData.status,
             outcome_link: formData.outcome_link,
@@ -1487,55 +1488,22 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setIsModalOpen(true);
   };
 
-  // Carry Over handler - creates a new action plan for the next month
-  // NOTE: The DB trigger automatically logs CARRY_OVER to audit_logs when is_carry_over=true
+  // Carry Over handler - uses the centralized carry_over_plan RPC
+  // This ensures proper penalty tracking, audit logging, and field copying
   const handleCarryOver = async (item) => {
     try {
-      // Calculate next month
-      const currentMonthIndex = MONTHS_ORDER.indexOf(item.month);
-      const nextMonthIndex = (currentMonthIndex + 1) % 12;
-      const nextMonth = MONTHS_ORDER[nextMonthIndex];
-      const nextYear = nextMonthIndex === 0 ? (item.year || CURRENT_YEAR) + 1 : (item.year || CURRENT_YEAR);
-
-      // Create new action plan with copied details
-      // The DB trigger will automatically create a CARRY_OVER audit log entry
-      const newPlan = {
-        department_code: item.department_code,
-        year: nextYear,
-        month: nextMonth,
-        goal_strategy: item.goal_strategy,
-        action_plan: item.action_plan,
-        indicator: item.indicator,
-        pic: item.pic,
-        report_format: item.report_format || 'Monthly Report',
-        area_focus: item.area_focus,
-        category: item.category,
-        status: 'Open',
-        is_carry_over: true,
-        submission_status: 'draft',
-        // MULTI-TENANT: stamp company_id on carried-over plans
-        ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
-      };
-
-      const { error } = await supabase
-        .from('action_plans')
-        .insert(newPlan);
-
-      if (error) throw error;
-
-      // Refresh data
-      await refetch();
+      const result = await carryOverPlan(item.id);
 
       toast({
         title: '⏭️ Plan Carried Over',
-        description: `Action plan has been carried over to ${nextMonth} ${nextYear}.`,
+        description: `Action plan has been carried over to ${result?.next_month || 'next month'} ${result?.next_year || ''} (max score: ${result?.max_possible_score ?? 80}%).`,
         variant: 'success'
       });
     } catch (error) {
       console.error('Carry over failed:', error);
       toast({
-        title: 'Carry Over Failed',
-        description: 'Failed to carry over the action plan. Please try again.',
+        title: '❌ Carry Over Failed',
+        description: error.message || 'Failed to carry over the action plan. Please try again.',
         variant: 'error'
       });
     }
@@ -1995,6 +1963,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
+        onCarryOver={carryOverPlan}
         editData={editData}
         departmentCode={departmentCode}
         onRecall={handleSingleRecall}

@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { useToast } from '../common/Toast';
+import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
 const TEMPLATE_HEADERS = [
   'Department Code',
@@ -176,6 +177,57 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     setFile(file);
   };
 
+  /**
+   * Build a name → UUID lookup from all profiles.
+   * Returns Map<lowercase_full_name, uuid>
+   */
+  const buildProfileLookup = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .not('full_name', 'is', null);
+
+    if (error) {
+      console.error('Failed to fetch profiles for PIC mapping:', error);
+      return new Map();
+    }
+
+    const lookup = new Map();
+    (data || []).forEach(p => {
+      if (p.full_name) {
+        lookup.set(p.full_name.trim().toLowerCase(), p.id);
+      }
+    });
+    return lookup;
+  };
+
+  /**
+   * Resolve PIC column string to { picIds, legacyPicText }.
+   * Handles comma-separated names: "John Doe, Jane Doe"
+   * Matched names → picIds[]; unmatched names → legacyPicText (fallback).
+   */
+  const resolvePicNames = (picRaw, profileLookup) => {
+    if (!picRaw || !picRaw.trim()) return { picIds: [], legacyPicText: null };
+
+    const names = picRaw.split(',').map(n => n.trim()).filter(Boolean);
+    const picIds = [];
+    const unmatchedNames = [];
+
+    for (const name of names) {
+      const uuid = profileLookup.get(name.toLowerCase());
+      if (uuid) {
+        picIds.push(uuid);
+      } else {
+        unmatchedNames.push(name);
+      }
+    }
+
+    return {
+      picIds,
+      legacyPicText: unmatchedNames.length > 0 ? unmatchedNames.join(', ') : (picIds.length === 0 ? picRaw.trim() : null),
+    };
+  };
+
   const validateRow = (row) => {
     const errors = [];
 
@@ -228,6 +280,9 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
           // defval: "" ensures empty cells aren't undefined
           const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
+          // Build name → UUID lookup from profiles BEFORE processing rows
+          const profileLookup = await buildProfileLookup();
+
           let successCount = 0;
           let failedCount = 0;
           const errorDetails = [];
@@ -259,6 +314,10 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               continue;
             }
 
+            // Resolve PIC names to UUIDs using the profile lookup
+            const picRaw = mappedRow['PIC']?.toString().trim() || '';
+            const { picIds, legacyPicText } = resolvePicNames(picRaw, profileLookup);
+
             // Create one record per parsed month (handles ranges like "Jan - Mar")
             for (const month of parsedMonths) {
               // NOTE: Score is NOT imported - it is graded later on the web by Management
@@ -271,7 +330,8 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 goal_strategy: mappedRow['Goal/Strategy']?.toString().trim(),
                 action_plan: mappedRow['Action Plan']?.toString().trim(),
                 indicator: mappedRow['Indicator']?.toString().trim(),
-                pic: mappedRow['PIC']?.toString().trim(),
+                pic_ids: picIds.length > 0 ? picIds : null,
+                legacy_pic_text: legacyPicText,
                 evidence: mappedRow['Evidence']?.toString().trim() || null,
                 status: 'Open', // Always start as Open for new imports
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
@@ -354,8 +414,11 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
         {/* SCROLLABLE CONTENT */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* Subsidiary context badge — always visible across all steps */}
+          <SubsidiaryBanner icon="📤" prefix="Importing data into" variant="import" />
+
           {step === 1 && (
-            <div className="space-y-5">
+            <div className="space-y-5 mt-4">
               {/* Year Selection */}
               <div className="bg-amber-50 border border-amber-100 rounded-lg p-4">
                 <p className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-2">
@@ -371,8 +434,8 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                       key={year}
                       onClick={() => setSelectedYear(year)}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${selectedYear === year
-                          ? 'bg-amber-600 text-white'
-                          : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-100'
                         }`}
                     >
                       {year}

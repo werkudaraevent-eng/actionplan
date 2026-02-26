@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, ArrowRight, X, Loader2, CornerDownRight, Ban, CheckCircle2, ShieldAlert, Send, Pencil, Undo2, Rocket } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { useToast } from '../common/Toast';
 import { supabase } from '../../lib/supabase';
 import {
@@ -49,6 +50,7 @@ export default function ResolutionWizardModal({
   draftCount = 0
 }) {
   const { profile } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { toast } = useToast();
 
   const [step, setStep] = useState('RESOLVE'); // 'RESOLVE' | 'CONFIRM'
@@ -83,7 +85,7 @@ export default function ResolutionWizardModal({
 
     Promise.all([
       fetchCarryOverSettings(),
-      fetchDropPolicySettings(),
+      fetchDropPolicySettings(activeCompanyId),
     ])
       .then(([carryOverSettings, dropPolicySettings]) => {
         setSettings(carryOverSettings);
@@ -402,7 +404,7 @@ export default function ResolutionWizardModal({
                             {coLabel && (
                               <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">{coLabel}</span>
                             )}
-                            {item.pic && <span className="text-xs text-gray-400">PIC: {item.pic}</span>}
+                            {(item.legacy_pic_text || item.pic) && <span className="text-xs text-gray-400">PIC: {item.legacy_pic_text || item.pic}</span>}
                           </div>
                         </div>
                       </div>

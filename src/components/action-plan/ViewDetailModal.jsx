@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Copy, Check, User, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, Lock, Clock, Loader2, History, ShieldAlert, ArrowUpCircle, Edit3, Send, MoreHorizontal, Pencil, List, Hourglass, Megaphone, Image, FileSpreadsheet, Download, Link2 } from 'lucide-react';
+import { X, Copy, Check, User, Users, Calendar, Building2, Target, Flag, FileText, Sparkles, CheckCircle, Star, ExternalLink, Lock, Clock, Loader2, History, ShieldAlert, ArrowUpCircle, Edit3, Send, MoreHorizontal, Pencil, List, Hourglass, Megaphone, Image, FileSpreadsheet, Download, Link2 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { supabase, withTimeout } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import { getBlockedDays, getBlockedSeverity } from '../../utils/escalationUtils';
+import { isUserPicOfPlan, getPicDisplayName, batchResolveProfiles } from '../../utils/picUtils';
 import { extractMentionIds, getPlainTextFromMentions } from '../../utils/mentionUtils';
 import MentionInput from '../common/MentionInput';
 import SharedHistoryTimeline from './SharedHistoryTimeline';
@@ -86,14 +87,45 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
   }, [initialPlan]);
 
   // Permission check
-  const userName = profile?.full_name || '';
-  const normalizedUserName = userName.trim().toLowerCase();
-  const normalizedPic = (plan?.pic || '').trim().toLowerCase();
-  const isPlanOwner = normalizedUserName && normalizedPic && normalizedUserName === normalizedPic;
+  const isPlanOwner = isUserPicOfPlan(plan, profile);
   const canTakeAction = isAdmin || isLeader || isPlanOwner;
 
   // Separate permission for commenting — executives can comment but not edit plan data
   const canComment = isAdmin || isLeader || isExecutive || isPlanOwner;
+
+  // Resolve PIC display name (async, cached)
+  const [picDisplayName, setPicDisplayName] = useState(plan?.pic || plan?.legacy_pic_text || '—');
+  const [supportPicDisplayName, setSupportPicDisplayName] = useState(null);
+
+  // Stabilize dependency to avoid infinite re-renders (same fix as usePicProfiles)
+  const picIdsKey = Array.isArray(plan?.pic_ids) ? [...plan.pic_ids].sort().join(',') : '';
+  const supportIdsKey = Array.isArray(plan?.support_pic_ids) ? [...plan.support_pic_ids].sort().join(',') : '';
+
+  useEffect(() => {
+    if (!plan) return;
+
+    // Resolve main PICs
+    const picIds = plan.pic_ids || [];
+    if (picIds.length === 0) {
+      setPicDisplayName(plan.legacy_pic_text || plan.pic || '—');
+    } else {
+      batchResolveProfiles(picIds).then(map => {
+        const names = picIds.map(id => map.get(id)?.full_name).filter(Boolean).join(', ');
+        setPicDisplayName(names || plan.legacy_pic_text || plan.pic || '—');
+      });
+    }
+
+    // Resolve support PICs
+    const supportIds = plan.support_pic_ids || [];
+    if (supportIds.length === 0) {
+      setSupportPicDisplayName(null);
+    } else {
+      batchResolveProfiles(supportIds).then(map => {
+        const names = supportIds.map(id => map.get(id)?.full_name).filter(Boolean).join(', ');
+        setSupportPicDisplayName(names || null);
+      });
+    }
+  }, [picIdsKey, supportIdsKey]);
 
   // Executive + Management_BOD = dedicated decision panel mode
   const planIsFinal = plan?.status === 'Achieved' || plan?.status === 'Not Achieved';
@@ -298,24 +330,15 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
         }
 
         // 2. Auto-notify PIC (plan owner) if commenter is not the PIC
-        const picName = (plan.pic || '').trim().toLowerCase();
-        const commenterName = (profile.full_name || '').trim().toLowerCase();
-        if (picName && picName !== commenterName) {
-          // Look up PIC's profile by name to get their user ID
-          const { data: picProfiles } = await supabase
-            .from('profiles')
-            .select('id')
-            .ilike('full_name', plan.pic.trim())
-            .limit(1);
-
-          const picUserId = picProfiles?.[0]?.id;
-          if (picUserId && picUserId !== profile.id) {
-            // Only add if PIC wasn't already @mentioned (avoid duplicate)
-            const alreadyMentioned = mentionedIds.includes(picUserId);
-            if (!alreadyMentioned) {
+        const picIds = plan.pic_ids || [];
+        if (picIds.length > 0) {
+          picIds
+            .filter(picId => picId !== profile.id) // Don't notify yourself
+            .filter(picId => !mentionedIds.includes(picId)) // Avoid duplicate with @mention
+            .forEach(picId => {
               const isExecOrAdmin = isExecutive || isAdmin;
               notificationsToInsert.push({
-                user_id: picUserId,
+                user_id: picId,
                 actor_id: profile.id,
                 resource_id: plan.id,
                 resource_type: 'ACTION_PLAN',
@@ -323,8 +346,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                 title: isExecOrAdmin ? '📢 New Feedback from Management' : '💬 New Comment',
                 message: `${senderName} commented on "${planLabel}"`,
               });
-            }
-          }
+            });
         }
 
         if (notificationsToInsert.length > 0) {
@@ -406,12 +428,12 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
         );
 
         if (recipients && recipients.length > 0) {
-          // Filter: leaders of this dept + staff whose name matches PIC
-          const picName = (plan.pic || '').trim().toLowerCase();
+          // Filter: leaders of this dept + PIC user IDs from pic_ids
+          const picIds = plan.pic_ids || [];
           const targetUsers = recipients.filter(r => {
             if (r.id === profile.id) return false; // Don't notify yourself
             if (r.role === 'leader') return true;
-            if (r.role === 'staff' && picName && r.full_name?.trim().toLowerCase() === picName) return true;
+            if (picIds.includes(r.id)) return true; // PIC by UUID
             return false;
           });
 
@@ -664,7 +686,17 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center"><User className="w-4 h-4 text-purple-600" /></div>
-                  <div><p className="text-xs text-gray-500">Person In Charge</p><p className="text-sm font-medium text-gray-800">{plan.pic || '—'}</p></div>
+                  <div><p className="text-xs text-gray-500">Person In Charge</p><p className="text-sm font-medium text-gray-800">{picDisplayName}</p></div>
+                </div>
+                {/* Contributors / Support PICs */}
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center"><Users className="w-4 h-4 text-indigo-600" /></div>
+                  <div>
+                    <p className="text-xs text-gray-500">Contributors / Support</p>
+                    <p className={`text-sm font-medium ${supportPicDisplayName ? 'text-gray-800' : 'text-gray-400 italic'}`}>
+                      {supportPicDisplayName || 'None'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

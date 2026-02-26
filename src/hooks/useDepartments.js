@@ -13,6 +13,15 @@ export function useDepartments(companyId = null) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // HYDRATION GUARD: Do NOT fire the query until companyId has resolved.
+    // Without this, the initial render (companyId = null) fetches ALL companies'
+    // departments, causing a brief cross-tenant data bleed on page refresh.
+    if (!companyId) {
+      setDepartments([]);
+      setLoading(false);
+      return;
+    }
+
     const fetchDepartments = async () => {
       if (!supabase) {
         setError('Supabase not configured');
@@ -21,6 +30,9 @@ export function useDepartments(companyId = null) {
       }
 
       try {
+        // STATE CLEANUP: Clear previous tenant's data immediately to prevent
+        // showing "ghost" departments while the new query is in flight.
+        setDepartments([]);
         setLoading(true);
         setError(null);
 
@@ -29,17 +41,13 @@ export function useDepartments(companyId = null) {
         let query = supabase
           .from('departments')
           .select('*')  // Select all to check which columns exist
+          .eq('company_id', companyId) // STRICT: Always scope to tenant — never omit
           .order('name', { ascending: true });
-
-        // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant
-        if (companyId) {
-          query = query.eq('company_id', companyId);
-        }
 
         let { data, error: fetchError } = await query;
 
         // DEBUG: Log raw result
-        console.log('useDepartments: Raw fetch result:', data?.length || 0, 'departments', companyId ? `(company: ${companyId})` : '(all companies)');
+        console.log('useDepartments: Raw fetch result:', data?.length || 0, 'departments', `(company: ${companyId})`);
 
         if (fetchError) {
           console.error('useDepartments: Error fetching departments:', fetchError);

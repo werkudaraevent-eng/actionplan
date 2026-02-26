@@ -7,6 +7,8 @@ import { useCompanyContext } from '../../context/CompanyContext';
 import { usePermission } from '../../hooks/usePermission';
 import { STATUS_OPTIONS, supabase } from '../../lib/supabase';
 import { useDepartments } from '../../hooks/useDepartments';
+import { usePicProfiles } from '../../hooks/usePicProfiles';
+import { getPicDisplayName, isUserPicOfPlan } from '../../utils/picUtils';
 import { isPlanLocked, getLockStatus, getLockStatusMessage, checkLockStatusServerSide } from '../../utils/lockUtils';
 import { getBlockedDays, getBlockedSeverity, getBlockedDaysLabel } from '../../utils/escalationUtils';
 import { useToast } from '../../components/common/Toast';
@@ -324,7 +326,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
 // ActionCell Component - Uses Radix UI DropdownMenu for proper positioning in sticky columns
 function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuickReset, onEdit, onDelete, openHistory, onRequestUnlock, onCarryOver, onReportBlocker, isReadOnly = false, isDateLocked = false, lockStatusMessage = '', canEditPermission = true, canDeletePermission = true, canUpdateStatusPermission = true }) {
   // Determine edit permissions
-  const isOwnItem = item.pic?.toLowerCase() === profile?.full_name?.toLowerCase();
+  const isOwnItem = isUserPicOfPlan(item, profile);
   const isSubmissionLocked = item.submission_status === 'submitted';
   const isAchieved = item.status?.toLowerCase() === 'achieved';
   const isGraded = item.quality_score != null;
@@ -577,6 +579,9 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   const { isAdmin, isStaff, isLeader, profile } = useAuth();
   const { activeCompanyId } = useCompanyContext();
   const { departments } = useDepartments(activeCompanyId);
+
+  // Batch-resolve PIC UUIDs to display names
+  const { profileMap } = usePicProfiles(data);
   const [searchParams, setSearchParams] = useSearchParams();
   const { can, permissions, loading: permissionsLoading } = usePermission();
 
@@ -656,12 +661,17 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
   // Reusable function to fetch lock settings (deadline rules)
   const fetchLockSettings = async () => {
     try {
+      // MULTI-TENANT: scope to active company
+      let settingsQuery = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day');
+      let schedulesQuery = supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open');
+
+      if (activeCompanyId) {
+        settingsQuery = settingsQuery.eq('company_id', activeCompanyId);
+        schedulesQuery = schedulesQuery.eq('company_id', activeCompanyId);
+      }
+
       // Fetch system settings
-      const { data: settingsData, error: settingsError } = await supabase
-        .from('system_settings')
-        .select('is_lock_enabled, lock_cutoff_day')
-        .eq('id', 1)
-        .single();
+      const { data: settingsData, error: settingsError } = await settingsQuery.maybeSingle();
 
       if (settingsError) {
         console.error('Error fetching system settings:', settingsError);
@@ -669,9 +679,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       }
 
       // Fetch monthly overrides
-      const { data: schedulesData, error: schedulesError } = await supabase
-        .from('monthly_lock_schedules')
-        .select('month_index, year, lock_date, is_force_open');
+      const { data: schedulesData, error: schedulesError } = await schedulesQuery;
 
       if (schedulesError) {
         console.error('Error fetching monthly schedules:', schedulesError);
@@ -1094,7 +1102,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           </td>
         );
       case 'pic':
-        return <td key={colId} className={cellClass}>{item.pic}</td>;
+        return <td key={colId} className={cellClass}>{getPicDisplayName(item, profileMap)}</td>;
       case 'evidence':
         return (
           <td key={colId} className="px-4 py-3 border-b border-gray-100">
@@ -1175,7 +1183,8 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         item.year,
         item.unlock_status,
         item.approved_until,
-        item.temporary_unlock_expiry
+        item.temporary_unlock_expiry,
+        activeCompanyId
       );
 
       if (serverLockStatus.isLocked) {
@@ -2269,7 +2278,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               {/* Meta Info */}
               <div className="flex items-center gap-4 text-xs text-gray-500 pt-2 border-t border-gray-100">
                 <span>Department: <strong className="text-gray-700">{escalationDetailPlan.department_code}</strong></span>
-                <span>PIC: <strong className="text-gray-700">{escalationDetailPlan.pic || 'N/A'}</strong></span>
+                <span>PIC: <strong className="text-gray-700">{getPicDisplayName(escalationDetailPlan, profileMap)}</strong></span>
                 <span>Status: <strong className="text-gray-700">{escalationDetailPlan.status}</strong></span>
               </div>
             </div>
@@ -2290,7 +2299,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   </button>
                   {/* Show "Mark as Resolved" for Leaders/Admins OR the PIC (owner) of the plan */}
                   {(() => {
-                    const isOwner = escalationDetailPlan?.pic?.toLowerCase() === profile?.full_name?.toLowerCase();
+                    const isOwner = isUserPicOfPlan(escalationDetailPlan, profile);
                     const canResolve = isLeader || isAdmin || isOwner;
                     return canResolve && !isReadOnly && (
                       <button

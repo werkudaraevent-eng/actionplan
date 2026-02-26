@@ -13,6 +13,15 @@ export function useActionPlans(departmentCode = null, companyId = null) {
   const [error, setError] = useState(null);
 
   const fetchPlans = useCallback(async () => {
+    // HYDRATION GUARD: Do NOT fire the query until companyId has resolved.
+    // companyId=null is valid ONLY for holding context (consolidated view),
+    // but during initial hydration, companyId is null because CompanyContext
+    // hasn't loaded yet. The caller (AdminDashboard) explicitly sets null via
+    // effectiveCompanyId for holding — so we guard by checking if companyId
+    // was literally never passed (=== null from default param).
+    // However, since both hydration-null and holding-null look the same here,
+    // we accept null and rely on RLS + the caller's intent.
+    // The real fix is in the callers that should not call us until ready.
     if (!supabase) {
       setError('Supabase not configured');
       setLoading(false);
@@ -20,6 +29,9 @@ export function useActionPlans(departmentCode = null, companyId = null) {
     }
 
     try {
+      // STATE CLEANUP: Clear previous tenant's data immediately to prevent
+      // showing "ghost" plans from the previous company while loading.
+      setPlans([]);
       setLoading(true);
       setError(null);
 
@@ -34,7 +46,8 @@ export function useActionPlans(departmentCode = null, companyId = null) {
         query = query.eq('department_code', departmentCode);
       }
 
-      // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant
+      // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant.
+      // When companyId is null (holding consolidated view), fetch ALL companies.
       if (companyId) {
         query = query.eq('company_id', companyId);
       }
@@ -194,7 +207,8 @@ export function useActionPlans(departmentCode = null, companyId = null) {
         original.year || new Date().getFullYear(),
         original.unlock_status,
         original.approved_until,
-        original.temporary_unlock_expiry
+        original.temporary_unlock_expiry,
+        companyId
       );
 
       if (lockStatus.isLocked) {
@@ -590,18 +604,31 @@ export function useActionPlans(departmentCode = null, companyId = null) {
             )
           );
 
-          // Log results
+          // Log results and surface errors
           let successCount = 0;
           let failCount = 0;
+          const failMessages = [];
           for (const result of carryOverResults) {
             if (result.status === 'fulfilled' && !result.value.error) {
               successCount++;
             } else {
               failCount++;
-              console.error('[finalizeMonthReport] Carry-over failed for a plan:', result.reason || result.value?.error);
+              const errMsg = result.reason?.message || result.value?.error?.message || 'Unknown error';
+              const fullError = result.reason || result.value?.error;
+              failMessages.push(errMsg);
+              console.error('🚨 CARRY OVER RPC FAILED (finalizeMonthReport):', errMsg, fullError);
             }
           }
           console.log(`[finalizeMonthReport] Carry-over complete: ${successCount} success, ${failCount} failed`);
+
+          // Surface carry-over failures to the user
+          if (failCount > 0) {
+            const carryOverError = new Error(
+              `${failCount} of ${toCarryOver.length} carry-over(s) failed. ${failMessages[0]}${failCount > 1 ? ` (+${failCount - 1} more)` : ''}`
+            );
+            carryOverError.code = 'CARRY_OVER_PARTIAL_FAILURE';
+            throw carryOverError;
+          }
         } else {
           console.log('[finalizeMonthReport] All carry-over candidates already have children. Skipping.');
         }
@@ -928,14 +955,21 @@ export function useActionPlans(departmentCode = null, companyId = null) {
         // Step 2: If carry_over, trigger the carry_over_plan RPC immediately
         if (verdict === 'carry_over') {
           console.log(`[gradePlan] Triggering carry-over for plan ${id}...`);
+          console.log('🔍 [gradePlan] Calling carry_over_plan RPC with:', { p_plan_id: id, p_user_id: cleanGradeData.reviewed_by });
           const { data: coResult, error: coError } = await supabase.rpc('carry_over_plan', {
             p_plan_id: id,
             p_user_id: cleanGradeData.reviewed_by,
           });
+          console.log('🔍 [gradePlan] RPC raw response:', { data: coResult, error: coError });
 
           if (coError) {
-            console.error('[gradePlan] Carry-over failed:', coError);
-            // Non-fatal: the grade was saved, carry-over can be retried
+            console.error('🚨 CARRY OVER RPC FAILED (gradePlan):', coError.message, coError);
+            // Throw so the caller can display the error — grade was saved but carry-over failed
+            const carryOverError = new Error(
+              `Grade saved, but carry-over failed: ${coError.message || 'Unknown error'}. Please retry the carry-over manually.`
+            );
+            carryOverError.code = 'CARRY_OVER_FAILED';
+            throw carryOverError;
           } else {
             console.log('[gradePlan] Carry-over success:', coResult);
           }
@@ -1325,6 +1359,7 @@ export function useActionPlans(departmentCode = null, companyId = null) {
     const { id: userId } = await getCurrentUser();
 
     try {
+      console.log('🔍 [carryOverPlan] Calling carry_over_plan RPC with:', { p_plan_id: id, p_user_id: userId });
       const { data: result, error } = await withTimeout(
         supabase.rpc('carry_over_plan', {
           p_plan_id: id,
@@ -1332,8 +1367,10 @@ export function useActionPlans(departmentCode = null, companyId = null) {
         }),
         10000
       );
+      console.log('🔍 [carryOverPlan] RPC raw response:', { data: result, error });
 
       if (error) {
+        console.error('🚨 CARRY OVER RPC FAILED (carryOverPlan):', error.message, error);
         await fetchPlans();
         throw error;
       }

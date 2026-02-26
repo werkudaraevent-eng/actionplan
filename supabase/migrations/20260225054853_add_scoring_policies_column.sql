@@ -1,0 +1,1 @@
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS scoring_policies JSONB DEFAULT '{"allow_multiple_pics": true}'::jsonb;

@@ -23,6 +23,7 @@ import {
 import { useToast } from '../common/Toast';
 import { supabase } from '../../lib/supabase';
 import { generateTestEmailHtml, getTestEmailSubject } from '../../services/emailService';
+import { useCompanyContext } from '../../context/CompanyContext';
 
 // Priority scope options
 const PRIORITY_SCOPES = [
@@ -247,6 +248,7 @@ const compileDraftTemplate = (subject, body) => {
 
 export default function EmailSettingsSection() {
   const { toast } = useToast();
+  const { activeCompanyId, activeCompany } = useCompanyContext();
 
   // Loading state for initial fetch
   const [loading, setLoading] = useState(true);
@@ -263,24 +265,27 @@ export default function EmailSettingsSection() {
   const [sendingTest, setSendingTest] = useState(false);
   const [sendingTestKey, setSendingTestKey] = useState(null); // which row is sending a test
 
-  // Fetch settings on mount
+  // STRICT STATE CLEANUP + fetch on company switch
   useEffect(() => {
+    // Reset to defaults BEFORE fetching for the new company
+    setTemplates(DEFAULT_TEMPLATES);
+    setLoading(true);
+
     const fetchSettings = async () => {
-      setLoading(true);
       try {
+        // MULTI-TENANT: fetch ONLY email_config (never * — avoids leaking row id)
         const { data, error } = await supabase
           .from('system_settings')
-          .select('*')
-          .eq('id', 1)
-          .single();
+          .select('email_config')
+          .eq('company_id', activeCompanyId)
+          .maybeSingle();
 
-        if (error && error.code !== 'PGRST116') {
+        if (error) {
           console.error('Error fetching email settings:', error);
         }
 
         if (data?.email_config) {
           const config = data.email_config;
-          // Load templates
           if (config.templates) {
             setTemplates(prev => ({ ...prev, ...config.templates }));
           }
@@ -292,8 +297,8 @@ export default function EmailSettingsSection() {
       }
     };
 
-    fetchSettings();
-  }, []);
+    if (activeCompanyId) fetchSettings();
+  }, [activeCompanyId]);
 
   const handleToggleTemplate = (key) => {
     setTemplates(prev => ({
@@ -358,16 +363,28 @@ export default function EmailSettingsSection() {
         templates: newTemplates
       };
 
-      // 4. Persist to Supabase
-      const { error } = await supabase
-        .from('system_settings')
-        .update({
-          email_config: fullEmailConfig,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', 1);
+      // 4. Persist to Supabase — STERILIZED: explicit fields only, NEVER leaks 'id'
+      // MULTI-TENANT: scope update to active company
+      const savePayload = {
+        email_config: fullEmailConfig,
+        updated_at: new Date().toISOString()
+      };
 
-      if (error) throw error;
+      const { data: updated, error: updateError } = await supabase
+        .from('system_settings')
+        .update(savePayload)
+        .eq('company_id', activeCompanyId)
+        .select('company_id');
+
+      if (updateError) throw updateError;
+
+      // If no row matched (new subsidiary), insert a fresh one
+      if (!updated || updated.length === 0) {
+        const { error: insertError } = await supabase
+          .from('system_settings')
+          .insert({ company_id: activeCompanyId, ...savePayload });
+        if (insertError) throw insertError;
+      }
 
       // 5. Update local state & close modal only on success
       setTemplates(newTemplates);
@@ -497,16 +514,27 @@ export default function EmailSettingsSection() {
         templates: templates
       };
 
-      // Update the email_config column in system_settings (id=1)
-      const { error } = await supabase
-        .from('system_settings')
-        .update({
-          email_config: emailConfig,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', 1);
+      // MULTI-TENANT: STERILIZED — explicit fields only, NEVER leaks 'id'
+      const savePayload = {
+        email_config: emailConfig,
+        updated_at: new Date().toISOString()
+      };
 
-      if (error) throw error;
+      const { data: updated, error: updateError } = await supabase
+        .from('system_settings')
+        .update(savePayload)
+        .eq('company_id', activeCompanyId)
+        .select('company_id');
+
+      if (updateError) throw updateError;
+
+      // If no row matched (new subsidiary), insert a fresh one
+      if (!updated || updated.length === 0) {
+        const { error: insertError } = await supabase
+          .from('system_settings')
+          .insert({ company_id: activeCompanyId, ...savePayload });
+        if (insertError) throw insertError;
+      }
 
       toast({
         title: 'Settings Saved',
@@ -527,6 +555,14 @@ export default function EmailSettingsSection() {
 
   return (
     <div className="space-y-6">
+      {/* Subsidiary context badge */}
+      {activeCompany && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-700 text-sm">
+          <Mail className="w-4 h-4 flex-shrink-0 opacity-60" />
+          <span>⚙️ Managing settings for: <span className="text-gray-900 font-bold">{activeCompany.name}</span></span>
+        </div>
+      )}
+
       {/* Loading State */}
       {loading ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center">

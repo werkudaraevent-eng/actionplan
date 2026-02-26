@@ -3,6 +3,7 @@ import { Building2, FileSpreadsheet, FileText, RotateCcw, Loader2 } from 'lucide
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -32,7 +33,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const { activeCompanyId } = useCompanyContext();
   const { departments } = useDepartments(activeCompanyId);
   // Fetch ALL plans (no department filter) scoped to active company
-  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, resetPlan } = useActionPlans(null, activeCompanyId);
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(null, activeCompanyId);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
@@ -53,6 +54,27 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  // Dynamic annual target from company settings
+  const [annualTarget, setAnnualTarget] = useState(null);
+
+  // Fetch annual target for the current year, scoped to active company
+  useEffect(() => {
+    const fetchTarget = async () => {
+      if (!activeCompanyId) return;
+
+      const { data } = await supabase
+        .from('annual_targets')
+        .select('target_percentage')
+        .eq('year', CURRENT_YEAR)
+        .eq('company_id', activeCompanyId)
+        .single();
+
+      setAnnualTarget(data?.target_percentage || null);
+    };
+
+    fetchTarget();
+  }, [activeCompanyId]);
 
   // Legacy: Keep selectedMonth for backward compatibility
   const selectedMonth = startMonth === endMonth ? startMonth : 'all';
@@ -127,7 +149,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           plan.goal_strategy,
           plan.action_plan,
           plan.indicator,
-          plan.pic,
+          plan.legacy_pic_text || plan.pic,
           plan.remark,
           plan.department_code,
         ].filter(Boolean);
@@ -158,7 +180,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         row.action_plan,
         row.indicator,
         row.evidence,
-        row.pic
+        (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic
       ].map(val => String(val || '').trim().toLowerCase()).join('|');
       grouped.add(fingerprint);
     });
@@ -205,7 +227,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         { key: 'goal_strategy', label: 'Goal/Strategy' },
         { key: 'action_plan', label: 'Action Plan' },
         { key: 'indicator', label: 'Indicator' },
-        { key: 'pic', label: 'PIC' },
+        { key: 'pic', label: 'PIC' },  // Uses legacy_pic_text in value resolution below
         { key: 'evidence', label: 'Evidence' },
         { key: 'status', label: 'Status' },
         { key: 'root_cause', label: 'Reason for Non-Achievement' },
@@ -220,6 +242,11 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         const row = {};
         columns.forEach(col => {
           let value = plan[col.key] ?? '';
+
+          // PIC: prefer legacy_pic_text for export (human-readable name)
+          if (col.key === 'pic') {
+            value = plan.legacy_pic_text || plan.pic || '';
+          }
 
           // Handle special computed columns
           if (col.key === 'root_cause') {
@@ -291,10 +318,10 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             row.category,
             row.area_focus,
             row.goal_strategy,
-            row.action_plan,  // Most important field
+            row.action_plan,
             row.indicator,
             row.evidence,
-            row.pic
+            (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic
           ].map(val => String(val || '').trim().toLowerCase()).join('|');
 
           if (!grouped[fingerprint]) {
@@ -368,7 +395,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         goal_strategy: { label: 'Goal/Strategy', fixedWidth: null, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
         action_plan: { label: 'Action Plan', fixedWidth: null, align: 'left', getValue: (p) => String(p.action_plan || '-') },
         indicator: { label: 'Indicator', fixedWidth: null, align: 'left', getValue: (p) => String(p.indicator || '-') },
-        pic: { label: 'PIC', fixedWidth: 25, align: 'left', getValue: (p) => String(p.pic || '-') },
+        pic: { label: 'PIC', fixedWidth: 25, align: 'left', getValue: (p) => String(p.legacy_pic_text || p.pic || '-') },
         evidence: { label: 'Evidence', fixedWidth: null, align: 'left', getValue: (p) => String(p.evidence || '-') },
         status: { label: 'Status', fixedWidth: 22, align: 'center', getValue: (p) => String(p.status || '-') },
         score: { label: 'Score', fixedWidth: 12, align: 'center', getValue: (p) => p.quality_score != null ? `${p.quality_score}%` : '-' },
@@ -618,7 +645,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           goal_strategy: formData.goal_strategy,
           action_plan: formData.action_plan,
           indicator: formData.indicator,
-          pic: formData.pic,
+          pic_ids: formData.pic_ids,
+          support_pic_ids: formData.support_pic_ids,
           report_format: formData.report_format,
           status: formData.status,
           outcome_link: formData.outcome_link,
@@ -817,6 +845,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           plans={filteredPlans}
           scope="company"
           loading={loading}
+          targetPercentage={annualTarget}
           dateContext={startMonth === 'Jan' && endMonth === 'Dec' ? `FY ${CURRENT_YEAR}` : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
           periodLabel={startMonth === 'Jan' && endMonth === 'Dec' ? '' : ` (${startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`})`}
           activeFilter={selectedStatus !== 'all' ? (() => {
@@ -879,6 +908,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
+        onCarryOver={carryOverPlan}
         editData={editData}
         departmentCode={editData?.department_code}
       />

@@ -327,20 +327,31 @@ export function getDefaultDeadline(monthIndex, year, cutoffDay = 6) {
  * @param {string|null} unlockStatus - Current unlock status of the plan
  * @param {string|null} approvedUntil - Approval expiry timestamp
  * @param {string|null} temporaryUnlockExpiry - Admin revision grace period (optional)
+ * @param {string|null} companyId - Company UUID for multi-tenant filtering
  * @returns {Promise<Object>} Fresh lock status from server
  */
-export async function checkLockStatusServerSide(supabase, planMonth, planYear, unlockStatus = null, approvedUntil = null, temporaryUnlockExpiry = null) {
+export async function checkLockStatusServerSide(supabase, planMonth, planYear, unlockStatus = null, approvedUntil = null, temporaryUnlockExpiry = null, companyId = null) {
   try {
+    // Build queries with multi-tenant filtering
+    let settingsQuery = supabase
+      .from('system_settings')
+      .select('is_lock_enabled, lock_cutoff_day');
+
+    let schedulesQuery = supabase
+      .from('monthly_lock_schedules')
+      .select('month_index, year, lock_date, is_force_open');
+
+    if (companyId) {
+      settingsQuery = settingsQuery.eq('company_id', companyId);
+      schedulesQuery = schedulesQuery.eq('company_id', companyId);
+    } else {
+      settingsQuery = settingsQuery.eq('id', 1); // Legacy fallback
+    }
+
     // Fetch fresh settings from database
     const [settingsResult, schedulesResult] = await Promise.all([
-      supabase
-        .from('system_settings')
-        .select('is_lock_enabled, lock_cutoff_day')
-        .eq('id', 1)
-        .single(),
-      supabase
-        .from('monthly_lock_schedules')
-        .select('month_index, year, lock_date, is_force_open')
+      settingsQuery.maybeSingle(),
+      schedulesQuery
     ]);
 
     const settings = {

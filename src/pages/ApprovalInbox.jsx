@@ -101,18 +101,21 @@ export default function ApprovalInbox() {
 
   // Fetch pending unlock requests
   const fetchRequests = useCallback(async () => {
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setRequests([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       let query = supabase
         .from('action_plans')
         .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_at, unlock_requested_by')
         .eq('unlock_status', 'pending')
+        .eq('company_id', activeCompanyId) // ALWAYS scope by company
         .order('unlock_requested_at', { ascending: false });
-
-      // MULTI-TENANT: scope to active company
-      if (activeCompanyId) {
-        query = query.eq('company_id', activeCompanyId);
-      }
 
       const { data, error } = await withTimeout(query, 10000);
       if (error) throw error;
@@ -138,20 +141,23 @@ export default function ApprovalInbox() {
 
   // Fetch active (approved) unlocks
   const fetchActiveUnlocks = useCallback(async () => {
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setActiveUnlocks([]);
+      setActiveLoading(false);
+      return;
+    }
+
     try {
       setActiveLoading(true);
       let query = supabase
         .from('action_plans')
         .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_by, approved_until, unlock_approved_at')
         .eq('unlock_status', 'approved')
+        .eq('company_id', activeCompanyId) // ALWAYS scope by company
         .not('approved_until', 'is', null)
         .gt('approved_until', new Date().toISOString())
         .order('approved_until', { ascending: true });
-
-      // MULTI-TENANT: scope to active company
-      if (activeCompanyId) {
-        query = query.eq('company_id', activeCompanyId);
-      }
 
       const { data, error } = await withTimeout(query, 10000);
       if (error) throw error;
@@ -534,8 +540,8 @@ export default function ApprovalInbox() {
                           {/* Time remaining badge */}
                           <div className="flex items-center gap-3 mb-3">
                             <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${urgencyColor === 'red' ? 'bg-red-50 text-red-700' :
-                                urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' :
-                                  'bg-teal-50 text-teal-700'
+                              urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' :
+                                'bg-teal-50 text-teal-700'
                               }`}>
                               <Timer className="w-4 h-4" />
                               <span className="text-sm font-semibold">{timeRemaining}</span>

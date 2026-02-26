@@ -96,15 +96,18 @@ function DepartmentsTab({ onNavigateToUsers }) {
   }, [activeCompanyId]);
 
   const fetchData = async () => {
+    // HYDRATION GUARD: wait for company context before fetching
+    if (!activeCompanyId) {
+      setDepartments([]);
+      setProfiles([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     // MULTI-TENANT: scope both queries to the active company
-    let deptQuery = supabase.from('departments').select('*').order('code');
-    let profileQuery = supabase.from('profiles').select('id, full_name, role, department_code');
-
-    if (activeCompanyId) {
-      deptQuery = deptQuery.eq('company_id', activeCompanyId);
-      profileQuery = profileQuery.eq('company_id', activeCompanyId);
-    }
+    let deptQuery = supabase.from('departments').select('*').order('code').eq('company_id', activeCompanyId);
+    let profileQuery = supabase.from('profiles').select('id, full_name, role, department_code, additional_departments').eq('company_id', activeCompanyId);
 
     const [deptResult, profileResult] = await Promise.all([deptQuery, profileQuery]);
 
@@ -121,9 +124,16 @@ function DepartmentsTab({ onNavigateToUsers }) {
     return profiles.find(p => p.department_code === deptCode && p.role === 'leader');
   };
 
-  // Get headcount for a department
+  // Get headcount for a department (primary only)
   const getHeadcount = (deptCode) => {
     return profiles.filter(p => p.department_code === deptCode).length;
+  };
+
+  // Get additional access count for a department
+  const getAdditionalCount = (deptCode) => {
+    return profiles.filter(p =>
+      Array.isArray(p.additional_departments) && p.additional_departments.includes(deptCode)
+    ).length;
   };
 
   const handleSaveNew = async () => {
@@ -279,6 +289,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
         {departments.map((dept) => {
           const leader = getLeader(dept.code);
           const headcount = getHeadcount(dept.code);
+          const additionalCount = getAdditionalCount(dept.code);
 
           return (
             <div key={dept.code} className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50">
@@ -328,18 +339,28 @@ function DepartmentsTab({ onNavigateToUsers }) {
                     )}
                   </div>
                   <div className="col-span-2">
-                    <button
-                      onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
-                      disabled={headcount === 0}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${headcount === 0
-                        ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
-                        }`}
-                      title={headcount > 0 ? `View ${headcount} team members` : 'No users in this department'}
-                    >
-                      <Users className="w-3.5 h-3.5" />
-                      {headcount} {headcount === 1 ? 'User' : 'Users'}
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
+                        disabled={headcount === 0}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${headcount === 0
+                            ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                          }`}
+                        title={headcount > 0 ? `View ${headcount} primary team members` : 'No primary users in this department'}
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        {headcount} {headcount === 1 ? 'User' : 'Users'}
+                      </button>
+                      {additionalCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-50 text-teal-600 border border-teal-200"
+                          title={`${additionalCount} user${additionalCount > 1 ? 's' : ''} with additional access to this department`}
+                        >
+                          +{additionalCount} Extended
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="col-span-2 flex justify-end gap-2">
                     <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
@@ -387,11 +408,15 @@ function TargetsTab() {
   }, [activeCompanyId]);
 
   const fetchTargets = async () => {
-    setLoading(true);
-    let query = supabase.from('annual_targets').select('*');
-    if (activeCompanyId) {
-      query = query.eq('company_id', activeCompanyId);
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setTargets({});
+      setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    let query = supabase.from('annual_targets').select('*').eq('company_id', activeCompanyId);
     const { data, error } = await query;
     if (!error && data) {
       const map = {};
@@ -491,13 +516,18 @@ function HistoricalTab() {
   }, [selectedYear, activeCompanyId]);
 
   const fetchData = async () => {
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setDepartments([]);
+      setGridData({});
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
     // Fetch departments — scoped to active company
-    let deptQuery = supabase.from('departments').select('*').order('code');
-    if (activeCompanyId) {
-      deptQuery = deptQuery.eq('company_id', activeCompanyId);
-    }
+    let deptQuery = supabase.from('departments').select('*').order('code').eq('company_id', activeCompanyId);
     const { data: depts } = await deptQuery;
     setDepartments(depts || []);
 
@@ -505,10 +535,8 @@ function HistoricalTab() {
     let statsQuery = supabase
       .from('historical_stats')
       .select('*')
-      .eq('year', selectedYear);
-    if (activeCompanyId) {
-      statsQuery = statsQuery.eq('company_id', activeCompanyId);
-    }
+      .eq('year', selectedYear)
+      .eq('company_id', activeCompanyId);
     const { data: stats } = await statsQuery;
 
     // Build grid data structure
@@ -915,7 +943,7 @@ function HistoricalTab() {
 // ==================== DROPDOWN OPTIONS TAB ====================
 const ALL_DROPDOWN_SECTIONS = [
   // System Master Data (master_options table)
-  { id: 'DEPARTMENT', label: 'Departments / Divisions', description: 'Company units (BAS, SALES, IT, etc.)', source: 'master', showValue: true },
+  // NOTE: 'Departments' is NOT managed here — it uses the relational `departments` table.
   { id: 'ROOT_CAUSE', label: 'Root Cause Categories', description: 'For Ishikawa/Fishbone analysis (Manpower, Method, etc.)', source: 'master', showValue: true },
   { id: 'AREA_OF_FOCUS', label: 'Area of Focus', description: 'Strategic focus areas (Cost Reduction, Innovation, etc.)', source: 'master', showValue: false },
   // Form Dropdown Options (dropdown_options table)
@@ -989,15 +1017,19 @@ function DataManagementTab() {
   }, [activeCompanyId]);
 
   const fetchPlans = async () => {
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setPlans([]);
+      setLoading(false);
+      return;
+    }
+
     let query = supabase
       .from('action_plans')
       .select('*')
       .is('deleted_at', null)
+      .eq('company_id', activeCompanyId) // ALWAYS scope by company
       .order('created_at', { ascending: false });
-
-    if (activeCompanyId) {
-      query = query.eq('company_id', activeCompanyId);
-    }
 
     const { data, error } = await query;
 
@@ -1018,7 +1050,7 @@ function DataManagementTab() {
         'Goal/Strategy': plan.goal_strategy,
         'Action Plan': plan.action_plan,
         'Indicator': plan.indicator,
-        'PIC': plan.pic,
+        'PIC': plan.legacy_pic_text || plan.pic,
         'Evidence': plan.evidence || '',
         'Status': plan.status,
         'Reason for Non-Achievement': plan.status === 'Not Achieved'
@@ -1255,10 +1287,63 @@ function DataManagementTab() {
 // ==================== SYSTEM SETTINGS TAB ====================
 function SystemSettingsTab() {
   const { toast } = useToast();
-  const [settings, setSettings] = useState({
-    is_lock_enabled: true,
-    lock_cutoff_day: 6
-  });
+  const { activeCompanyId, activeCompany } = useCompanyContext();
+
+  // Default settings (used for state reset & fallback)
+  const DEFAULT_SETTINGS = { is_lock_enabled: true, lock_cutoff_day: 6 };
+  const DEFAULT_PENALTY = { carry_over_penalty_1: 80, carry_over_penalty_2: 50 };
+  const DEFAULT_GRADING = { is_strict_grading_enabled: false, threshold_uh: 100, threshold_h: 100, threshold_m: 80, threshold_l: 70 };
+  const DEFAULT_DROP_POLICY = { drop_approval_req_uh: false, drop_approval_req_h: false, drop_approval_req_m: false, drop_approval_req_l: false };
+
+  // ──────────────────────────────────────────────────────────────
+  //  STERILIZED MULTI-TENANT SAVE HELPER
+  //  - Whitelist-only: only these explicit columns can pass through
+  //  - 'id' is IMPOSSIBLE to leak — it is not in the whitelist
+  //  - Uses UPDATE first, INSERT only if company has no row yet
+  //  - NEVER uses spread operator on raw state/payload
+  // ──────────────────────────────────────────────────────────────
+  const ALLOWED_FIELDS = new Set([
+    'is_lock_enabled', 'lock_cutoff_day',
+    'is_strict_grading_enabled', 'threshold_uh', 'threshold_h', 'threshold_m', 'threshold_l',
+    'carry_over_penalty_1', 'carry_over_penalty_2',
+    'drop_approval_req_uh', 'drop_approval_req_h', 'drop_approval_req_m', 'drop_approval_req_l',
+    'email_config', 'scoring_policies',
+  ]);
+
+  const saveSystemSettings = async (rawFields) => {
+    // Step 1: Build a CLEAN payload — only whitelisted keys, NEVER 'id'
+    const cleanPayload = {};
+    for (const key of Object.keys(rawFields)) {
+      if (ALLOWED_FIELDS.has(key)) {
+        cleanPayload[key] = rawFields[key];
+      }
+    }
+
+    // Step 2: Try UPDATE scoped to company_id (can never cause PK clash)
+    const { data, error: updateError } = await supabase
+      .from('system_settings')
+      .update(cleanPayload)
+      .eq('company_id', activeCompanyId)
+      .select('company_id');
+
+    if (updateError) throw updateError;
+
+    // Step 3: If no rows matched (new subsidiary), INSERT a fresh row
+    if (!data || data.length === 0) {
+      const insertPayload = { company_id: activeCompanyId };
+      for (const key of ALLOWED_FIELDS) {
+        if (key in cleanPayload) {
+          insertPayload[key] = cleanPayload[key];
+        }
+      }
+      const { error: insertError } = await supabase
+        .from('system_settings')
+        .insert(insertPayload);
+      if (insertError) throw insertError;
+    }
+  };
+
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [schedules, setSchedules] = useState([]); // Monthly schedules from DB
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
@@ -1269,24 +1354,21 @@ function SystemSettingsTab() {
   const [showInfoDetails, setShowInfoDetails] = useState(false);
 
   // Carry-over penalty settings
-  const [penaltySettings, setPenaltySettings] = useState({ carry_over_penalty_1: 80, carry_over_penalty_2: 50 });
+  const [penaltySettings, setPenaltySettings] = useState(DEFAULT_PENALTY);
   const [savingPenalties, setSavingPenalties] = useState(false);
 
   // Grading strategy settings (granular per-priority thresholds)
-  const [gradingSettings, setGradingSettings] = useState({
-    is_strict_grading_enabled: false,
-    threshold_uh: 100, threshold_h: 100, threshold_m: 80, threshold_l: 70
-  });
+  const [gradingSettings, setGradingSettings] = useState(DEFAULT_GRADING);
   const [savingGrading, setSavingGrading] = useState(false);
 
   // Drop approval policy settings (per-priority)
-  const [dropPolicy, setDropPolicy] = useState({
-    drop_approval_req_uh: false,
-    drop_approval_req_h: false,
-    drop_approval_req_m: false,
-    drop_approval_req_l: false,
-  });
+  const [dropPolicy, setDropPolicy] = useState(DEFAULT_DROP_POLICY);
   const [savingDropPolicy, setSavingDropPolicy] = useState(null); // which key is being saved
+
+  // Scoring policies (JSONB column)
+  const DEFAULT_SCORING = { allow_multiple_pics: true };
+  const [scoringPolicies, setScoringPolicies] = useState(DEFAULT_SCORING);
+  const [savingScoringPolicy, setSavingScoringPolicy] = useState(false);
 
   const LOCK_YEARS_RANGE = [2025, 2026, 2027, 2028, 2029, 2030];
   const LOCK_MONTHS = Array.from({ length: 12 }, (_, i) => ({
@@ -1295,28 +1377,40 @@ function SystemSettingsTab() {
       'July', 'August', 'September', 'October', 'November', 'December'][i]
   }));
 
+  // STRICT STATE CLEANUP: wipe all settings to defaults BEFORE fetching for the new company
   useEffect(() => {
-    fetchSettings();
-  }, []);
+    setSettings(DEFAULT_SETTINGS);
+    setPenaltySettings(DEFAULT_PENALTY);
+    setGradingSettings(DEFAULT_GRADING);
+    setDropPolicy(DEFAULT_DROP_POLICY);
+    setScoringPolicies(DEFAULT_SCORING);
+    setSchedules([]);
+    setLoading(true);
+    if (activeCompanyId) fetchSettings();
+  }, [activeCompanyId]);
 
   useEffect(() => {
-    if (!loading) fetchSchedules();
-  }, [selectedYear, loading]);
+    if (!loading && activeCompanyId) fetchSchedules();
+  }, [selectedYear, loading, activeCompanyId]);
 
   const fetchSettings = async () => {
     try {
+      // MULTI-TENANT: fetch ONLY named columns (never `*` — avoids leaking row `id` into state)
       const [settingsResult, penaltyResult] = await Promise.all([
-        supabase.from('system_settings').select('*').eq('id', 1).single(),
-        supabase.rpc('get_carry_over_settings')
+        supabase.from('system_settings')
+          .select('is_lock_enabled, lock_cutoff_day, is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l, drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l, scoring_policies')
+          .eq('company_id', activeCompanyId)
+          .maybeSingle(),
+        supabase.rpc('get_carry_over_settings', { p_company_id: activeCompanyId })
       ]);
 
       if (settingsResult.error) throw settingsResult.error;
+
       if (settingsResult.data) {
         setSettings({
-          is_lock_enabled: settingsResult.data.is_lock_enabled,
-          lock_cutoff_day: settingsResult.data.lock_cutoff_day
+          is_lock_enabled: settingsResult.data.is_lock_enabled ?? true,
+          lock_cutoff_day: settingsResult.data.lock_cutoff_day ?? 6
         });
-        // Load grading settings from the same row
         setGradingSettings({
           is_strict_grading_enabled: settingsResult.data.is_strict_grading_enabled ?? false,
           threshold_uh: settingsResult.data.threshold_uh ?? 100,
@@ -1324,14 +1418,19 @@ function SystemSettingsTab() {
           threshold_m: settingsResult.data.threshold_m ?? 80,
           threshold_l: settingsResult.data.threshold_l ?? 70,
         });
-        // Load drop approval policy from the same row
         setDropPolicy({
           drop_approval_req_uh: settingsResult.data.drop_approval_req_uh ?? false,
           drop_approval_req_h: settingsResult.data.drop_approval_req_h ?? false,
           drop_approval_req_m: settingsResult.data.drop_approval_req_m ?? false,
           drop_approval_req_l: settingsResult.data.drop_approval_req_l ?? false,
         });
+        // Scoring policies (JSONB)
+        const sp = settingsResult.data.scoring_policies;
+        setScoringPolicies({
+          allow_multiple_pics: sp?.allow_multiple_pics ?? true,
+        });
       }
+      // else: defaults already set by the state cleanup above
 
       if (!penaltyResult.error && penaltyResult.data) {
         setPenaltySettings({
@@ -1351,12 +1450,8 @@ function SystemSettingsTab() {
     const newValue = !settings.is_lock_enabled;
 
     try {
-      const { error } = await supabase
-        .from('system_settings')
-        .update({ is_lock_enabled: newValue })
-        .eq('id', 1);
-
-      if (error) throw error;
+      // MULTI-TENANT: scope update to active company
+      await saveSystemSettings({ is_lock_enabled: newValue });
 
       setSettings(prev => ({ ...prev, is_lock_enabled: newValue }));
       toast({
@@ -1379,11 +1474,17 @@ function SystemSettingsTab() {
 
   const fetchSchedules = async () => {
     try {
-      const { data, error } = await supabase
+      // MULTI-TENANT: fetch ONLY named columns — NEVER select('*') to avoid id leakage
+      let query = supabase
         .from('monthly_lock_schedules')
-        .select('*')
+        .select('month_index, year, lock_date, is_force_open, company_id')
         .eq('year', selectedYear);
 
+      if (activeCompanyId) {
+        query = query.eq('company_id', activeCompanyId);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setSchedules(data || []);
     } catch (error) {
@@ -1423,12 +1524,8 @@ function SystemSettingsTab() {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('system_settings')
-        .update({ lock_cutoff_day: settings.lock_cutoff_day })
-        .eq('id', 1);
-
-      if (error) throw error;
+      // MULTI-TENANT: scope update to active company
+      await saveSystemSettings({ lock_cutoff_day: settings.lock_cutoff_day });
 
       toast({
         title: 'Settings Updated',
@@ -1450,12 +1547,15 @@ function SystemSettingsTab() {
     setSavingMonth(monthIndex);
     try {
       if (isCurrentlyForceOpen) {
-        // Turn ON: Remove force-open flag (or delete the record if no custom date)
+        // Turn ON: Remove force-open flag
+        // STERILIZED: use composite key (month_index + year + company_id), NEVER .eq('id', ...)
         if (schedule) {
           const { error } = await supabase
             .from('monthly_lock_schedules')
             .update({ is_force_open: false })
-            .eq('id', schedule.id);
+            .eq('month_index', monthIndex)
+            .eq('year', selectedYear)
+            .eq('company_id', activeCompanyId);
           if (error) throw error;
         }
         toast({
@@ -1466,14 +1566,17 @@ function SystemSettingsTab() {
       } else {
         // Turn OFF: Set force-open flag
         const defaultDeadline = getDefaultDeadline(monthIndex);
+        // STERILIZED: hardcoded field-by-field payload, no spread, no id
+        const payload = {
+          month_index: monthIndex,
+          year: selectedYear,
+          lock_date: schedule?.lock_date || defaultDeadline.toISOString(),
+          is_force_open: true,
+          company_id: activeCompanyId,
+        };
         const { error } = await supabase
           .from('monthly_lock_schedules')
-          .upsert({
-            month_index: monthIndex,
-            year: selectedYear,
-            lock_date: schedule?.lock_date || defaultDeadline.toISOString(),
-            is_force_open: true
-          }, { onConflict: 'month_index,year' });
+          .upsert(payload, { onConflict: 'month_index,year,company_id' });
 
         if (error) throw error;
         toast({
@@ -1505,16 +1608,18 @@ function SystemSettingsTab() {
     setSavingMonth(monthIndex);
     try {
       const lockDate = new Date(editDate);
-      lockDate.setSeconds(59, 999);
 
+      // STERILIZED: hardcoded field-by-field payload, no spread, no id
+      const payload = {
+        month_index: monthIndex,
+        year: selectedYear,
+        lock_date: lockDate.toISOString(),
+        is_force_open: false,
+        company_id: activeCompanyId,
+      };
       const { error } = await supabase
         .from('monthly_lock_schedules')
-        .upsert({
-          month_index: monthIndex,
-          year: selectedYear,
-          lock_date: lockDate.toISOString(),
-          is_force_open: false
-        }, { onConflict: 'month_index,year' });
+        .upsert(payload, { onConflict: 'month_index,year,company_id' });
 
       if (error) throw error;
 
@@ -1540,10 +1645,13 @@ function SystemSettingsTab() {
 
     setSavingMonth(monthIndex);
     try {
+      // STERILIZED: use composite key, NEVER .eq('id', schedule.id)
       const { error } = await supabase
         .from('monthly_lock_schedules')
         .delete()
-        .eq('id', schedule.id);
+        .eq('month_index', monthIndex)
+        .eq('year', selectedYear)
+        .eq('company_id', activeCompanyId);
 
       if (error) throw error;
 
@@ -1583,9 +1691,11 @@ function SystemSettingsTab() {
 
     setSavingPenalties(true);
     try {
+      // MULTI-TENANT: pass company_id to the RPC
       const { error } = await supabase.rpc('update_carry_over_settings', {
         p_penalty_1: p1,
-        p_penalty_2: p2
+        p_penalty_2: p2,
+        p_company_id: activeCompanyId
       });
       if (error) throw error;
       toast({ title: 'Settings Updated', description: 'Carry-over penalties saved.', variant: 'success' });
@@ -1600,17 +1710,14 @@ function SystemSettingsTab() {
   const handleSaveGrading = async () => {
     setSavingGrading(true);
     try {
-      const { error } = await supabase
-        .from('system_settings')
-        .update({
-          is_strict_grading_enabled: gradingSettings.is_strict_grading_enabled,
-          threshold_uh: gradingSettings.threshold_uh,
-          threshold_h: gradingSettings.threshold_h,
-          threshold_m: gradingSettings.threshold_m,
-          threshold_l: gradingSettings.threshold_l,
-        })
-        .eq('id', 1);
-      if (error) throw error;
+      // MULTI-TENANT: scope update to active company
+      await saveSystemSettings({
+        is_strict_grading_enabled: gradingSettings.is_strict_grading_enabled,
+        threshold_uh: gradingSettings.threshold_uh,
+        threshold_h: gradingSettings.threshold_h,
+        threshold_m: gradingSettings.threshold_m,
+        threshold_l: gradingSettings.threshold_l,
+      });
       toast({
         title: 'Settings Updated',
         description: gradingSettings.is_strict_grading_enabled
@@ -1630,11 +1737,8 @@ function SystemSettingsTab() {
     const newValue = !dropPolicy[key];
     setSavingDropPolicy(key);
     try {
-      const { error } = await supabase
-        .from('system_settings')
-        .update({ [key]: newValue })
-        .eq('id', 1);
-      if (error) throw error;
+      // MULTI-TENANT: scope update to active company
+      await saveSystemSettings({ [key]: newValue });
       setDropPolicy(prev => ({ ...prev, [key]: newValue }));
       const labels = {
         drop_approval_req_uh: 'Ultra High (UH)',
@@ -1654,10 +1758,39 @@ function SystemSettingsTab() {
     setSavingDropPolicy(null);
   };
 
+  // Toggle scoring policy: allow_multiple_pics
+  const handleToggleScoringPolicy = async (policyKey) => {
+    const newValue = !scoringPolicies[policyKey];
+    setSavingScoringPolicy(true);
+    try {
+      // Merge into existing JSONB — spread current policies, override the toggled key
+      const merged = { ...scoringPolicies, [policyKey]: newValue };
+      await saveSystemSettings({ scoring_policies: merged });
+      setScoringPolicies(merged);
+      toast({
+        title: 'Scoring Policy Updated',
+        description: `Multiple PICs ${newValue ? 'enabled' : 'disabled'}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating scoring policy:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to update scoring policy.', variant: 'error' });
+    }
+    setSavingScoringPolicy(false);
+  };
+
   if (loading) return <LoadingState />;
 
   return (
     <div className="space-y-6">
+      {/* Subsidiary context badge */}
+      {activeCompany && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-700 text-sm">
+          <Shield className="w-4 h-4 flex-shrink-0 opacity-60" />
+          <span>⚙️ Managing settings for: <span className="text-gray-900 font-bold">{activeCompany.name}</span></span>
+        </div>
+      )}
+
       {/* Auto-Lock Control Center */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Header */}
@@ -2214,6 +2347,76 @@ function SystemSettingsTab() {
         </div>
       </div>
 
+      {/* Scoring & Policies */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-100 rounded-lg">
+              <Users className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Scoring & Policies</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Control how PICs (Person In Charge) are assigned and how scoring rules apply to action plans.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Toggle Content */}
+        <div className="p-5">
+          <div
+            className={`flex items-center justify-between p-4 rounded-xl border-2 transition-all ${scoringPolicies.allow_multiple_pics
+              ? 'border-indigo-200 bg-indigo-50/50'
+              : 'border-gray-100 bg-gray-50/50'
+              }`}
+          >
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className={`p-2 rounded-lg flex-shrink-0 ${scoringPolicies.allow_multiple_pics
+                ? 'bg-indigo-200 text-indigo-700'
+                : 'bg-gray-200 text-gray-500'
+                }`}>
+                <Users className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-800">Allow Multiple Main PICs (Shared Accountability)</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Allow assigning more than one primary PIC to an Action Plan. If disabled, forces Single-Select.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleToggleScoringPolicy('allow_multiple_pics')}
+              disabled={savingScoringPolicy}
+              className={`p-1 rounded-lg transition-all flex-shrink-0 ml-3 ${scoringPolicies.allow_multiple_pics
+                ? 'text-indigo-600 hover:bg-indigo-100'
+                : 'text-gray-400 hover:bg-gray-100'
+                }`}
+              title={scoringPolicies.allow_multiple_pics ? 'Multi-select enabled — click to force single PIC' : 'Single-select only — click to allow multiple PICs'}
+            >
+              {savingScoringPolicy ? (
+                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+              ) : scoringPolicies.allow_multiple_pics ? (
+                <ToggleRight className="w-8 h-8" />
+              ) : (
+                <ToggleLeft className="w-8 h-8" />
+              )}
+            </button>
+          </div>
+
+          {/* Info note */}
+          <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-700">Current mode: </span>
+              {scoringPolicies.allow_multiple_pics
+                ? 'Multi-select — staff can assign multiple PICs to share accountability on a single plan.'
+                : 'Single-select — each action plan must have exactly one PIC.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Developer Zone - UAT/Testing Cleanup Tools */}
       <DeveloperZone />
     </div>
@@ -2223,17 +2426,21 @@ function SystemSettingsTab() {
 // ==================== DEVELOPER ZONE (UAT CLEANUP) ====================
 function DeveloperZone() {
   const { toast } = useToast();
+  const { activeCompanyId, activeCompany } = useCompanyContext();
   const [hardResetting, setHardResetting] = useState(false);
   const [safeResetting, setSafeResetting] = useState(false);
   const [showHardResetConfirm, setShowHardResetConfirm] = useState(false);
   const [showSafeResetConfirm, setShowSafeResetConfirm] = useState(false);
   const [lastResult, setLastResult] = useState(null);
 
+  const companyName = activeCompany?.name || 'Unknown Company';
+
   // HARD RESET: Mark & Sweep - deletes carry-over children, resets parents to Blocked
+  // MULTI-TENANT: constrained by company_id
   const handleHardReset = async () => {
     setHardResetting(true);
     try {
-      const { data, error } = await supabase.rpc('reset_simulation_data');
+      const { data, error } = await supabase.rpc('reset_simulation_data', { p_company_id: activeCompanyId });
       if (error) throw error;
       setLastResult({ type: 'hard', ...data });
       setShowHardResetConfirm(false);
@@ -2252,10 +2459,11 @@ function DeveloperZone() {
   };
 
   // SAFE RESET: UPDATE-only factory reset - no deletions, breaks carry-over links
+  // MULTI-TENANT: constrained by company_id
   const handleSafeReset = async () => {
     setSafeResetting(true);
     try {
-      const { data, error } = await supabase.rpc('reset_action_plans_safe');
+      const { data, error } = await supabase.rpc('reset_action_plans_safe', { p_company_id: activeCompanyId });
       if (error) throw error;
       setLastResult({ type: 'safe', ...data });
       setShowSafeResetConfirm(false);
@@ -2388,7 +2596,7 @@ function DeveloperZone() {
             </div>
             <div className="p-5">
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-amber-800 font-medium mb-2">This will reset ALL action plans:</p>
+                <p className="text-sm text-amber-800 font-medium mb-2">This will reset ALL action plans for <strong>{companyName}</strong>:</p>
                 <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
                   <li>Status → Open, Scores → NULL</li>
                   <li>Carry-over links broken, flags cleared</li>
@@ -2396,7 +2604,7 @@ function DeveloperZone() {
                   <li>Audit logs, notifications, progress logs → truncated</li>
                 </ul>
               </div>
-              <p className="text-sm text-gray-600 mb-2">Plan definitions (titles, goals, PICs, departments) stay intact.</p>
+              <p className="text-sm text-gray-600 mb-2">Plan definitions (titles, goals, PICs, departments) stay intact. Only data for <strong>{companyName}</strong> will be affected.</p>
               <p className="text-sm font-semibold text-gray-800">Proceed?</p>
             </div>
             <div className="px-5 pb-5 flex gap-3">
@@ -2426,7 +2634,7 @@ function DeveloperZone() {
             </div>
             <div className="p-5">
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-red-800 font-medium mb-2">DESTRUCTIVE: This will DELETE carry-over plans</p>
+                <p className="text-sm text-red-800 font-medium mb-2">DESTRUCTIVE: This will DELETE carry-over plans for <strong>{companyName}</strong></p>
                 <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
                   <li>All plans with origin_plan_id → DELETED</li>
                   <li>Parent plans → status reverted to Blocked</li>
@@ -2434,7 +2642,7 @@ function DeveloperZone() {
                   <li>Duplicates → removed</li>
                 </ul>
               </div>
-              <p className="text-sm text-gray-600 mb-2">Recurring (native) plans are preserved. Use this to re-test the Resolution Wizard.</p>
+              <p className="text-sm text-gray-600 mb-2">Recurring (native) plans are preserved. Only data for <strong>{companyName}</strong> will be affected.</p>
               <p className="text-sm font-semibold text-gray-800">Are you absolutely sure?</p>
             </div>
             <div className="px-5 pb-5 flex gap-3">

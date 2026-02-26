@@ -332,7 +332,7 @@ export default function OptionManager({
                     .eq('id', otherOption.id);
                 if (error) throw error;
             } else {
-                // Create "Other" option
+                // Create "Other" option — MUST include company_id for multi-tenancy
                 const maxSort = options.length > 0 ? Math.max(...options.map(o => o.sort_order || 0)) : 0;
                 const insertData = {
                     category: categoryKey,
@@ -340,6 +340,7 @@ export default function OptionManager({
                     sort_order: maxSort + 999,
                     is_active: true,
                     ...(source === 'master' ? { value: 'OTHER' } : {}),
+                    ...(activeCompanyId ? { company_id: activeCompanyId } : {}),
                 };
                 const { error } = await supabase.from(tableName).insert(insertData);
                 if (error) throw error;

@@ -34,7 +34,7 @@ export default function StaffWorkspace() {
   const activeDept = currentDept || departmentCode;
 
   const { activeCompanyId } = useCompanyContext();
-  const { plans, loading, updatePlan, updateStatus, refetch } = useActionPlans(activeDept, activeCompanyId);
+  const { plans, loading, updatePlan, updateStatus, carryOverPlan, refetch } = useActionPlans(activeDept, activeCompanyId);
   const { departments } = useDepartments(activeCompanyId);
   const { toast } = useToast();
 
@@ -174,51 +174,51 @@ export default function StaffWorkspace() {
   const currentDeptInfo = departments.find((d) => d.code === activeDept);
   const userName = profile?.full_name || '';
 
-  // Helper function to normalize strings for comparison
+  // Helper function to normalize strings for comparison (fallback for legacy data)
   const normalize = (str) => (str || '').trim().toLowerCase();
 
-  // Filter plans to show only those assigned to this user (by PIC name match)
+  // Filter plans to show only those assigned to this user
+  // PRIMARY: Check if user's UUID is in pic_ids or support_pic_ids
+  // FALLBACK: Legacy name matching for pre-migration data
   const myPlans = useMemo(() => {
-    if (!userName) {
-      console.log('[StaffWorkspace] No userName found, returning empty array');
+    const userId = profile?.id;
+    if (!userId && !userName) {
+      console.log('[StaffWorkspace] No userId or userName found, returning empty array');
       return [];
     }
 
-    const normalizedUserName = normalize(userName);
     console.log('[StaffWorkspace] Filtering plans for user:', {
+      userId,
       userName,
-      normalizedUserName,
       totalPlans: plans.length,
       departmentCode
     });
 
-    // Debug: Log first few plans to see PIC values
-    if (plans.length > 0) {
-      console.log('[StaffWorkspace] Sample plans PIC values:',
-        plans.slice(0, 5).map(p => ({
-          id: p.id,
-          pic: p.pic,
-          normalizedPic: normalize(p.pic),
-          isMatch: normalize(p.pic) === normalizedUserName
-        }))
-      );
-    }
+    const normalizedUserName = normalize(userName);
 
     const filtered = plans.filter((plan) => {
-      const normalizedPic = normalize(plan.pic);
-      const isMatch = normalizedPic === normalizedUserName;
+      // Primary: UUID-based matching
+      const picIds = plan.pic_ids || [];
+      const supportPicIds = plan.support_pic_ids || [];
 
-      // Log each comparison for debugging
-      if (plans.length <= 20) { // Only log if not too many plans
-        console.log(`[StaffWorkspace] Comparing: PIC="${plan.pic}" (${normalizedPic}) vs User="${userName}" (${normalizedUserName}) => ${isMatch}`);
+      if (userId && (picIds.includes(userId) || supportPicIds.includes(userId))) {
+        return true;
       }
 
-      return isMatch;
+      // Fallback: Legacy text comparison for plans without pic_ids (pre-migration data)
+      if (picIds.length === 0 && plan.legacy_pic_text) {
+        return normalize(plan.legacy_pic_text) === normalizedUserName;
+      }
+      if (picIds.length === 0 && plan.pic) {
+        return normalize(plan.pic) === normalizedUserName;
+      }
+
+      return false;
     });
 
     console.log('[StaffWorkspace] Filtered result:', filtered.length, 'plans matched');
     return filtered;
-  }, [plans, userName]);
+  }, [plans, profile?.id, userName]);
 
   // Apply additional filters and sorting
   const filteredPlans = useMemo(() => {
@@ -528,6 +528,7 @@ export default function StaffWorkspace() {
           setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
+        onCarryOver={carryOverPlan}
         editData={editData}
         departmentCode={departmentCode}
         staffMode={true} // Limit fields for staff

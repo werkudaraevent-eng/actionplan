@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { AlertTriangle, Clock, ArrowRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { isPlanLocked, getLockDeadline } from '../../utils/lockUtils';
+import { useCompanyContext } from '../../context/CompanyContext';
 import LockContextModal from './LockContextModal';
 
 // Month order for sorting
@@ -43,19 +44,23 @@ export default function LockedMonthsSummary({
   // Modal state
   const [selectedMonth, setSelectedMonth] = useState(null);
 
+  const { activeCompanyId } = useCompanyContext();
+
   // Fetch lock settings on mount
   useEffect(() => {
     const fetchLockSettings = async () => {
       try {
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('is_lock_enabled, lock_cutoff_day')
-          .eq('id', 1)
-          .single();
+        // MULTI-TENANT: scope to active company
+        let settingsQuery = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day');
+        let schedulesQuery = supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open');
 
-        const { data: schedulesData } = await supabase
-          .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date, is_force_open');
+        if (activeCompanyId) {
+          settingsQuery = settingsQuery.eq('company_id', activeCompanyId);
+          schedulesQuery = schedulesQuery.eq('company_id', activeCompanyId);
+        }
+
+        const { data: settingsData } = await settingsQuery.maybeSingle();
+        const { data: schedulesData } = await schedulesQuery;
 
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
@@ -68,7 +73,7 @@ export default function LockedMonthsSummary({
     };
 
     fetchLockSettings();
-  }, []);
+  }, [activeCompanyId]);
 
   // Fetch action plans grouped by month
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X, Crown, Building2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,65 @@ import CredentialSuccessModal from './CredentialSuccessModal';
 import { useToast } from '../common/Toast';
 import { useDepartments } from '../../hooks/useDepartments';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
+import { createPortal } from 'react-dom';
+
+// Portal-based tooltip that escapes overflow-hidden containers
+function PortalTooltip({ triggerRef, visible, children }) {
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!visible || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({
+      top: rect.top + window.scrollY - 8, // 8px gap above trigger
+      left: rect.left + window.scrollX + rect.width / 2,
+    });
+  }, [visible, triggerRef]);
+
+  if (!visible) return null;
+
+  return createPortal(
+    <div
+      className="fixed z-[9999] flex flex-col bg-gray-800 text-white text-xs rounded-lg shadow-xl px-3 py-2 whitespace-nowrap pointer-events-none"
+      style={{
+        top: pos.top,
+        left: pos.left,
+        transform: 'translate(-50%, -100%)',
+      }}
+    >
+      {children}
+      {/* Arrow pointing down */}
+      <span className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-gray-800" />
+    </div>,
+    document.body
+  );
+}
+
+// Badge with portal tooltip for additional departments
+function AdditionalDeptsBadge({ departments, getDeptName }) {
+  const badgeRef = useRef(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <span
+      ref={badgeRef}
+      className="relative inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200 cursor-help"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      +{departments.length}
+      <PortalTooltip triggerRef={badgeRef} visible={showTooltip}>
+        <span className="font-semibold text-gray-300 text-[10px] uppercase tracking-wider mb-1">Additional Access</span>
+        {departments.map(code => (
+          <span key={code} className="flex items-center gap-1.5 py-0.5">
+            <span className="font-mono text-[10px] text-teal-300">{code}</span>
+            <span className="text-gray-300">{getDeptName(code)}</span>
+          </span>
+        ))}
+      </PortalTooltip>
+    </span>
+  );
+}
 
 const TEMP_PASSWORD = 'Werkudara123!';
 
@@ -56,21 +115,25 @@ export default function UserManagement({ initialFilter = '' }) {
   // When viewing a subsidiary: exclude holding_admin users (defense-in-depth)
   // When viewing Werkudara Group (holding): include all users with that company_id
   const fetchUsers = useCallback(async () => {
+    // HYDRATION GUARD: Do NOT fetch until company context is resolved.
+    // Without this, a hard refresh temporarily returns ALL tenants' users.
+    if (!activeCompanyId) {
+      setUsers([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       let query = supabase
         .from('profiles')
         .select('*')
+        .eq('company_id', activeCompanyId) // ALWAYS scope by company
         .order('created_at', { ascending: false });
 
       // When viewing a subsidiary, exclude holding_admin users
       if (!isHoldingContext) {
         query = query.neq('role', 'holding_admin');
-      }
-
-      // MULTI-TENANT: filter by company_id
-      if (activeCompanyId) {
-        query = query.eq('company_id', activeCompanyId);
       }
 
       const { data, error } = await query;
@@ -175,7 +238,9 @@ export default function UserManagement({ initialFilter = '' }) {
     try {
       if (userModal.editData) {
         // --- EDIT MODE: Direct update to profiles table ---
-        const { error } = await supabase
+        // Use .select() to verify the update actually affected a row.
+        // Supabase returns error:null + data:[] when RLS silently blocks the update.
+        const { data, error } = await supabase
           .from('profiles')
           .update({
             full_name: formData.full_name,
@@ -183,9 +248,20 @@ export default function UserManagement({ initialFilter = '' }) {
             department_code: formData.department_code,
             additional_departments: formData.additional_departments,
           })
-          .eq('id', userModal.editData.id);
+          .eq('id', userModal.editData.id)
+          .select();
 
         if (error) throw error;
+
+        // Paranoid check: RLS may silently block the update (error=null, data=[])
+        if (!data || data.length === 0) {
+          throw new Error(
+            'Update failed: No rows were modified. This is likely due to a database permission policy. ' +
+            'Please contact your administrator.'
+          );
+        }
+
+        toast({ title: 'User Updated', description: `"${formData.full_name}" updated successfully.`, variant: 'success' });
       } else {
         // --- ADD MODE: Call Edge Function to create auth user + profile ---
         const payload = {
@@ -203,11 +279,24 @@ export default function UserManagement({ initialFilter = '' }) {
           body: payload
         });
 
-        // Check for invocation error
-        if (error) throw new Error(error.message || 'Function invocation failed');
+        // Supabase FunctionsHttpError: on non-2xx, the real backend JSON is buried
+        // inside error.context (a Response object), NOT in data or error.message.
+        if (error) {
+          let actualMessage = error.message;
+          // Brute-force extract the real backend message from error.context
+          if (error.context && typeof error.context.json === 'function') {
+            try {
+              const errBody = await error.context.json();
+              actualMessage = errBody.error || errBody.message || actualMessage;
+            } catch (_) { /* not JSON, keep generic */ }
+          } else if (data?.error) {
+            actualMessage = data.error;
+          }
+          throw new Error(actualMessage);
+        }
+        if (data?.error) throw new Error(data.error);
 
-        // Check for business logic error returned by function
-        if (data && data.error) throw new Error(data.error);
+        toast({ title: 'User Created', description: `Account for "${formData.email}" created successfully.`, variant: 'success' });
 
         // Show credential success modal instead of alert
         setCreatedUserCreds({
@@ -216,12 +305,14 @@ export default function UserManagement({ initialFilter = '' }) {
         });
       }
 
+      // Only close modal and refresh on verified success
       setUserModal({ isOpen: false, editData: null });
       fetchUsers();
       fetchHoldingUsers(); // Also refresh holding list in case a holding_admin was created
     } catch (err) {
       console.error('Save failed:', err);
-      throw err;
+      toast({ title: 'Save Failed', description: err.message || 'An unexpected error occurred.', variant: 'error' });
+      throw err; // Re-throw so UserModal keeps the form open with the error displayed
     }
   };
 
@@ -244,13 +335,23 @@ export default function UserManagement({ initialFilter = '' }) {
         body: { userId: targetUser.id },
       });
 
+      // Supabase FunctionsHttpError: real backend JSON buried in error.context
       if (fnError) {
-        // If the Edge Function doesn't exist (404) or isn't deployed, fall back
-        const is404 = fnError.message?.includes('404') || fnError.message?.includes('not found') || fnError.message?.includes('Function not found');
+        let actualMessage = fnError.message;
+        if (fnError.context && typeof fnError.context.json === 'function') {
+          try {
+            const errBody = await fnError.context.json();
+            actualMessage = errBody.error || errBody.message || actualMessage;
+          } catch (_) { /* not JSON, keep generic */ }
+        } else if (fnData?.error) {
+          actualMessage = fnData.error;
+        }
+
+        // If the Edge Function doesn't exist (404), fall back to direct delete
+        const is404 = actualMessage?.includes('404') || actualMessage?.includes('not found') || actualMessage?.includes('Function not found');
         if (is404) {
           console.warn('delete-user Edge Function not deployed — falling back to direct profile delete');
 
-          // Fallback: direct profile delete (may silently fail if FK or RLS blocks it)
           const { error: deleteError, count } = await supabase
             .from('profiles')
             .delete({ count: 'exact' })
@@ -259,7 +360,6 @@ export default function UserManagement({ initialFilter = '' }) {
           if (deleteError) throw deleteError;
 
           if (count === 0) {
-            // The delete returned no error but also deleted nothing — likely RLS or FK constraint
             throw new Error(
               'Profile could not be removed. This user may be protected by database constraints. ' +
               'A server-side Edge Function (delete-user) is required to fully delete auth users.'
@@ -272,13 +372,9 @@ export default function UserManagement({ initialFilter = '' }) {
             variant: 'warning',
           });
         } else {
-          throw new Error(fnError.message || 'Edge Function invocation failed');
+          throw new Error(actualMessage);
         }
       } else {
-        // Edge Function returned — check for business logic errors
-        if (fnData?.error) {
-          throw new Error(fnData.error);
-        }
 
         toast({
           title: 'User Deleted',
@@ -345,13 +441,20 @@ export default function UserManagement({ initialFilter = '' }) {
             <span className="text-sm text-gray-600">{user.company?.name || 'Unassigned'}</span>
           </div>
         ) : (
-          <div>
-            <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded mr-2">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
               {user.department_code || '-'}
             </span>
             <span className="text-sm text-gray-600">
               {user.department_code ? getDeptName(user.department_code).split(' ')[0] : ''}
             </span>
+            {/* Additional departments badge with portal tooltip */}
+            {user.additional_departments && user.additional_departments.length > 0 && (
+              <AdditionalDeptsBadge
+                departments={user.additional_departments}
+                getDeptName={getDeptName}
+              />
+            )}
           </div>
         )}
       </td>

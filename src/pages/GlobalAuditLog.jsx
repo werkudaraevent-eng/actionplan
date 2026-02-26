@@ -154,6 +154,13 @@ export default function GlobalAuditLog() {
     setError(null);
     setPage(0);
 
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setAllMerged([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       let auditQuery = supabase
         .from('audit_logs')
@@ -180,11 +187,9 @@ export default function GlobalAuditLog() {
         progressQuery = progressQuery.eq('action_plan.department_code', selectedDept);
       }
 
-      // MULTI-TENANT: filter by company_id through the action_plan join
-      if (activeCompanyId) {
-        auditQuery = auditQuery.eq('action_plan.company_id', activeCompanyId);
-        progressQuery = progressQuery.eq('action_plan.company_id', activeCompanyId);
-      }
+      // MULTI-TENANT: always filter by company_id through the action_plan join
+      auditQuery = auditQuery.eq('action_plan.company_id', activeCompanyId);
+      progressQuery = progressQuery.eq('action_plan.company_id', activeCompanyId);
 
       const [auditResult, progressResult] = await Promise.all([
         withTimeout(auditQuery, 15000),

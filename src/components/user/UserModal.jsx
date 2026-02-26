@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle, Crown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
 const ROLES = [
   { value: 'holding_admin', label: 'Holding Admin', icon: Crown, description: 'Absolute access to all subsidiaries and holding-level settings', color: 'amber', restricted: true },
@@ -209,6 +210,9 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
         {/* Form - Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-5">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Subsidiary context badge — read-only reassurance */}
+            <SubsidiaryBanner />
+
             {error && (
               <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
                 {error}

@@ -157,7 +157,7 @@ export default function ExecutiveActionCenter() {
                     .from('action_plans')
                     .select(`
                         id, action_plan, goal_strategy, category, department_code,
-                        month, year, pic, status, gap_analysis, gap_category,
+                        month, year, pic, legacy_pic_text, pic_ids, status, gap_analysis, gap_category,
                         resolution_type, updated_at, submission_status,
                         carry_over_status, indicator, area_focus
                     `)
@@ -194,15 +194,15 @@ export default function ExecutiveActionCenter() {
 
     // ═══ SYSTEM TASKS FETCHERS (merged from ApprovalInbox) ═══
     const fetchUnlockRequests = useCallback(async () => {
-        if (!canSeeSystemTasks) return;
+        if (!canSeeSystemTasks || !activeCompanyId) return;
         try {
             setUnlockLoading(true);
             let query = supabase
                 .from('action_plans')
                 .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_at, unlock_requested_by')
                 .eq('unlock_status', 'pending')
+                .eq('company_id', activeCompanyId)
                 .order('unlock_requested_at', { ascending: false });
-            if (activeCompanyId) query = query.eq('company_id', activeCompanyId);
 
             const { data, error } = await withTimeout(query, 10000);
             if (error) throw error;
@@ -222,17 +222,17 @@ export default function ExecutiveActionCenter() {
     }, [canSeeSystemTasks, activeCompanyId]);
 
     const fetchActiveUnlocks = useCallback(async () => {
-        if (!canSeeSystemTasks) return;
+        if (!canSeeSystemTasks || !activeCompanyId) return;
         try {
             setActiveUnlocksLoading(true);
             let query = supabase
                 .from('action_plans')
                 .select('id, department_code, year, month, goal_strategy, action_plan, unlock_status, unlock_reason, unlock_requested_by, approved_until, unlock_approved_at')
                 .eq('unlock_status', 'approved')
+                .eq('company_id', activeCompanyId)
                 .not('approved_until', 'is', null)
                 .gt('approved_until', new Date().toISOString())
                 .order('approved_until', { ascending: true });
-            if (activeCompanyId) query = query.eq('company_id', activeCompanyId);
 
             const { data, error } = await withTimeout(query, 10000);
             if (error) throw error;
@@ -554,7 +554,7 @@ export default function ExecutiveActionCenter() {
             const q = searchQuery.toLowerCase();
             const matchesSearch = !q
                 || (plan.action_plan || '').toLowerCase().includes(q)
-                || (plan.pic || '').toLowerCase().includes(q)
+                || (plan.legacy_pic_text || plan.pic || '').toLowerCase().includes(q)
                 || (plan.gap_analysis || '').toLowerCase().includes(q)
                 || (plan.goal_strategy || '').toLowerCase().includes(q);
             const matchesDept = selectedDept === 'All' || plan.department_code === selectedDept;
@@ -751,10 +751,10 @@ export default function ExecutiveActionCenter() {
                                                 {/* Left: Avatar + PIC */}
                                                 <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
                                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                                                        {(item.pic || 'U').charAt(0).toUpperCase()}
+                                                        {(item.legacy_pic_text || item.pic || 'U').charAt(0).toUpperCase()}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 truncate">{item.pic || 'Unknown'}</p>
+                                                        <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || item.pic || 'Unknown'}</p>
                                                         <div className="flex items-center gap-1.5 mt-0.5">
                                                             <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
                                                             <span className="text-xs text-gray-400">{item.month} {item.year}</span>
@@ -899,7 +899,7 @@ export default function ExecutiveActionCenter() {
                                                             <span className="text-gray-300">•</span>
                                                             <span className="font-medium text-gray-600">{plan.month} {plan.year}</span>
                                                             <span className="text-gray-300">•</span>
-                                                            <span>PIC: <span className="font-semibold text-gray-700">{plan.pic || 'Unknown'}</span></span>
+                                                            <span>PIC: <span className="font-semibold text-gray-700">{plan.legacy_pic_text || plan.pic || 'Unknown'}</span></span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1045,10 +1045,10 @@ export default function ExecutiveActionCenter() {
                                                     <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
                                                         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${isInstructed ? 'bg-gradient-to-br from-gray-400 to-gray-600' : 'bg-gradient-to-br from-slate-600 to-slate-800'
                                                             }`}>
-                                                            {(item.pic || 'U').charAt(0).toUpperCase()}
+                                                            {(item.legacy_pic_text || item.pic || 'U').charAt(0).toUpperCase()}
                                                         </div>
                                                         <div className="min-w-0">
-                                                            <p className="text-sm font-semibold text-gray-800 truncate">{item.pic || 'Unknown'}</p>
+                                                            <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || item.pic || 'Unknown'}</p>
                                                             <div className="flex items-center gap-1.5 mt-0.5">
                                                                 <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
                                                                 <span className="text-xs text-gray-400">{item.month}</span>

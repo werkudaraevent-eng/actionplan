@@ -1,5 +1,6 @@
 import { MentionsInput, Mention } from 'react-mentions';
 import { useMentionUsers } from '../../hooks/useMentionUsers';
+import { useCompanyContext } from '../../context/CompanyContext';
 
 /**
  * MentionInput - Textarea with @mention autocomplete
@@ -75,7 +76,8 @@ export default function MentionInput({
   rows = 2,
   inputRef,
 }) {
-  const { users } = useMentionUsers();
+  const { activeCompanyId } = useCompanyContext();
+  const { users } = useMentionUsers(activeCompanyId);
 
   // Custom suggestion renderer
   const renderSuggestion = (suggestion, search, highlightedDisplay, index, focused) => (

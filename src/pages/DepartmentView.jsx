@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, ShieldCheck, Undo2, Send, FileSpreadsheet, FileText, LockKeyhole, Unlock, X, Clock } from 'lucide-react';
+import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, ShieldCheck, Undo2, Send, FileSpreadsheet, FileText, LockKeyhole, Unlock, X, Clock, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useDepartments } from '../hooks/useDepartments';
 import { usePermission } from '../hooks/usePermission';
@@ -33,8 +34,9 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '', highlightPlanId = '' }) {
   const { isAdmin, isExecutive, isLeader } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const { toast } = useToast();
-  const { departments } = useDepartments();
+  const { departments } = useDepartments(activeCompanyId);
   const { can } = usePermission();
 
   // Permission-based access control
@@ -44,7 +46,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const canManagePlans = (isAdmin || isLeader) && !isExecutive && canCreatePlan; // Executives cannot manage plans
   const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
-  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, refetch } = useActionPlans(departmentCode);
+  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, carryOverPlan, refetch } = useActionPlans(departmentCode, activeCompanyId);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -118,6 +120,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     lockCutoffDay: 6,
     monthlyOverrides: []
   });
+  const [lockSettingsLoaded, setLockSettingsLoaded] = useState(false);
 
   // Bulk unlock modal state
   const [bulkUnlockModal, setBulkUnlockModal] = useState({
@@ -132,16 +135,16 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // Fetch lock settings on mount
   useEffect(() => {
     const fetchLockSettings = async () => {
-      try {
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('is_lock_enabled, lock_cutoff_day')
-          .eq('id', 1)
-          .single();
+      // HYDRATION GUARD: wait for company context
+      if (!activeCompanyId) return;
 
-        const { data: schedulesData } = await supabase
-          .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date, is_force_open');
+      try {
+        // MULTI-TENANT: always scope to active company
+        let settingsQuery = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day').eq('company_id', activeCompanyId);
+        let schedulesQuery = supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open').eq('company_id', activeCompanyId);
+
+        const { data: settingsData } = await settingsQuery.maybeSingle();
+        const { data: schedulesData } = await schedulesQuery;
 
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
@@ -150,11 +153,13 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         });
       } catch (err) {
         console.error('Error fetching lock settings:', err);
+      } finally {
+        setLockSettingsLoaded(true);
       }
     };
 
     fetchLockSettings();
-  }, []);
+  }, [activeCompanyId]);
 
   // REALTIME: Subscribe to lock settings changes (prevents stale state bug)
   // When admin updates deadlines, users see changes immediately without refresh
@@ -167,12 +172,12 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         { event: '*', schema: 'public', table: 'system_settings' },
         async (payload) => {
           console.log('[Realtime] system_settings changed:', payload);
-          // Re-fetch settings on any change
-          const { data } = await supabase
-            .from('system_settings')
-            .select('is_lock_enabled, lock_cutoff_day')
-            .eq('id', 1)
-            .single();
+          // MULTI-TENANT: re-fetch scoped to active company
+          let query = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day');
+          if (activeCompanyId) {
+            query = query.eq('company_id', activeCompanyId);
+          }
+          const { data } = await query.maybeSingle();
 
           if (data) {
             setLockSettings(prev => ({
@@ -302,8 +307,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   // Calculate lock status for the selected month (for bulk unlock banner)
   const monthLockStatus = useMemo(() => {
-    if (selectedMonth === 'all' || !lockSettings.isLockEnabled) {
-      return { isLocked: false, lockedItems: [], pendingCount: 0 };
+    if (selectedMonth === 'all' || !lockSettingsLoaded || !lockSettings.isLockEnabled) {
+      return { isLocked: false, lockedItems: [], pendingCount: 0, rejectedCount: 0 };
     }
 
     // Get all plans for this month
@@ -344,13 +349,14 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       isLocked: true,
       lockedItems,
       pendingCount,
+      rejectedCount: monthPlans.filter(p => p.unlock_status === 'rejected' && p.status !== 'Not Achieved').length,
       totalCount: monthPlans.length
     };
-  }, [selectedMonth, plans, lockSettings]);
+  }, [selectedMonth, plans, lockSettings, lockSettingsLoaded]);
 
   // Calculate locked months that need attention (ready to submit but locked)
   const lockedMonthsNeedingAttention = useMemo(() => {
-    if (!lockSettings?.isLockEnabled) return [];
+    if (!lockSettingsLoaded || !lockSettings?.isLockEnabled) return [];
 
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const lockedMonths = [];
@@ -394,7 +400,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     });
 
     return lockedMonths;
-  }, [plans, lockSettings]);
+  }, [plans, lockSettings, lockSettingsLoaded]);
 
   // Get incomplete items (not Achieved or Not Achieved) for selected month
   // Excludes items pending drop approval (is_drop_pending = true)
@@ -428,7 +434,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           plan.goal_strategy,
           plan.action_plan,
           plan.indicator,
-          plan.pic,
+          plan.legacy_pic_text || plan.pic,
           plan.remark,
         ].filter(Boolean);
 
@@ -482,7 +488,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         row.action_plan,
         row.indicator,
         row.evidence,
-        row.pic
+        (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic
       ].map(val => String(val || '').trim().toLowerCase()).join('|');
       grouped.add(fingerprint);
     });
@@ -690,11 +696,47 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
     // Block submission if there are incomplete items
     if (blockingIncomplete.length > 0) {
+      // Build context-aware blocker list with visual status matching table badges
+      const getVisualStatus = (plan) => {
+        if (plan.is_drop_pending) return { label: 'Drop Pending', color: 'bg-amber-100 text-amber-800' };
+        if (plan.status === 'Open' && plan.remark?.includes('[Drop Rejected')) return { label: 'Drop Rejected', color: 'bg-red-100 text-red-800' };
+        if (plan.status === 'Blocked') return { label: 'Blocked', color: 'bg-red-100 text-red-700' };
+        if (plan.status === 'On Progress') return { label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' };
+        return { label: plan.status || 'Open', color: 'bg-gray-100 text-gray-700' };
+      };
+
+      const displayItems = blockingIncomplete.slice(0, 3);
+      const remainingCount = blockingIncomplete.length - displayItems.length;
+
       setModalConfig({
         isOpen: true,
         type: 'warning',
         title: 'Cannot Submit Report',
-        message: `You still have ${blockingIncomplete.length} active plan(s) (Open, In Progress, or Blocked). Please update their status to "Achieved" or "Not Achieved" before submitting.`,
+        message: (
+          <div>
+            <p className="text-gray-600 mb-3">
+              You must update the status of the following item{blockingIncomplete.length > 1 ? 's' : ''} to <span className="font-semibold">"Achieved"</span> or <span className="font-semibold">"Not Achieved"</span> before submitting:
+            </p>
+            <div className="space-y-2 mb-2">
+              {displayItems.map((plan, i) => {
+                const vs = getVisualStatus(plan);
+                return (
+                  <div key={plan.id || i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{plan.action_plan || plan.indicator || 'Untitled Plan'}</p>
+                    </div>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${vs.color}`}>
+                      {vs.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {remainingCount > 0 && (
+              <p className="text-xs text-gray-400 mt-1">...and {remainingCount} more item{remainingCount > 1 ? 's' : ''}</p>
+            )}
+          </div>
+        ),
         onConfirm: null
       });
       return;
@@ -1322,6 +1364,13 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     });
 
     try {
+      // FORCE REFETCH: When the Terminal Resolution banner resolves a locked plan,
+      // it calls onSave({ _forceRefetch: true }) to trigger a full data reload.
+      if (formData._forceRefetch) {
+        await refetch();
+        return;
+      }
+
       // Track if blocker was auto-resolved for toast notification
       let blockerWasAutoResolved = false;
 
@@ -1338,7 +1387,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             goal_strategy: formData.goal_strategy,
             action_plan: formData.action_plan,
             indicator: formData.indicator,
-            pic: formData.pic,
+            pic_ids: formData.pic_ids,
+            support_pic_ids: formData.support_pic_ids,
             report_format: formData.report_format,
             status: formData.status,
             outcome_link: formData.outcome_link,
@@ -1356,6 +1406,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             // Follow-up action fields (Carry Over / Drop)
             ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
             ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
+            ...(formData.is_carry_over !== undefined && { is_carry_over: formData.is_carry_over }),
             // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
             ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
             ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
@@ -1377,6 +1428,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             // Follow-up action fields (Carry Over / Drop)
             ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
             ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
+            ...(formData.is_carry_over !== undefined && { is_carry_over: formData.is_carry_over }),
             // Staff can report blockers
             ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
             ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),
@@ -1485,53 +1537,22 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     setIsModalOpen(true);
   };
 
-  // Carry Over handler - creates a new action plan for the next month
-  // NOTE: The DB trigger automatically logs CARRY_OVER to audit_logs when is_carry_over=true
+  // Carry Over handler - uses the centralized carry_over_plan RPC
+  // This ensures proper penalty tracking, audit logging, and field copying
   const handleCarryOver = async (item) => {
     try {
-      // Calculate next month
-      const currentMonthIndex = MONTHS_ORDER.indexOf(item.month);
-      const nextMonthIndex = (currentMonthIndex + 1) % 12;
-      const nextMonth = MONTHS_ORDER[nextMonthIndex];
-      const nextYear = nextMonthIndex === 0 ? (item.year || CURRENT_YEAR) + 1 : (item.year || CURRENT_YEAR);
-
-      // Create new action plan with copied details
-      // The DB trigger will automatically create a CARRY_OVER audit log entry
-      const newPlan = {
-        department_code: item.department_code,
-        year: nextYear,
-        month: nextMonth,
-        goal_strategy: item.goal_strategy,
-        action_plan: item.action_plan,
-        indicator: item.indicator,
-        pic: item.pic,
-        report_format: item.report_format || 'Monthly Report',
-        area_focus: item.area_focus,
-        category: item.category,
-        status: 'Open',
-        is_carry_over: true,
-        submission_status: 'draft'
-      };
-
-      const { error } = await supabase
-        .from('action_plans')
-        .insert(newPlan);
-
-      if (error) throw error;
-
-      // Refresh data
-      await refetch();
+      const result = await carryOverPlan(item.id);
 
       toast({
         title: '⏭️ Plan Carried Over',
-        description: `Action plan has been carried over to ${nextMonth} ${nextYear}.`,
+        description: `Action plan has been carried over to ${result?.next_month || 'next month'} ${result?.next_year || ''} (max score: ${result?.max_possible_score ?? 80}%).`,
         variant: 'success'
       });
     } catch (error) {
       console.error('Carry over failed:', error);
       toast({
-        title: 'Carry Over Failed',
-        description: 'Failed to carry over the action plan. Please try again.',
+        title: '❌ Carry Over Failed',
+        description: error.message || 'Failed to carry over the action plan. Please try again.',
         variant: 'error'
       });
     }
@@ -1820,7 +1841,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       {/* Scrollable Content Area */}
       <main className="p-6 space-y-6">
         {/* Missed Deadline Warning Banner - Shows when there are locked months ready to submit */}
-        {isLeader && !isAdmin && lockedMonthsNeedingAttention.length > 0 && (
+        {/* Hidden when the current month's lock banner is already showing (avoids redundant stacked banners) */}
+        {isLeader && !isAdmin && lockedMonthsNeedingAttention.length > 0 && !monthLockStatus.isLocked && (
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
@@ -1853,6 +1875,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         <LockedMonthsSummary
           departmentCode={departmentCode}
           year={CURRENT_YEAR}
+          plans={plans}
           onMonthClick={jumpToMonth}
           onRequestUnlock={handleDirectUnlockRequest}
           onViewPending={handleViewPending}
@@ -1860,32 +1883,78 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           currentViewedMonth={selectedMonth !== 'all' ? selectedMonth : null}
         />
 
-        {/* Bulk Unlock Banner - Shows when month is locked and user is Leader */}
-        {isLeader && !isAdmin && monthLockStatus.isLocked && monthLockStatus.lockedItems.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                <LockKeyhole className="w-5 h-5 text-amber-600" />
+        {/* Lock Banner — Mutually exclusive states: Rejected Lockdown OR Normal Unlock Request */}
+        {isLeader && !isAdmin && monthLockStatus.isLocked && (() => {
+          const hasRejectedItems = (monthLockStatus.rejectedCount || 0) > 0;
+
+          if (hasRejectedItems) {
+            // ═══ REJECTED LOCKDOWN BANNER ═══
+            // User has rejected items that MUST be resolved before requesting new unlocks
+            return (
+              <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                    <XCircle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-red-800">
+                      ⛔ Unlock Request Denied
+                    </p>
+                    <p className="text-sm text-red-600">
+                      {monthLockStatus.rejectedCount} item(s) have been rejected by Management.
+                      {' '}You must permanently resolve the highlighted items below before proceeding.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    // Scroll to the data table so user can see the red "Action Required" badges
+                    const tableEl = document.querySelector('[data-table-container]') || document.querySelector('table');
+                    if (tableEl) {
+                      tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium whitespace-nowrap"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  Review & Fix ↓
+                </button>
               </div>
-              <div>
-                <p className="font-medium text-amber-800">
-                  🔒 This period ({selectedMonth} {CURRENT_YEAR}) is locked
-                </p>
-                <p className="text-sm text-amber-600">
-                  {monthLockStatus.lockedItems.length} item(s) cannot be edited.
-                  {monthLockStatus.pendingCount > 0 && ` ${monthLockStatus.pendingCount} unlock request(s) pending.`}
-                </p>
+            );
+          }
+
+          // ═══ NORMAL LOCK BANNER ═══
+          // No rejected items — show standard "Request Unlock" flow
+          if (monthLockStatus.lockedItems.length > 0) {
+            return (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                    <LockKeyhole className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-amber-800">
+                      🔒 This period ({selectedMonth} {CURRENT_YEAR}) is locked
+                    </p>
+                    <p className="text-sm text-amber-600">
+                      {monthLockStatus.lockedItems.length} item(s) cannot be edited.
+                      {monthLockStatus.pendingCount > 0 && ` ${monthLockStatus.pendingCount} unlock request(s) pending.`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleOpenBulkUnlock}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+                >
+                  <Unlock className="w-4 h-4" />
+                  Request Unlock for All Items
+                </button>
               </div>
-            </div>
-            <button
-              onClick={handleOpenBulkUnlock}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
-            >
-              <Unlock className="w-4 h-4" />
-              Request Unlock for All Items
-            </button>
-          </div>
-        )}
+            );
+          }
+
+          return null;
+        })()}
 
         {/* Pending Unlock Banner - Shows when there are pending requests AND no more items to request unlock for */}
         {isLeader && !isAdmin && monthLockStatus.pendingCount > 0 && monthLockStatus.lockedItems.length === 0 && (
@@ -1991,6 +2060,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           setEditModalClosedCounter(prev => prev + 1);
         }}
         onSave={handleSave}
+        onCarryOver={carryOverPlan}
         editData={editData}
         departmentCode={departmentCode}
         onRecall={handleSingleRecall}
@@ -2200,7 +2270,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               <h3 className="text-lg font-semibold text-gray-800">{modalConfig.title}</h3>
             </div>
 
-            <p className="text-gray-600 mb-6">{modalConfig.message}</p>
+            <div className="text-gray-600 mb-6">{modalConfig.message}</div>
 
             {/* Buttons based on type */}
             {modalConfig.type === 'confirm' ? (

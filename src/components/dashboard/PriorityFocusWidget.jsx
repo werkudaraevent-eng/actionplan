@@ -31,7 +31,7 @@ export default function PriorityFocusWidget({ plans }) {
     const sorted = filtered.sort((a, b) => {
       const aMonth = MONTH_ORDER[a.month] ?? 99;
       const bMonth = MONTH_ORDER[b.month] ?? 99;
-      
+
       const aIsOverdue = aMonth < currentMonth;
       const bIsOverdue = bMonth < currentMonth;
 
@@ -83,26 +83,24 @@ export default function PriorityFocusWidget({ plans }) {
             return (
               <div
                 key={item.id}
-                className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border ${
-                  item.isOverdue 
-                    ? 'bg-red-50 border-red-200' 
+                className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border ${item.isOverdue
+                    ? 'bg-red-50 border-red-200'
                     : 'bg-amber-50 border-amber-200'
-                }`}
+                  }`}
               >
                 <div className="flex-1 min-w-0">
                   <p className={`text-xs font-medium truncate ${item.isOverdue ? 'text-red-800' : 'text-amber-800'}`} title={item.action_plan || item.goal_strategy}>
                     {item.action_plan || item.goal_strategy || 'Untitled'}
                   </p>
-                  {item.pic && (
-                    <p className="text-[10px] text-gray-500 mt-0.5">PIC: {item.pic}</p>
+                  {(item.legacy_pic_text || item.pic) && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">PIC: {item.legacy_pic_text || item.pic}</p>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    item.isOverdue 
-                      ? 'bg-red-200 text-red-800' 
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.isOverdue
+                      ? 'bg-red-200 text-red-800'
                       : 'bg-amber-200 text-amber-800'
-                  }`}>
+                    }`}>
                     {item.isOverdue ? (
                       <span className="flex items-center gap-0.5">
                         <AlertCircle className="w-2.5 h-2.5" />

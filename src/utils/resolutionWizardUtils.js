@@ -16,16 +16,20 @@ export async function fetchCarryOverSettings() {
 /**
  * Fetch drop approval policy settings from system_settings.
  * Returns { drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l }
+ * @param {string|null} companyId - Company UUID for multi-tenant filtering
  */
-export async function fetchDropPolicySettings() {
-  const { data, error } = await withTimeout(
-    supabase
-      .from('system_settings')
-      .select('drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l')
-      .eq('id', 1)
-      .single(),
-    5000
-  );
+export async function fetchDropPolicySettings(companyId = null) {
+  let query = supabase
+    .from('system_settings')
+    .select('drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l');
+
+  if (companyId) {
+    query = query.eq('company_id', companyId);
+  } else {
+    query = query.eq('id', 1); // Legacy fallback
+  }
+
+  const { data, error } = await withTimeout(query.maybeSingle(), 5000);
   if (error) throw error;
   return data || {
     drop_approval_req_uh: false,
@@ -93,6 +97,13 @@ export function getCarryOverLabel(plan) {
  * @returns {Promise<{success: boolean, carried_over: number, dropped: number, next_month: string, next_year: number}>}
  */
 export async function resolveAndSubmitReport(departmentCode, month, year, resolutions, userId) {
+  console.log('🔍 [resolveAndSubmitReport] Calling RPC with:', {
+    p_department_code: departmentCode,
+    p_month: month,
+    p_year: year,
+    p_resolutions: resolutions,
+    p_user_id: userId,
+  });
   const { data, error } = await withTimeout(
     supabase.rpc('resolve_and_submit_report', {
       p_department_code: departmentCode,
@@ -103,7 +114,11 @@ export async function resolveAndSubmitReport(departmentCode, month, year, resolu
     }),
     15000 // Longer timeout for batch operations
   );
-  if (error) throw error;
+  console.log('🔍 [resolveAndSubmitReport] RPC raw response:', { data, error });
+  if (error) {
+    console.error('🚨 RESOLVE_AND_SUBMIT_REPORT RPC FAILED:', error.message, error);
+    throw error;
+  }
   return data;
 }
 
@@ -115,7 +130,7 @@ export async function getUnresolvedPlans(departmentCode, month, year) {
   const { data, error } = await withTimeout(
     supabase
       .from('action_plans')
-      .select('id, action_plan, goal_strategy, pic, status, carry_over_status, max_possible_score, is_blocked, blocker_reason, attention_level, category, is_drop_pending')
+      .select('id, action_plan, goal_strategy, pic_ids, support_pic_ids, legacy_pic_text, status, carry_over_status, max_possible_score, is_blocked, blocker_reason, attention_level, category, is_drop_pending')
       .eq('department_code', departmentCode)
       .eq('month', month)
       .eq('year', year)

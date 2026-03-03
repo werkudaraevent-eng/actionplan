@@ -14,8 +14,10 @@ import {
   Search,
   X
 } from 'lucide-react';
-import { supabase, withTimeout, DEPARTMENTS } from '../lib/supabase';
+import { supabase, withTimeout } from '../lib/supabase';
 import { parseMentions } from '../utils/mentionUtils';
+import { useCompanyContext } from '../context/CompanyContext';
+import { useDepartments } from '../hooks/useDepartments';
 
 // Change type styling and labels — grouped by visual severity
 const CHANGE_TYPE_CONFIG = {
@@ -108,6 +110,8 @@ function RichDescription({ text }) {
 }
 
 export default function GlobalAuditLog() {
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
   const [logs, setLogs] = useState([]);
   const [allMerged, setAllMerged] = useState([]); // full merged dataset for client-side filtering
   const [loading, setLoading] = useState(true);
@@ -150,6 +154,13 @@ export default function GlobalAuditLog() {
     setError(null);
     setPage(0);
 
+    // HYDRATION GUARD: wait for company context
+    if (!activeCompanyId) {
+      setAllMerged([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       let auditQuery = supabase
         .from('audit_logs')
@@ -175,6 +186,10 @@ export default function GlobalAuditLog() {
         auditQuery = auditQuery.eq('action_plan.department_code', selectedDept);
         progressQuery = progressQuery.eq('action_plan.department_code', selectedDept);
       }
+
+      // MULTI-TENANT: always filter by company_id through the action_plan join
+      auditQuery = auditQuery.eq('action_plan.company_id', activeCompanyId);
+      progressQuery = progressQuery.eq('action_plan.company_id', activeCompanyId);
 
       const [auditResult, progressResult] = await Promise.all([
         withTimeout(auditQuery, 15000),
@@ -214,7 +229,7 @@ export default function GlobalAuditLog() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDept]);
+  }, [selectedDept, activeCompanyId]);
 
   // Re-fetch when department changes
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
@@ -270,7 +285,7 @@ export default function GlobalAuditLog() {
   useEffect(() => { setPage(0); }, [selectedType, debouncedSearch, startDate, endDate]);
 
   const getDeptName = (code) => {
-    const dept = DEPARTMENTS.find(d => d.code === code);
+    const dept = departments.find(d => d.code === code);
     return dept ? dept.name : code;
   };
 
@@ -348,7 +363,7 @@ export default function GlobalAuditLog() {
                     All Departments
                   </button>
                   <div className="border-t border-gray-100" />
-                  {DEPARTMENTS.map((dept) => (
+                  {departments.map((dept) => (
                     <button key={dept.code} onClick={() => { setSelectedDept(dept.code); setDeptDropdownOpen(false); }}
                       className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedDept === dept.code ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'}`}>
                       <span className="font-medium">{dept.code}</span>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { AlertTriangle, Clock, ArrowRight } from 'lucide-react';
+import { AlertTriangle, Clock, ArrowRight, XCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { isPlanLocked, getLockDeadline } from '../../utils/lockUtils';
+import { useCompanyContext } from '../../context/CompanyContext';
 import LockContextModal from './LockContextModal';
 
 // Month order for sorting
@@ -26,6 +27,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 export default function LockedMonthsSummary({
   departmentCode,
   year,
+  plans = [],
   onMonthClick,
   onRequestUnlock,
   onViewPending,
@@ -37,25 +39,28 @@ export default function LockedMonthsSummary({
     lockCutoffDay: 6,
     monthlyOverrides: []
   });
-  const [monthData, setMonthData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [lockSettingsLoaded, setLockSettingsLoaded] = useState(false);
 
   // Modal state
   const [selectedMonth, setSelectedMonth] = useState(null);
+
+  const { activeCompanyId } = useCompanyContext();
 
   // Fetch lock settings on mount
   useEffect(() => {
     const fetchLockSettings = async () => {
       try {
-        const { data: settingsData } = await supabase
-          .from('system_settings')
-          .select('is_lock_enabled, lock_cutoff_day')
-          .eq('id', 1)
-          .single();
+        // MULTI-TENANT: scope to active company
+        let settingsQuery = supabase.from('system_settings').select('is_lock_enabled, lock_cutoff_day');
+        let schedulesQuery = supabase.from('monthly_lock_schedules').select('month_index, year, lock_date, is_force_open');
 
-        const { data: schedulesData } = await supabase
-          .from('monthly_lock_schedules')
-          .select('month_index, year, lock_date, is_force_open');
+        if (activeCompanyId) {
+          settingsQuery = settingsQuery.eq('company_id', activeCompanyId);
+          schedulesQuery = schedulesQuery.eq('company_id', activeCompanyId);
+        }
+
+        const { data: settingsData } = await settingsQuery.maybeSingle();
+        const { data: schedulesData } = await schedulesQuery;
 
         setLockSettings({
           isLockEnabled: settingsData?.is_lock_enabled ?? false,
@@ -64,89 +69,73 @@ export default function LockedMonthsSummary({
         });
       } catch (err) {
         console.error('Error fetching lock settings:', err);
+      } finally {
+        setLockSettingsLoaded(true);
       }
     };
 
     fetchLockSettings();
-  }, []);
+  }, [activeCompanyId]);
 
-  // Fetch action plans grouped by month
-  useEffect(() => {
-    if (!departmentCode || !lockSettings.isLockEnabled) {
-      setLoading(false);
-      return;
+  // Derive month data reactively from the parent's plans prop
+  // This ensures the banner updates instantly when plans change (e.g., after resolving rejected items)
+  const monthData = useMemo(() => {
+    if (!lockSettingsLoaded || !lockSettings.isLockEnabled || !plans.length) {
+      return [];
     }
 
-    const fetchMonthData = async () => {
-      setLoading(true);
-      try {
-        const { data: plans, error } = await supabase
-          .from('action_plans')
-          .select('id, month, year, status, unlock_status, approved_until, temporary_unlock_expiry, deleted_at')
-          .eq('department_code', departmentCode)
-          .eq('year', year)
-          .is('deleted_at', null);
+    const activeStatuses = ['Open', 'On Progress', 'Pending'];
+    const monthGroups = {};
 
-        if (error) throw error;
+    plans.forEach(plan => {
+      if (plan.deleted_at) return; // Skip soft-deleted
 
-        // Define what constitutes "Active/Unfinished" work
-        // 'Achieved' and 'Not Achieved' are FINAL states - no action required
-        const activeStatuses = ['Open', 'On Progress', 'Pending'];
-
-        // Group by month and calculate lock status
-        const monthGroups = {};
-
-        plans?.forEach(plan => {
-          if (!monthGroups[plan.month]) {
-            monthGroups[plan.month] = {
-              month: plan.month,
-              totalCount: 0,
-              lockedCount: 0,
-              pendingCount: 0,
-              approvedCount: 0,
-              activeCount: 0 // Items that need attention (Open/On Progress)
-            };
-          }
-
-          const group = monthGroups[plan.month];
-          group.totalCount++;
-
-          // Check if this item is in an active (unfinished) state
-          const isActiveStatus = activeStatuses.includes(plan.status);
-
-          // Check lock status
-          const isLocked = isPlanLocked(
-            plan.month,
-            plan.year,
-            plan.unlock_status,
-            plan.approved_until,
-            lockSettings,
-            plan.temporary_unlock_expiry
-          );
-
-          if (plan.unlock_status === 'pending') {
-            group.pendingCount++;
-          } else if (plan.unlock_status === 'approved') {
-            group.approvedCount++;
-          } else if (isLocked) {
-            group.lockedCount++;
-            // Only count as "needing attention" if status is active (not final)
-            if (isActiveStatus) {
-              group.activeCount++;
-            }
-          }
-        });
-
-        setMonthData(Object.values(monthGroups));
-      } catch (err) {
-        console.error('Error fetching month data:', err);
-      } finally {
-        setLoading(false);
+      if (!monthGroups[plan.month]) {
+        monthGroups[plan.month] = {
+          month: plan.month,
+          totalCount: 0,
+          lockedCount: 0,
+          pendingCount: 0,
+          approvedCount: 0,
+          rejectedCount: 0,
+          activeCount: 0
+        };
       }
-    };
 
-    fetchMonthData();
-  }, [departmentCode, year, lockSettings]);
+      const group = monthGroups[plan.month];
+      group.totalCount++;
+
+      const isActiveStatus = activeStatuses.includes(plan.status);
+
+      const isLocked = isPlanLocked(
+        plan.month,
+        plan.year,
+        plan.unlock_status,
+        plan.approved_until,
+        lockSettings,
+        plan.temporary_unlock_expiry
+      );
+
+      if (plan.unlock_status === 'pending') {
+        group.pendingCount++;
+      } else if (plan.unlock_status === 'approved') {
+        group.approvedCount++;
+      } else if (plan.unlock_status === 'rejected' && plan.status !== 'Not Achieved') {
+        group.rejectedCount++;
+        group.lockedCount++;
+        if (isActiveStatus) {
+          group.activeCount++;
+        }
+      } else if (isLocked) {
+        group.lockedCount++;
+        if (isActiveStatus) {
+          group.activeCount++;
+        }
+      }
+    });
+
+    return Object.values(monthGroups);
+  }, [plans, lockSettings, lockSettingsLoaded]);
 
   // Calculate visible alerts (excluding currently viewed month)
   const { visibleLockedMonths, visiblePendingMonths } = useMemo(() => {
@@ -166,7 +155,8 @@ export default function LockedMonthsSummary({
         locked.push({
           month: group.month,
           count: group.activeCount, // Only count active items needing attention
-          total: group.totalCount
+          total: group.totalCount,
+          rejectedCount: group.rejectedCount || 0 // Pass rejected count for UI override
         });
       }
       if (group.pendingCount > 0) {
@@ -204,8 +194,12 @@ export default function LockedMonthsSummary({
     };
   }, [selectedMonth, visibleLockedMonths, year, lockSettings]);
 
-  // Don't render if not a leader, lock is disabled, loading, or no visible alerts
-  if (!isLeader || !lockSettings.isLockEnabled || loading) {
+  // Don't render until lock settings are confirmed loaded
+  if (!lockSettingsLoaded || !isLeader) {
+    return null;
+  }
+
+  if (!lockSettings.isLockEnabled) {
     return null;
   }
 
@@ -252,28 +246,67 @@ export default function LockedMonthsSummary({
   return (
     <>
       <div className="flex flex-col gap-2">
-        {/* Locked Months - Action Required */}
-        {visibleLockedMonths.map(({ month, count }) => (
-          <div
-            key={`locked-${month}`}
-            className="flex items-center justify-between p-3 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg shadow-sm cursor-pointer hover:bg-amber-100 transition-colors"
-            onClick={() => handleAlertClick(month)}
-          >
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-              <p className="text-sm text-amber-900">
-                <span className="font-semibold">Action Required:</span> {month} period is currently locked.
-                <span className="text-amber-700 ml-1">({count} item{count !== 1 ? 's' : ''} need attention)</span>
-              </p>
-            </div>
-            <button
-              className="flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900 px-3 py-1.5 rounded-md hover:bg-amber-200 transition-colors"
+        {/* Locked Months - Action Required (or Rejected Lockdown) */}
+        {visibleLockedMonths.map(({ month, count, rejectedCount }) => {
+          const hasRejected = (rejectedCount || 0) > 0;
+
+          if (hasRejected) {
+            // ═══ REJECTED LOCKDOWN: Hard red danger banner ═══
+            return (
+              <div
+                key={`locked-${month}`}
+                className="bg-red-50 border-l-4 border-red-600 text-red-900 p-4 mb-0 rounded-md flex justify-between items-center shadow-sm"
+              >
+                <div>
+                  <span className="font-bold flex items-center gap-2">
+                    <XCircle className="w-5 h-5 text-red-600" />
+                    Unlock Request Denied.
+                  </span>
+                  <span className="ml-7 block mt-1 text-sm text-red-700">
+                    {rejectedCount} item(s) in {month} were rejected by Management. You must permanently resolve the highlighted items below before proceeding.
+                  </span>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Jump to the month first, then scroll to table
+                    if (onMonthClick) onMonthClick(month);
+                    setTimeout(() => {
+                      const tableEl = document.querySelector('[data-table-container]') || document.querySelector('table');
+                      if (tableEl) tableEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 300);
+                  }}
+                  className="text-red-700 hover:text-red-900 font-bold underline bg-transparent border-none text-sm whitespace-nowrap flex-shrink-0 ml-4"
+                >
+                  Review & Fix ↓
+                </button>
+              </div>
+            );
+          }
+
+          // ═══ NORMAL LOCKED: Standard amber banner ═══
+          return (
+            <div
+              key={`locked-${month}`}
+              className="flex items-center justify-between p-3 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg shadow-sm cursor-pointer hover:bg-amber-100 transition-colors"
+              onClick={() => handleAlertClick(month)}
             >
-              Review & Fix
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                <p className="text-sm text-amber-900">
+                  <span className="font-semibold">Action Required:</span> {month} period is currently locked.
+                  <span className="text-amber-700 ml-1">({count} item{count !== 1 ? 's' : ''} need attention)</span>
+                </p>
+              </div>
+              <button
+                className="flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900 px-3 py-1.5 rounded-md hover:bg-amber-200 transition-colors"
+              >
+                Review & Fix
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          );
+        })}
 
         {/* Pending Months - Awaiting Approval */}
         {visiblePendingMonths.map(({ month, count }) => (

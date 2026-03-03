@@ -6,9 +6,10 @@ import { supabase } from '../lib/supabase';
  * Includes both primary department users and users with additional access
  * 
  * @param {string} departmentCode - The department code to filter by
+ * @param {string|null} companyId - Optional company_id to scope users to a tenant
  * @returns {Object} { users, loading, error, refetch }
  */
-export function useDepartmentUsers(departmentCode) {
+export function useDepartmentUsers(departmentCode, companyId = null) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -26,11 +27,18 @@ export function useDepartmentUsers(departmentCode) {
       // Query users where:
       // 1. department_code matches (Primary)
       // 2. OR additional_departments array contains the department (Secondary/Access Rights)
-      const { data, error: queryError } = await supabase
+      let query = supabase
         .from('profiles')
         .select('id, full_name, role, department_code, additional_departments')
         .or(`department_code.eq.${departmentCode},additional_departments.cs.{${departmentCode}}`)
         .order('full_name');
+
+      // MULTI-TENANT: scope to company when provided
+      if (companyId) {
+        query = query.eq('company_id', companyId);
+      }
+
+      const { data, error: queryError } = await query;
 
       if (queryError) throw queryError;
 
@@ -53,7 +61,7 @@ export function useDepartmentUsers(departmentCode) {
 
   useEffect(() => {
     fetchUsers();
-  }, [departmentCode]);
+  }, [departmentCode, companyId]);
 
   return {
     users,

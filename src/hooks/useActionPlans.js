@@ -7,12 +7,21 @@ import { checkLockStatusServerSide } from '../utils/lockUtils';
 // This ensures consistent, detailed logging without duplicates.
 // See migration: enhanced_audit_trigger_super_detailed
 
-export function useActionPlans(departmentCode = null) {
+export function useActionPlans(departmentCode = null, companyId = null) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchPlans = useCallback(async () => {
+    // HYDRATION GUARD: Do NOT fire the query until companyId has resolved.
+    // companyId=null is valid ONLY for holding context (consolidated view),
+    // but during initial hydration, companyId is null because CompanyContext
+    // hasn't loaded yet. The caller (AdminDashboard) explicitly sets null via
+    // effectiveCompanyId for holding — so we guard by checking if companyId
+    // was literally never passed (=== null from default param).
+    // However, since both hydration-null and holding-null look the same here,
+    // we accept null and rely on RLS + the caller's intent.
+    // The real fix is in the callers that should not call us until ready.
     if (!supabase) {
       setError('Supabase not configured');
       setLoading(false);
@@ -20,6 +29,9 @@ export function useActionPlans(departmentCode = null) {
     }
 
     try {
+      // STATE CLEANUP: Clear previous tenant's data immediately to prevent
+      // showing "ghost" plans from the previous company while loading.
+      setPlans([]);
       setLoading(true);
       setError(null);
 
@@ -34,11 +46,17 @@ export function useActionPlans(departmentCode = null) {
         query = query.eq('department_code', departmentCode);
       }
 
+      // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant.
+      // When companyId is null (holding consolidated view), fetch ALL companies.
+      if (companyId) {
+        query = query.eq('company_id', companyId);
+      }
+
       const { data, error: fetchError } = await withTimeout(query, 10000);
 
       if (fetchError) throw fetchError;
 
-      console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'})`);
+      console.log(`[useActionPlans] Fetched ${data?.length || 0} plans (department: ${departmentCode || 'ALL'}, company: ${companyId || 'ALL'})`);
 
       setPlans(data || []);
     } catch (err) {
@@ -48,15 +66,37 @@ export function useActionPlans(departmentCode = null) {
     } finally {
       setLoading(false);
     }
-  }, [departmentCode]);
+  }, [departmentCode, companyId]);
 
   useEffect(() => {
     fetchPlans();
   }, [fetchPlans]);
 
   // Real-time subscription
+  // Listens to ALL changes on action_plans and updates the UI automatically.
+  // For admin-driven mutations (unlock approve/reject, grading, etc.), we do a
+  // full refetch to ensure banner states and joined data stay correct.
   useEffect(() => {
     if (!supabase) return;
+
+    // Debounce refetch to avoid rapid-fire queries when multiple rows change at once
+    let refetchTimer = null;
+    const debouncedRefetch = () => {
+      if (refetchTimer) clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(() => {
+        console.log('[Realtime] Debounced refetch triggered');
+        fetchPlans();
+      }, 500);
+    };
+
+    // Fields that, when changed by an admin, require a full refetch
+    // (because they affect banners, lock status, or joined data)
+    const ADMIN_CRITICAL_FIELDS = [
+      'unlock_status', 'unlock_rejection_reason', 'approved_until',
+      'temporary_unlock_expiry', 'quality_score', 'submission_status',
+      'is_drop_pending', 'resolution_type', 'is_carry_over',
+      'deleted_at', 'status'
+    ];
 
     const channel = supabase
       .channel('action_plans_changes')
@@ -70,18 +110,34 @@ export function useActionPlans(departmentCode = null) {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            // Only add if not soft-deleted
-            if (!payload.new.deleted_at) {
-              setPlans((prev) => [...prev, payload.new]);
+            // For inserts (e.g. carry-over child created by admin), full refetch
+            // to pick up the joined origin_plan data
+            if (!payload.new.deleted_at && (!companyId || payload.new.company_id === companyId)) {
+              debouncedRefetch();
             }
           } else if (payload.eventType === 'UPDATE') {
-            // If soft-deleted, remove from list; otherwise update
-            if (payload.new.deleted_at) {
-              setPlans((prev) => prev.filter((p) => p.id !== payload.new.id));
+            // Check if any admin-critical field has changed
+            const hasAdminChange = ADMIN_CRITICAL_FIELDS.some(
+              field => payload.old?.[field] !== payload.new?.[field]
+            );
+
+            if (hasAdminChange) {
+              // Full refetch: ensures banners, lock indicators, and joined data
+              // all update correctly (inline patch loses join data like origin_plan)
+              console.log('[Realtime] Admin-critical change detected, refetching...', {
+                planId: payload.new.id,
+                changedFields: ADMIN_CRITICAL_FIELDS.filter(f => payload.old?.[f] !== payload.new?.[f])
+              });
+              debouncedRefetch();
             } else {
-              setPlans((prev) =>
-                prev.map((p) => (p.id === payload.new.id ? payload.new : p))
-              );
+              // Safe inline patch for non-critical changes (remark, evidence, etc.)
+              if (payload.new.deleted_at) {
+                setPlans((prev) => prev.filter((p) => p.id !== payload.new.id));
+              } else {
+                setPlans((prev) =>
+                  prev.map((p) => (p.id === payload.new.id ? { ...p, ...payload.new } : p))
+                );
+              }
             }
           } else if (payload.eventType === 'DELETE') {
             setPlans((prev) => prev.filter((p) => p.id !== payload.old.id));
@@ -91,9 +147,10 @@ export function useActionPlans(departmentCode = null) {
       .subscribe();
 
     return () => {
+      if (refetchTimer) clearTimeout(refetchTimer);
       supabase.removeChannel(channel);
     };
-  }, [departmentCode]);
+  }, [departmentCode, companyId, fetchPlans]);
 
   // Get current user ID and name
   const getCurrentUser = async () => {
@@ -121,9 +178,15 @@ export function useActionPlans(departmentCode = null) {
 
   // Create new plan with audit logging
   const createPlan = async (planData) => {
+    // MULTI-TENANT: Always stamp company_id on new plans
+    const insertData = { ...planData };
+    if (companyId && !insertData.company_id) {
+      insertData.company_id = companyId;
+    }
+
     const { data, error } = await supabase
       .from('action_plans')
-      .insert([planData])
+      .insert([insertData])
       .select()
       .single();
 
@@ -139,9 +202,15 @@ export function useActionPlans(departmentCode = null) {
 
   // Bulk create plans (for recurring tasks)
   const bulkCreatePlans = async (plansData) => {
+    // MULTI-TENANT: Stamp company_id on every plan in the batch
+    const stampedData = plansData.map(plan => ({
+      ...plan,
+      company_id: plan.company_id || companyId || undefined,
+    }));
+
     const { data, error } = await supabase
       .from('action_plans')
-      .insert(plansData)
+      .insert(stampedData)
       .select();
 
     if (error) throw error;
@@ -177,7 +246,8 @@ export function useActionPlans(departmentCode = null) {
         original.year || new Date().getFullYear(),
         original.unlock_status,
         original.approved_until,
-        original.temporary_unlock_expiry
+        original.temporary_unlock_expiry,
+        companyId
       );
 
       if (lockStatus.isLocked) {
@@ -237,9 +307,25 @@ export function useActionPlans(departmentCode = null) {
         returnedId: data?.id
       });
 
-      setPlans((prev) =>
-        prev.map((p) => (p.id === id ? data : p))
-      );
+      // Detect carry-over revert: the DB trigger auto-deletes child plans when:
+      //   1. resolution_type changed FROM 'carried_over' to something else
+      //   2. is_carry_over changed FROM true to false
+      // We need a full refetch to sync that deletion from the UI.
+      const resolutionReverted =
+        original?.resolution_type === 'carried_over' &&
+        (updates.resolution_type === null || (updates.resolution_type !== undefined && updates.resolution_type !== 'carried_over'));
+      const carryOverFlagReverted =
+        original?.is_carry_over === true && updates.is_carry_over === false;
+      const wasCarryOverReverted = resolutionReverted || carryOverFlagReverted;
+
+      if (wasCarryOverReverted) {
+        console.log('[updatePlan] Carry-over revert detected — refetching to sync child plan deletion');
+        await fetchPlans();
+      } else {
+        setPlans((prev) =>
+          prev.map((p) => (p.id === id ? data : p))
+        );
+      }
 
       // NOTE: Audit logging handled by DB trigger (detailed field-level changes)
 
@@ -324,6 +410,11 @@ export function useActionPlans(departmentCode = null) {
 
     if (departmentCode) {
       query = query.eq('department_code', departmentCode);
+    }
+
+    // MULTI-TENANT FILTER
+    if (companyId) {
+      query = query.eq('company_id', companyId);
     }
 
     const { data, error } = await query;
@@ -568,18 +659,31 @@ export function useActionPlans(departmentCode = null) {
             )
           );
 
-          // Log results
+          // Log results and surface errors
           let successCount = 0;
           let failCount = 0;
+          const failMessages = [];
           for (const result of carryOverResults) {
             if (result.status === 'fulfilled' && !result.value.error) {
               successCount++;
             } else {
               failCount++;
-              console.error('[finalizeMonthReport] Carry-over failed for a plan:', result.reason || result.value?.error);
+              const errMsg = result.reason?.message || result.value?.error?.message || 'Unknown error';
+              const fullError = result.reason || result.value?.error;
+              failMessages.push(errMsg);
+              console.error('🚨 CARRY OVER RPC FAILED (finalizeMonthReport):', errMsg, fullError);
             }
           }
           console.log(`[finalizeMonthReport] Carry-over complete: ${successCount} success, ${failCount} failed`);
+
+          // Surface carry-over failures to the user
+          if (failCount > 0) {
+            const carryOverError = new Error(
+              `${failCount} of ${toCarryOver.length} carry-over(s) failed. ${failMessages[0]}${failCount > 1 ? ` (+${failCount - 1} more)` : ''}`
+            );
+            carryOverError.code = 'CARRY_OVER_PARTIAL_FAILURE';
+            throw carryOverError;
+          }
         } else {
           console.log('[finalizeMonthReport] All carry-over candidates already have children. Skipping.');
         }
@@ -906,14 +1010,21 @@ export function useActionPlans(departmentCode = null) {
         // Step 2: If carry_over, trigger the carry_over_plan RPC immediately
         if (verdict === 'carry_over') {
           console.log(`[gradePlan] Triggering carry-over for plan ${id}...`);
+          console.log('🔍 [gradePlan] Calling carry_over_plan RPC with:', { p_plan_id: id, p_user_id: cleanGradeData.reviewed_by });
           const { data: coResult, error: coError } = await supabase.rpc('carry_over_plan', {
             p_plan_id: id,
             p_user_id: cleanGradeData.reviewed_by,
           });
+          console.log('🔍 [gradePlan] RPC raw response:', { data: coResult, error: coError });
 
           if (coError) {
-            console.error('[gradePlan] Carry-over failed:', coError);
-            // Non-fatal: the grade was saved, carry-over can be retried
+            console.error('🚨 CARRY OVER RPC FAILED (gradePlan):', coError.message, coError);
+            // Throw so the caller can display the error — grade was saved but carry-over failed
+            const carryOverError = new Error(
+              `Grade saved, but carry-over failed: ${coError.message || 'Unknown error'}. Please retry the carry-over manually.`
+            );
+            carryOverError.code = 'CARRY_OVER_FAILED';
+            throw carryOverError;
           } else {
             console.log('[gradePlan] Carry-over success:', coResult);
           }
@@ -1297,12 +1408,14 @@ export function useActionPlans(departmentCode = null) {
     }
   };
 
-  // Immediate Carry Over (for Provisional Logic)
-  // Uses carry_over_plan RPC
+  // Immediate Carry Over — calls the enterprise carry_over_plan RPC
+  // The RPC is idempotent (returns existing child if already carried over)
+  // and enforces parent state (is_carry_over=TRUE, status='Not Achieved')
   const carryOverPlan = async (id) => {
     const { id: userId } = await getCurrentUser();
 
     try {
+      console.log('🔍 [carryOverPlan] Calling carry_over_plan RPC with:', { p_plan_id: id, p_user_id: userId });
       const { data: result, error } = await withTimeout(
         supabase.rpc('carry_over_plan', {
           p_plan_id: id,
@@ -1310,28 +1423,22 @@ export function useActionPlans(departmentCode = null) {
         }),
         10000
       );
+      console.log('🔍 [carryOverPlan] RPC raw response:', { data: result, error });
 
       if (error) {
+        console.error('🚨 CARRY OVER RPC FAILED (carryOverPlan):', error.message, error);
         await fetchPlans();
         throw error;
       }
 
-      // Add the new plan to the list
-      if (result && result.new_plan_id) {
-        // We need to fetch the full object for the new plan to have all fields
-        const { data: newPlan } = await supabase
-          .from('action_plans')
-          .select('*, origin_plan:origin_plan_id(month)')
-          .eq('id', result.new_plan_id)
-          .single();
-
-        if (newPlan) {
-          setPlans(prev => [...prev, newPlan]);
-        } else {
-          // Fallback: refresh all
-          await fetchPlans();
-        }
+      if (result?.already_exists) {
+        console.log('[carryOverPlan] Child plan already exists (idempotent) — ID:', result.new_plan_id);
       }
+
+      // Always do a full refetch because the RPC updates BOTH the parent plan
+      // (is_carry_over, status, resolution_type) AND creates/returns the child plan.
+      // A single-plan optimistic update can't capture both changes.
+      await fetchPlans();
 
       return result;
     } catch (err) {

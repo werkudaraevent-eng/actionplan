@@ -3,6 +3,74 @@ import { supabase, withTimeout } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 /**
+ * Permission Rules — Single Source of Truth
+ * Defines hard constraints for each role's permissions.
+ * Used by BOTH the Access Control UI (AdminPermissions) AND the can() function.
+ *
+ * States:
+ * - LOCKED_ON:  Always allowed, cannot be disabled by admin
+ * - LOCKED_OFF: Always denied, cannot be enabled by admin
+ * - CONFIGURABLE: Admin can toggle via Access Control page (stored in DB)
+ */
+export const PERMISSION_RULES = {
+  admin: {
+    action_plan: {
+      create: 'LOCKED_ON', edit: 'LOCKED_ON', delete: 'LOCKED_ON',
+      update_status: 'LOCKED_ON', update_progress: 'LOCKED_ON',
+      grade: 'LOCKED_ON', submit: 'LOCKED_OFF'
+    },
+    user: { create: 'LOCKED_ON', edit: 'LOCKED_ON', delete: 'LOCKED_ON', view: 'LOCKED_ON' },
+    report: { export: 'LOCKED_ON' },
+    settings: { manage: 'LOCKED_ON' }
+  },
+  executive: {
+    action_plan: {
+      view: 'LOCKED_ON',
+      create: 'LOCKED_OFF', edit: 'LOCKED_OFF', delete: 'LOCKED_OFF',
+      update_status: 'LOCKED_OFF', update_progress: 'LOCKED_OFF',
+      grade: 'LOCKED_OFF', submit: 'LOCKED_OFF'
+    },
+    user: { create: 'LOCKED_OFF', edit: 'LOCKED_OFF', delete: 'LOCKED_OFF', view: 'CONFIGURABLE' },
+    report: { export: 'CONFIGURABLE' },
+    settings: { manage: 'LOCKED_OFF' }
+  },
+  leader: {
+    action_plan: {
+      create: 'CONFIGURABLE', edit: 'CONFIGURABLE', delete: 'CONFIGURABLE',
+      update_status: 'LOCKED_ON', update_progress: 'LOCKED_ON',
+      submit: 'LOCKED_ON', grade: 'LOCKED_OFF'
+    },
+    user: { create: 'LOCKED_OFF', edit: 'LOCKED_OFF', delete: 'LOCKED_OFF', view: 'LOCKED_OFF' },
+    report: { export: 'CONFIGURABLE' },
+    settings: { manage: 'LOCKED_OFF' }
+  },
+  staff: {
+    action_plan: {
+      update_status: 'LOCKED_ON', update_progress: 'LOCKED_ON',
+      create: 'LOCKED_OFF', edit: 'LOCKED_OFF', delete: 'LOCKED_OFF',
+      grade: 'LOCKED_OFF', submit: 'LOCKED_OFF'
+    },
+    user: { create: 'LOCKED_OFF', edit: 'LOCKED_OFF', delete: 'LOCKED_OFF', view: 'LOCKED_OFF' },
+    report: { export: 'LOCKED_OFF' },
+    settings: { manage: 'LOCKED_OFF' }
+  }
+};
+
+/**
+ * Get the permission rule for a specific role/resource/action
+ * @returns 'LOCKED_ON' | 'LOCKED_OFF' | 'CONFIGURABLE'
+ */
+export const getPermissionRule = (role, resource, action) => {
+  const normalizedRole = normalizeRole(role);
+  const roleRules = PERMISSION_RULES[normalizedRole];
+  if (!roleRules) return 'CONFIGURABLE';
+  if (roleRules['*']) return roleRules['*'];
+  const resourceRules = roleRules[resource];
+  if (!resourceRules) return 'CONFIGURABLE';
+  return resourceRules[action] || 'CONFIGURABLE';
+};
+
+/**
  * Permission cache - shared across all hook instances
  * Prevents redundant fetches when multiple components use the hook
  */
@@ -71,10 +139,10 @@ export function usePermission() {
       permissionCache = data || [];
       cacheTimestamp = Date.now();
       setPermissions(permissionCache);
-      
+
       // Debug: Log fetched permissions with details
       console.log(`[usePermission] Fetched ${permissionCache.length} permissions from DB`);
-      
+
       // Log a sample of permissions for the 'leader' role
       const leaderPerms = permissionCache.filter(p => p.role?.toLowerCase() === 'leader');
       console.log('[usePermission] Leader permissions:', leaderPerms.map(p => `${p.resource}:${p.action}=${p.is_allowed}`));
@@ -101,12 +169,12 @@ export function usePermission() {
       const key = `${normalizedRole}:${p.resource}:${p.action}`;
       map.set(key, p.is_allowed);
     });
-    
+
     // Debug: Log map size
     if (permissions.length > 0) {
       console.log(`[usePermission] Built permission map with ${map.size} entries`);
     }
-    
+
     return map;
   }, [permissions]);
 
@@ -119,25 +187,26 @@ export function usePermission() {
   const can = useCallback((resource, action) => {
     // Admin always has all permissions (hardcoded fallback)
     if (isAdmin) {
-      console.log(`[usePermission] Admin bypass: ${resource}:${action} => ALLOWED`);
       return true;
     }
 
     // Get user's role (normalize to lowercase)
     const role = normalizeRole(profile?.role);
     if (!role) {
-      console.log('[usePermission] No role found for user, denying access');
       return false;
     }
 
-    // Check permission map (role already normalized in map)
+    // LOCKED PERMISSIONS: These override the DB completely.
+    // LOCKED_ON = always true (e.g., leader:update_status)
+    // LOCKED_OFF = always false (e.g., staff:edit)
+    // CONFIGURABLE = check the DB
+    const rule = getPermissionRule(role, resource, action);
+    if (rule === 'LOCKED_ON') return true;
+    if (rule === 'LOCKED_OFF') return false;
+
+    // CONFIGURABLE: Check permission map from DB
     const key = `${role}:${resource}:${action}`;
     const allowed = permissionMap.get(key);
-
-    // Debug logging with full context
-    console.log(`[usePermission] Check: userRole="${profile?.role}" (normalized="${role}"), key="${key}" => ${allowed === true ? 'ALLOWED' : 'DENIED'}`);
-
-    // If permission not found in DB, default to false
     return allowed === true;
   }, [profile?.role, isAdmin, permissionMap]);
 

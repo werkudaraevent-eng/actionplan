@@ -5,7 +5,9 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine, BarChart, Bar, PieChart, Pie, Cell, LabelList } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
+import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, getPicDisplayName } from '../utils/picUtils';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import StrategyComboChart from '../components/dashboard/StrategyComboChart';
@@ -99,8 +101,11 @@ function SortDropdown({ value, onChange }) {
 
 
 export default function AdminDashboard({ onNavigate }) {
-  const { plans, loading, refetch } = useActionPlans(null);
-  const { departments } = useDepartments();
+  const { activeCompanyId, isHoldingContext } = useCompanyContext();
+  // When in holding context, pass null to get consolidated data from ALL companies
+  const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
+  const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId);
+  const { departments } = useDepartments(effectiveCompanyId);
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
@@ -132,6 +137,8 @@ export default function AdminDashboard({ onNavigate }) {
   const [comparisonHistorical, setComparisonHistorical] = useState([]);
   // Audit logs for tracking organic vs admin activity
   const [auditLogs, setAuditLogs] = useState([]);
+  // Profile map for resolving pic_ids → display names (for charts)
+  const [picProfileMap, setPicProfileMap] = useState(new Map());
 
   // Calculate comparison year value FIRST (before useEffects that depend on it)
   const comparisonYearValue = useMemo(() => {
@@ -140,31 +147,66 @@ export default function AdminDashboard({ onNavigate }) {
     return parseInt(comparisonYear, 10);
   }, [comparisonYear, selectedYear]);
 
-  // Fetch annual target and historical stats when year changes
+  // Fetch annual target and historical stats when year or company changes
   useEffect(() => {
     const fetchTargetAndHistory = async () => {
-      // Fetch annual target for selected year
-      const { data: targetData } = await supabase
+      // HYDRATION GUARD: Don't fetch until company context is resolved
+      // (skip guard when in holding context — effectiveCompanyId is intentionally null)
+      if (!isHoldingContext && !effectiveCompanyId) {
+        setAnnualTarget(null);
+        setHistoricalStats([]);
+        return;
+      }
+
+      // Fetch annual target for selected year (company-scoped)
+      let targetQuery = supabase
         .from('annual_targets')
         .select('target_percentage')
-        .eq('year', selectedYear)
-        .single();
+        .eq('year', selectedYear);
 
+      if (effectiveCompanyId) {
+        targetQuery = targetQuery.eq('company_id', effectiveCompanyId);
+      }
+
+      const { data: targetData } = await targetQuery.single();
       setAnnualTarget(targetData?.target_percentage || null);
 
-      // Fetch historical stats for selected year (monthly data)
-      const { data: histData } = await supabase
+      // Fetch historical stats for selected year (monthly data, company-scoped)
+      let histQuery = supabase
         .from('historical_stats')
         .select('*')
         .eq('year', selectedYear);
 
+      if (effectiveCompanyId) {
+        histQuery = histQuery.eq('company_id', effectiveCompanyId);
+      }
+
+      const { data: histData } = await histQuery;
       setHistoricalStats(histData || []);
     };
 
     fetchTargetAndHistory();
-  }, [selectedYear]);
+  }, [selectedYear, effectiveCompanyId, isHoldingContext]);
 
-  // Fetch comparison year historical data
+  // Batch-resolve PIC profile names when plans change
+  useEffect(() => {
+    const resolvePics = async () => {
+      const allUuids = collectAllPicUuids(plans);
+      if (allUuids.length === 0) {
+        setPicProfileMap(new Map());
+        return;
+      }
+      const resolved = await batchResolveProfiles(allUuids);
+      setPicProfileMap(resolved);
+    };
+    if (plans.length > 0) {
+      resolvePics();
+    } else {
+      setPicProfileMap(new Map());
+    }
+  }, [plans]);
+
+  // Fetch comparison year historical data (company-scoped)
   useEffect(() => {
     const fetchComparisonHistory = async () => {
       if (!comparisonYearValue) {
@@ -172,32 +214,52 @@ export default function AdminDashboard({ onNavigate }) {
         return;
       }
 
-      const { data } = await supabase
+      // HYDRATION GUARD
+      if (!isHoldingContext && !effectiveCompanyId) {
+        setComparisonHistorical([]);
+        return;
+      }
+
+      let query = supabase
         .from('historical_stats')
         .select('*')
         .eq('year', comparisonYearValue);
 
+      if (effectiveCompanyId) {
+        query = query.eq('company_id', effectiveCompanyId);
+      }
+
+      const { data } = await query;
       setComparisonHistorical(data || []);
     };
 
     fetchComparisonHistory();
-  }, [comparisonYearValue]);
+  }, [comparisonYearValue, effectiveCompanyId, isHoldingContext]);
 
   // 1. DEFINISI FUNGSI: Buat ini berdiri sendiri (Global dalam component)
   const fetchAuditLogs = async () => {
+    // HYDRATION GUARD: Don't fetch until company context resolves
+    if (!isHoldingContext && !effectiveCompanyId) {
+      setAuditLogs([]);
+      return;
+    }
+
     const { startOfWeek, endOfWeek } = getWeekRange(currentDate);
 
-    // FIX: Use audit_logs_with_user view to get ACTOR information (who performed the action)
-    // This ensures we show "Hanung changed status" not "Yulia changed status" when admin edits
-    // NOTE: No .limit() here - we need ALL logs for accurate chart totals
-    // The "Latest Updates" list is sliced later in weeklyActivityData for UI display
-    // Include user_role to filter admin actions from chart (organic activity only)
-    const { data, error } = await supabase
-      .from('audit_logs_with_user')
-      .select('id, action_plan_id, change_type, created_at, user_id, description, user_name, user_department, user_role')
+    // FIX: Use audit_logs table directly with profile join to get ACTOR information
+    // MULTI-TENANT: join action_plan to filter by company_id
+    let query = supabase
+      .from('audit_logs')
+      .select(`
+        id, action_plan_id, change_type, created_at, user_id, description,
+        profile:user_id ( full_name, department_code, role ),
+        action_plan:action_plan_id ( company_id )
+      `)
       .gte('created_at', startOfWeek.toISOString())
       .lte('created_at', endOfWeek.toISOString())
       .order('created_at', { ascending: false });
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching audit logs:', error);
@@ -205,18 +267,16 @@ export default function AdminDashboard({ onNavigate }) {
       return;
     }
 
-    // DEBUG: Log first record to verify user_name is being fetched
-    if (data && data.length > 0) {
-      console.log('Sample audit log:', {
-        user_id: data[0].user_id,
-        user_name: data[0].user_name,
-        user_department: data[0].user_department,
-        change_type: data[0].change_type
-      });
+    // MULTI-TENANT: client-side filter for company_id (skip when in holding context for consolidated view)
+    let filteredData = data || [];
+    if (effectiveCompanyId) {
+      filteredData = filteredData.filter(log =>
+        log.action_plan?.company_id === effectiveCompanyId
+      );
     }
 
     // SANITIZE & NORMALIZE the data
-    const sanitizedLogs = (data || []).map(log => {
+    const sanitizedLogs = filteredData.map(log => {
       let cleanDescription = log.description || '';
       if (cleanDescription.startsWith('["')) {
         cleanDescription = cleanDescription.replace(/^\["|"\]$/g, '');
@@ -234,9 +294,12 @@ export default function AdminDashboard({ onNavigate }) {
         timestampDate: new Date(log.created_at),
         localDateKey: new Date(log.created_at).toLocaleDateString('en-CA'),
         // ACTOR INFO: The person who performed the action (not the plan owner)
-        actor_name: log.user_name || 'System',
-        actor_department: log.user_department,
-        actor_role: log.user_role || 'unknown'
+        user_name: log.profile?.full_name || 'System',
+        user_department: log.profile?.department_code,
+        user_role: log.profile?.role || 'unknown',
+        actor_name: log.profile?.full_name || 'System',
+        actor_department: log.profile?.department_code,
+        actor_role: log.profile?.role || 'unknown'
       };
     });
 
@@ -246,7 +309,7 @@ export default function AdminDashboard({ onNavigate }) {
   // 2. USE EFFECT: Panggil fungsi tadi saat tanggal berubah (Load Awal)
   useEffect(() => {
     fetchAuditLogs();
-  }, [currentDate]);
+  }, [currentDate, effectiveCompanyId]);
 
   // Filter plans by year first, then by date range
   const yearFilteredPlans = useMemo(() => {
@@ -410,18 +473,18 @@ export default function AdminDashboard({ onNavigate }) {
       const currentMonthName = MONTHS_ORDER[currentMonthIndex];
       return `Jan - ${currentMonthName} ${selectedYear} (Year to Date)`;
     }
-    
+
     // Case 2: Full Year (past year or explicit FY selection)
     if (selectedPeriod === 'FY' && startMonth === 'Jan' && endMonth === 'Dec') {
       return `Jan - Dec ${selectedYear} (Full Year)`;
     }
-    
+
     // Case 3: Quarter Selection
     if (selectedPeriod === 'Q1') return `Jan - Mar ${selectedYear} (Q1)`;
     if (selectedPeriod === 'Q2') return `Apr - Jun ${selectedYear} (Q2)`;
     if (selectedPeriod === 'Q3') return `Jul - Sep ${selectedYear} (Q3)`;
     if (selectedPeriod === 'Q4') return `Oct - Dec ${selectedYear} (Q4)`;
-    
+
     // Case 4: Custom Range
     if (startMonth === endMonth) {
       return `Period: ${startMonth} ${selectedYear}`;
@@ -784,8 +847,8 @@ export default function AdminDashboard({ onNavigate }) {
     // If we have real plans, use them
     if (effectivePlans.length > 0) {
       const dataMap = {};
-      effectivePlans.forEach((plan) => {
-        let key = orgMetric === 'department_code' ? (plan.department_code || 'Unknown') : (plan.pic?.trim() || 'Unassigned');
+
+      const addToDataMap = (key, plan) => {
         const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
         if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
         dataMap[shortName].total++;
@@ -794,7 +857,19 @@ export default function AdminDashboard({ onNavigate }) {
         if (plan.submission_status === 'submitted' && plan.quality_score != null) {
           dataMap[shortName].scores.push(plan.quality_score);
         }
+      };
+
+      effectivePlans.forEach((plan) => {
+        if (orgMetric === 'department_code') {
+          // Department view: single key per plan
+          addToDataMap(plan.department_code || 'Unknown', plan);
+        } else {
+          // PIC view: flatten multi-PIC — credit ALL assigned PICs
+          const picKeys = getPicKeysForAggregation(plan, picProfileMap);
+          picKeys.forEach(key => addToDataMap(key, plan));
+        }
       });
+
       return Object.entries(dataMap).map(([name, s]) => ({
         name,
         fullName: s.fullName,
@@ -838,7 +913,7 @@ export default function AdminDashboard({ onNavigate }) {
     }
 
     return [];
-  }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView]);
+  }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView, picProfileMap]);
 
   // Strategy Chart Data - Now includes both completion and score
   // Uses effectivePlans to respect YTD filtering
@@ -1072,7 +1147,7 @@ export default function AdminDashboard({ onNavigate }) {
 
         // Determine ownership context for better messaging
         const actorName = log.actor_name || 'System';
-        const planOwner = plan?.pic || 'Unknown';
+        const planOwner = plan ? getPicDisplayName(plan, picProfileMap) : 'Unknown';
         const isSelfEdit = actorName === planOwner;
 
         return {
@@ -1516,6 +1591,7 @@ export default function AdminDashboard({ onNavigate }) {
           loading={loading}
           periodLabel=""
           dateContext={statsDateContext}
+          targetPercentage={annualTarget}
           onCardClick={onNavigate ? (cardType) => {
             const statusMap = {
               'all': '',

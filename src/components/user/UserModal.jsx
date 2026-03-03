@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle, Crown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
 const ROLES = [
+  { value: 'holding_admin', label: 'Holding Admin', icon: Crown, description: 'Absolute access to all subsidiaries and holding-level settings', color: 'amber', restricted: true },
   { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings', color: 'purple' },
   { value: 'executive', label: 'Executive', icon: Shield, description: 'View-only access to Company Dashboard & All Plans', color: 'indigo' },
   { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team', color: 'teal' },
@@ -10,6 +13,11 @@ const ROLES = [
 ];
 
 export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], isAdmin = false }) {
+  const { profile } = useAuth();
+  const isHoldingAdmin = profile?.role === 'holding_admin';
+
+  // Filter roles: only holding_admin users can see/assign the holding_admin role
+  const visibleRoles = ROLES.filter(r => !r.restricted || isHoldingAdmin);
   const [formData, setFormData] = useState({
     email: '',
     full_name: '',
@@ -19,7 +27,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  
+
   // Security section state
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -71,7 +79,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       setError('Full name is required');
       return;
     }
-    if (formData.role !== 'admin' && formData.role !== 'executive' && !formData.department_code) {
+    if (formData.role !== 'admin' && formData.role !== 'holding_admin' && formData.role !== 'executive' && !formData.department_code) {
       setError('Department is required for Leaders and Staff');
       return;
     }
@@ -89,25 +97,25 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
   // Send password reset email
   const handleSendResetEmail = async () => {
     if (!formData.email) return;
-    
+
     setSendingReset(true);
     setSecurityMessage({ type: '', text: '' });
-    
+
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
-      
+
       if (error) throw error;
-      
-      setSecurityMessage({ 
-        type: 'success', 
-        text: `Reset email sent to ${formData.email}` 
+
+      setSecurityMessage({
+        type: 'success',
+        text: `Reset email sent to ${formData.email}`
       });
     } catch (err) {
-      setSecurityMessage({ 
-        type: 'error', 
-        text: err.message || 'Failed to send reset email' 
+      setSecurityMessage({
+        type: 'error',
+        text: err.message || 'Failed to send reset email'
       });
     } finally {
       setSendingReset(false);
@@ -117,24 +125,24 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
   // Manual password update via Edge Function
   const handleManualPasswordUpdate = async () => {
     if (!newPassword.trim() || newPassword.length < 6) {
-      setSecurityMessage({ 
-        type: 'error', 
-        text: 'Password must be at least 6 characters' 
+      setSecurityMessage({
+        type: 'error',
+        text: 'Password must be at least 6 characters'
       });
       return;
     }
-    
+
     setUpdatingPassword(true);
     setSecurityMessage({ type: '', text: '' });
-    
+
     try {
       // Get current session for auth header
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated. Please log in again.');
-      
+
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) throw new Error('Supabase URL not configured');
-      
+
       // Call edge function to update password
       const response = await fetch(
         `${supabaseUrl}/functions/v1/update-user-password`,
@@ -150,7 +158,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           }),
         }
       );
-      
+
       // Try to parse response
       let result;
       try {
@@ -158,22 +166,22 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       } catch {
         result = { error: `HTTP ${response.status}: ${response.statusText}` };
       }
-      
+
       if (!response.ok) {
         throw new Error(result.error || `Failed with status ${response.status}`);
       }
-      
-      setSecurityMessage({ 
-        type: 'success', 
-        text: 'Password updated. Please inform the user of their new password.' 
+
+      setSecurityMessage({
+        type: 'success',
+        text: 'Password updated. Please inform the user of their new password.'
       });
       setNewPassword('');
       setShowPassword(false);
     } catch (err) {
       console.error('Password update error:', err);
-      setSecurityMessage({ 
-        type: 'error', 
-        text: err.message || 'Failed to update password' 
+      setSecurityMessage({
+        type: 'error',
+        text: err.message || 'Failed to update password'
       });
     } finally {
       setUpdatingPassword(false);
@@ -202,6 +210,9 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
         {/* Form - Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-5">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Subsidiary context badge — read-only reassurance */}
+            <SubsidiaryBanner />
+
             {error && (
               <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
                 {error}
@@ -247,22 +258,25 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                 Role
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {ROLES.map((role) => {
+                {visibleRoles.map((role) => {
                   const Icon = role.icon;
                   const isSelected = formData.role === role.value;
                   const colorClasses = {
+                    amber: isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : 'border-gray-200 hover:border-gray-300',
                     purple: isSelected ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500' : 'border-gray-200 hover:border-gray-300',
                     indigo: isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500' : 'border-gray-200 hover:border-gray-300',
                     teal: isSelected ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500' : 'border-gray-200 hover:border-gray-300',
                     gray: isSelected ? 'border-gray-500 bg-gray-50 ring-2 ring-gray-500' : 'border-gray-200 hover:border-gray-300',
                   };
                   const iconColorClasses = {
+                    amber: isSelected ? 'text-amber-600' : 'text-gray-400',
                     purple: isSelected ? 'text-purple-600' : 'text-gray-400',
                     indigo: isSelected ? 'text-indigo-600' : 'text-gray-400',
                     teal: isSelected ? 'text-teal-600' : 'text-gray-400',
                     gray: isSelected ? 'text-gray-600' : 'text-gray-400',
                   };
                   const textColorClasses = {
+                    amber: isSelected ? 'text-amber-700' : 'text-gray-700',
                     purple: isSelected ? 'text-purple-700' : 'text-gray-700',
                     indigo: isSelected ? 'text-indigo-700' : 'text-gray-700',
                     teal: isSelected ? 'text-teal-700' : 'text-gray-700',
@@ -289,7 +303,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
             </div>
 
             {/* Department (only for non-admin and non-executive) */}
-            {formData.role !== 'admin' && formData.role !== 'executive' && (
+            {formData.role !== 'admin' && formData.role !== 'holding_admin' && formData.role !== 'executive' && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -346,7 +360,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {formData.additional_departments.length > 0 
+                    {formData.additional_departments.length > 0
                       ? `${formData.additional_departments.length} additional department${formData.additional_departments.length > 1 ? 's' : ''} selected`
                       : 'Optional: Grant access to other departments'}
                   </p>
@@ -355,7 +369,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
             )}
 
             {/* Info for Admin/Executive role */}
-            {formData.role === 'admin' && (
+            {(formData.role === 'admin' || formData.role === 'holding_admin') && (
               <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-700">
                 Administrators have full access to all departments and system settings.
               </div>
@@ -370,24 +384,23 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
             {isEdit && isAdmin && (
               <>
                 <hr className="border-gray-200 my-2" />
-                
+
                 <div>
                   <div className="flex items-center gap-2 mb-3">
                     <Key className="w-4 h-4 text-gray-500" />
                     <h3 className="text-sm font-semibold text-gray-700">Security & Access</h3>
                   </div>
-                  
+
                   {/* Security Message */}
                   {securityMessage.text && (
-                    <div className={`px-3 py-2 rounded-lg text-xs mb-3 ${
-                      securityMessage.type === 'success' 
-                        ? 'bg-green-50 border border-green-200 text-green-700' 
-                        : 'bg-red-50 border border-red-200 text-red-700'
-                    }`}>
+                    <div className={`px-3 py-2 rounded-lg text-xs mb-3 ${securityMessage.type === 'success'
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                      }`}>
                       {securityMessage.text}
                     </div>
                   )}
-                  
+
                   {/* Option A: Send Reset Email */}
                   <div className="mb-4">
                     <button
@@ -407,14 +420,14 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                       Sends a system email to the user to reset their own password
                     </p>
                   </div>
-                  
+
                   {/* Divider */}
                   <div className="flex items-center gap-3 mb-4">
                     <div className="flex-1 h-px bg-gray-200"></div>
                     <span className="text-xs text-gray-400 font-medium">OR</span>
                     <div className="flex-1 h-px bg-gray-200"></div>
                   </div>
-                  
+
                   {/* Option B: Manual Password Update */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -436,7 +449,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                    
+
                     {newPassword.trim() && (
                       <button
                         type="button"
@@ -452,7 +465,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                         {updatingPassword ? 'Updating...' : 'Update Password'}
                       </button>
                     )}
-                    
+
                     <div className="flex items-start gap-2 mt-2 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
                       <p className="text-xs text-amber-700">

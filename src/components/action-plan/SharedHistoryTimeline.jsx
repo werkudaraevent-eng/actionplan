@@ -38,6 +38,8 @@ export const CHANGE_TYPE_LABELS = {
   'ESCALATION_CHANGE': { label: 'Escalation Changed', color: 'bg-orange-100 text-orange-700', icon: '⬆️' },
   'RESCHEDULED': { label: 'Rescheduled', color: 'bg-indigo-100 text-indigo-700', icon: '📅' },
   'PLAN_DETAILS_UPDATED': { label: 'Plan Details Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️' },
+  'RESOLUTION_CHANGED': { label: 'Follow-up Changed', color: 'bg-violet-100 text-violet-700', icon: '🔀' },
+  'FORCED_RESOLUTION': { label: 'Forced Resolution', color: 'bg-orange-100 text-orange-700', icon: '⚡' },
   // Progress log type (for unified display)
   'PROGRESS_UPDATE': { label: 'Progress Update', color: 'bg-blue-100 text-blue-700', icon: '💬' },
 };
@@ -466,6 +468,29 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
               <span className="text-gray-400">→</span>
               <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">
                 {item.new_value.month} {item.new_value.year}
+              </span>
+            </div>
+          )}
+
+          {/* Resolution change details (Carry Over ↔ Drop) */}
+          {item.change_type === 'RESOLUTION_CHANGED' && item.previous_value && item.new_value && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className={`px-2 py-0.5 rounded ${item.previous_value.resolution_type === 'carried_over' ? 'bg-blue-100 text-blue-700' :
+                item.previous_value.resolution_type === 'dropped' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-200 text-gray-600'
+                }`}>
+                {item.previous_value.resolution_type === 'carried_over' ? 'Carry Over' :
+                  item.previous_value.resolution_type === 'dropped' ? 'Drop/Cancel' :
+                    'None'}
+              </span>
+              <span className="text-gray-400">→</span>
+              <span className={`px-2 py-0.5 rounded font-medium ${item.new_value.resolution_type === 'carried_over' ? 'bg-blue-100 text-blue-700' :
+                item.new_value.resolution_type === 'dropped' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-200 text-gray-600'
+                }`}>
+                {item.new_value.resolution_type === 'carried_over' ? 'Carry Over' :
+                  item.new_value.resolution_type === 'dropped' ? 'Drop/Cancel' :
+                    'None'}
               </span>
             </div>
           )}

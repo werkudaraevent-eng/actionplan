@@ -1,0 +1,1 @@
+ALTER TABLE public.monthly_lock_schedules ADD COLUMN IF NOT EXISTS notification_sent boolean DEFAULT false;

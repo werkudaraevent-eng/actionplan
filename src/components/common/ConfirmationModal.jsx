@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, X, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useCompanyContext } from '../../context/CompanyContext';
 
 export default function ConfirmationModal({
   isOpen,
@@ -14,6 +15,7 @@ export default function ConfirmationModal({
   loading = false,
   requireReason = false, // Enable deletion reason form
 }) {
+  const { activeCompanyId } = useCompanyContext();
   const [reason, setReason] = useState('');
   const [customDetail, setCustomDetail] = useState('');
   const [deleteReasonOptions, setDeleteReasonOptions] = useState([]);
@@ -25,13 +27,19 @@ export default function ConfirmationModal({
       const fetchDeleteReasons = async () => {
         setLoadingOptions(true);
         try {
-          const { data, error } = await supabase
+          let query = supabase
             .from('dropdown_options')
             .select('id, label, sort_order')
             .eq('category', 'delete_reason')
             .eq('is_active', true)
             .order('sort_order', { ascending: true });
-          
+
+          // MULTI-TENANT: Scope delete reasons to active company
+          if (activeCompanyId) {
+            query = query.eq('company_id', activeCompanyId);
+          }
+
+          const { data, error } = await query;
           if (error) throw error;
           setDeleteReasonOptions(data || []);
         } catch (err) {
@@ -43,7 +51,7 @@ export default function ConfirmationModal({
       };
       fetchDeleteReasons();
     }
-  }, [isOpen, requireReason]);
+  }, [isOpen, requireReason, activeCompanyId]);
 
   // Reset states when modal opens/closes
   useEffect(() => {
@@ -79,8 +87,8 @@ export default function ConfirmationModal({
 
   const handleConfirm = () => {
     if (requireReason) {
-      const finalReason = reason === 'Other' 
-        ? `Other: ${customDetail.trim()}` 
+      const finalReason = reason === 'Other'
+        ? `Other: ${customDetail.trim()}`
         : reason;
       onConfirm(finalReason);
     } else {
@@ -90,7 +98,7 @@ export default function ConfirmationModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-      <div 
+      <div
         className="bg-white rounded-xl shadow-xl max-w-md w-full animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -124,9 +132,8 @@ export default function ConfirmationModal({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               disabled={loadingOptions}
-              className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                isNoReasonSelected ? 'border-gray-300 text-gray-500' : 'border-gray-300 text-gray-900'
-              } ${loadingOptions ? 'bg-gray-50' : ''}`}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 ${isNoReasonSelected ? 'border-gray-300 text-gray-500' : 'border-gray-300 text-gray-900'
+                } ${loadingOptions ? 'bg-gray-50' : ''}`}
             >
               <option value="" disabled>
                 {loadingOptions ? 'Loading options...' : '-- Select a reason --'}
@@ -144,9 +151,8 @@ export default function ConfirmationModal({
                   onChange={(e) => setCustomDetail(e.target.value)}
                   placeholder="Please specify the reason..."
                   rows={3}
-                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none ${
-                    isOtherEmpty ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none ${isOtherEmpty ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
                 />
                 {isOtherEmpty && (
                   <p className="mt-1 text-xs text-red-500">

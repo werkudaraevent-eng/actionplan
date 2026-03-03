@@ -3,8 +3,10 @@ import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, P
 import KPICard from './KPICard';
 
 // Constants
-const COMPLETION_TARGET = 80;
-const QUALITY_SCORE_TARGET = 80;
+// NOTE: Both completion and verification targets are now driven by the dynamic
+// targetPercentage prop, fed from the annual_targets table.
+// The default is 80% for backward compatibility when no prop is passed.
+const DEFAULT_TARGET = 80;
 
 // Month mapping for YTD calculations
 const MONTH_ORDER = {
@@ -40,22 +42,28 @@ const MONTH_ORDER = {
  * @param {boolean} showBadgeOnStatusCards - Whether to show badges on status cards (Achieved, In Progress, Not Achieved)
  * @param {function} onCardClick - Optional click handler for drill-down (receives card type)
  * @param {string} activeFilter - Currently active filter for visual feedback
+ * @param {number|null} targetPercentage - Dynamic completion target from annual_targets table (default: 80)
  */
-export default function GlobalStatsGrid({ 
-  plans = [], 
+export default function GlobalStatsGrid({
+  plans = [],
   scope = 'company',
   loading = false,
   periodLabel = '',
   dateContext = '',
   showBadgeOnStatusCards = false,
   onCardClick,
-  activeFilter = null
+  activeFilter = null,
+  targetPercentage = null // Dynamic target from annual_targets table
 }) {
   // Inventory badge - shows the filter context (FY 2026, Q1, Jan - Mar, etc.)
   const inventoryBadge = dateContext || (periodLabel ? periodLabel.trim().replace(/^\(|\)$/g, '') : '');
-  
+
   // Scoring badge - ALWAYS "YTD" since we use fair scoring (assessable plans only)
   const scoringBadge = 'YTD';
+
+  // Use dynamic target if provided, otherwise fall back to default 80%
+  // This single value drives BOTH the Completion Rate and Verification Score cards
+  const TARGET = targetPercentage ?? DEFAULT_TARGET;
 
   // Get current month index for fair scoring calculations
   const currentMonthIndex = new Date().getMonth();
@@ -84,7 +92,7 @@ export default function GlobalStatsGrid({
     const inProgress = plans.filter(p => p.status === 'On Progress').length;
     const open = plans.filter(p => p.status === 'Open').length;
     const notAchieved = plans.filter(p => p.status === 'Not Achieved').length;
-    
+
     // FAIR SCORING - Create "assessable plans" subset for Completion Rate & Verification Score
     // A plan is "assessable" (valid for scoring) if:
     // 1. Its month is in the past or present (already due)
@@ -98,7 +106,7 @@ export default function GlobalStatsGrid({
       // Include if NOT future, OR if already resolved
       return !isFuture || isResolved;
     });
-    
+
     // Completion Rate: Achieved / Assessable Plans (fair denominator)
     const assessableCount = assessablePlans.length;
     const completionRate = assessableCount > 0 ? Number(((achieved / assessableCount) * 100).toFixed(1)) : 0;
@@ -110,15 +118,15 @@ export default function GlobalStatsGrid({
     const gradedFinalizedPlans = assessablePlans.filter(p =>
       (p.status === 'Achieved' || p.status === 'Not Achieved') && p.quality_score != null
     );
-    
+
     let qualityScore = null;
     let gradedCount = 0;
-    
+
     if (gradedFinalizedPlans.length > 0) {
       const totalScore = gradedFinalizedPlans.reduce((acc, plan) => {
         return acc + parseInt(plan.quality_score, 10);
       }, 0);
-      
+
       qualityScore = Number((totalScore / gradedFinalizedPlans.length).toFixed(1));
       gradedCount = gradedFinalizedPlans.length;
     }
@@ -142,7 +150,7 @@ export default function GlobalStatsGrid({
   const labels = useMemo(() => {
     // Determine the period suffix - use periodLabel if provided, otherwise empty
     const periodSuffix = periodLabel ? ` ${periodLabel}` : '';
-    
+
     if (scope === 'personal') {
       return {
         completion: `My Completion Rate${periodSuffix}`,
@@ -198,7 +206,7 @@ export default function GlobalStatsGrid({
   }
 
   // Completion Rate gap calculation
-  const completionGap = stats.completionRate - COMPLETION_TARGET;
+  const completionGap = stats.completionRate - TARGET;
   const isCompletionPositive = completionGap >= 0;
 
   return (
@@ -218,17 +226,17 @@ export default function GlobalStatsGrid({
           return (
             <div>
               <div className="relative h-1.5 bg-white/20 rounded-full overflow-hidden mb-1.5">
-                <div 
-                  className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10" 
-                  style={{ left: `${COMPLETION_TARGET}%` }}
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-white/60 z-10"
+                  style={{ left: `${TARGET}%` }}
                 />
-                <div 
-                  className="bg-white/80 h-1.5 rounded-full transition-all duration-500" 
+                <div
+                  className="bg-white/80 h-1.5 rounded-full transition-all duration-500"
                   style={{ width: `${Math.min(stats.completionRate, 100)}%` }}
                 />
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[8px] uppercase text-white/50">Target: {COMPLETION_TARGET}%</span>
+                <span className="text-[8px] uppercase text-white/50">Target: {TARGET}%</span>
                 <div className={`flex items-center gap-0.5 font-bold ${isCompletionPositive ? 'text-emerald-100' : 'text-rose-100'}`}>
                   {isCompletionPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
                   <span>{isCompletionPositive ? '+' : ''}{completionGap.toFixed(1)}%</span>
@@ -242,7 +250,7 @@ export default function GlobalStatsGrid({
           <div className="space-y-1">
             <p className="font-medium border-b border-gray-600 pb-1 mb-1">{labels.completion}</p>
             <p><span className="font-bold text-green-400">{stats.achieved} of {stats.assessableCount}</span> assessable {scope === 'personal' ? 'tasks' : 'plans'} achieved</p>
-            <p className="text-xs text-gray-400">Company Target: {COMPLETION_TARGET}%</p>
+            <p className="text-xs text-gray-400">Company Target: {TARGET}%</p>
             <p className="text-xs text-gray-500 mt-1">Formula: {stats.achieved} ÷ {stats.assessableCount} × 100</p>
             {stats.assessableCount < stats.total && (
               <p className="text-xs text-gray-500">({stats.total - stats.assessableCount} future open plans excluded from rate)</p>
@@ -253,9 +261,9 @@ export default function GlobalStatsGrid({
 
       {/* 2. Verification Score (YTD) */}
       <KPICard
-        gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' : 
-          stats.qualityScore >= 80 ? 'from-purple-500 to-purple-600' : 
-          stats.qualityScore >= 60 ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
+        gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' :
+          stats.qualityScore >= TARGET ? 'from-purple-500 to-purple-600' :
+            stats.qualityScore >= (TARGET * 0.75) ? 'from-amber-500 to-amber-600' : 'from-red-500 to-red-600'}
         icon={Star}
         value={stats.qualityScore !== null ? `${stats.qualityScore}%` : '—'}
         label={labels.verification}
@@ -265,17 +273,17 @@ export default function GlobalStatsGrid({
         isActive={isCardActive('verification')}
         onClick={onCardClick ? () => handleCardClick('verification') : undefined}
         comparison={stats.qualityScore !== null ? {
-          target: QUALITY_SCORE_TARGET
+          target: TARGET
         } : undefined}
         tooltipContent={
           <div className="space-y-1">
             <p className="font-medium border-b border-gray-600 pb-1 mb-1">{labels.verification}</p>
             {stats.qualityScore !== null ? (
               <>
-                <p>Average: <span className={`font-bold ${stats.qualityScore >= 80 ? 'text-green-400' : stats.qualityScore >= 60 ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
+                <p>Average: <span className={`font-bold ${stats.qualityScore >= TARGET ? 'text-green-400' : stats.qualityScore >= (TARGET * 0.75) ? 'text-amber-400' : 'text-red-400'}`}>{stats.qualityScore}%</span></p>
                 <p className="text-xs text-gray-400">Based on {stats.gradedCount} graded {scope === 'personal' ? 'tasks' : 'items'}</p>
                 <p className="text-xs text-gray-500 mt-1">Formula: sum(scores) ÷ {stats.gradedCount}</p>
-                <p className="text-xs text-gray-400 mt-1">Company Target: {QUALITY_SCORE_TARGET}%</p>
+                <p className="text-xs text-gray-400 mt-1">Company Target: {TARGET}%</p>
               </>
             ) : (
               <p className="text-xs text-gray-400">No graded items yet</p>

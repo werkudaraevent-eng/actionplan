@@ -1,15 +1,21 @@
-import { useState } from 'react';
-import { User, Mail, Building2, Shield, Lock, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { User, Mail, Building2, Shield, Lock, Eye, EyeOff, Loader2, CheckCircle, Camera, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from '../components/common/Toast';
 
 export default function UserProfile() {
-  const { profile, isAdmin, isStaff, isLeader, departmentCode } = useAuth();
+  const { profile, isAdmin, isStaff, isLeader, isExecutive, departmentCode, refreshProfile } = useAuth();
   const { toast } = useToast();
-  const { departments } = useDepartments();
-  
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
+  // Avatar upload state
+  const [isUploading, setIsUploading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || null);
+  const fileInputRef = useRef(null);
+
   // Password change state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -27,33 +33,34 @@ export default function UserProfile() {
   // Get role display name
   const getRoleDisplay = () => {
     if (isAdmin) return 'Administrator';
+    if (isExecutive) return 'Executive';
     if (isLeader) return 'Department Leader';
     if (isStaff) return 'Staff';
     return 'User';
   };
 
-  // Get role badge color
-  const getRoleBadgeColor = () => {
-    if (isAdmin) return 'bg-purple-100 text-purple-700 border-purple-200';
-    if (isLeader) return 'bg-blue-100 text-blue-700 border-blue-200';
-    return 'bg-gray-100 text-gray-700 border-gray-200';
+  // Get role badge styling
+  const getRoleBadge = () => {
+    if (isAdmin) return { bg: 'bg-purple-50', text: 'text-purple-700', ring: 'ring-purple-200', dot: 'bg-purple-500' };
+    if (isExecutive) return { bg: 'bg-indigo-50', text: 'text-indigo-700', ring: 'ring-indigo-200', dot: 'bg-indigo-500' };
+    if (isLeader) return { bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-200', dot: 'bg-blue-500' };
+    return { bg: 'bg-gray-50', text: 'text-gray-600', ring: 'ring-gray-200', dot: 'bg-gray-400' };
   };
 
   // Handle password update
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
-    
-    // Validation
+
     if (!newPassword || !confirmPassword) {
       toast({ title: 'Missing Fields', description: 'Please fill in both password fields.', variant: 'warning' });
       return;
     }
-    
+
     if (newPassword !== confirmPassword) {
       toast({ title: 'Passwords Do Not Match', description: 'Please make sure both passwords are identical.', variant: 'error' });
       return;
     }
-    
+
     if (newPassword.length < 6) {
       toast({ title: 'Password Too Short', description: 'Password must be at least 6 characters long.', variant: 'warning' });
       return;
@@ -61,18 +68,15 @@ export default function UserProfile() {
 
     setLoading(true);
     setSuccess(false);
-    
+
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
-      
       if (error) throw error;
-      
+
       setSuccess(true);
       setNewPassword('');
       setConfirmPassword('');
       toast({ title: 'Password Updated', description: 'Your password has been changed successfully.', variant: 'success' });
-      
-      // Reset success state after 3 seconds
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
       console.error('Password update error:', error);
@@ -92,117 +96,323 @@ export default function UserProfile() {
     return names[0][0].toUpperCase();
   };
 
-  return (
-    <div className="flex-1 bg-gray-50 min-h-screen">
-      {/* Header */}
-      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-            <User className="w-5 h-5 text-teal-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">My Profile</h1>
-            <p className="text-gray-500 text-sm">View your account information and change password</p>
-          </div>
-        </div>
-      </header>
+  // Avatar upload handler
+  const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 
-      <main className="p-6 max-w-4xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Profile Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="bg-gradient-to-r from-teal-600 to-teal-500 px-6 py-8">
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-2xl font-bold text-teal-600 shadow-lg">
-                  {getInitials()}
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">{profile?.full_name || 'Unknown User'}</h2>
-                  <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium border ${getRoleBadgeColor()}`}>
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input so re-selecting same file triggers onChange
+    e.target.value = '';
+
+    // Validate file size
+    if (file.size > MAX_AVATAR_SIZE) {
+      toast({
+        title: 'File Too Large',
+        description: `Maximum file size is 2MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: 'Invalid File Type',
+        description: 'Please upload a PNG, JPEG, or WebP image.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const userId = profile?.id;
+      if (!userId) throw new Error('User ID not found');
+
+      // Generate unique path: {userId}/{timestamp}_{filename}
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${userId}/${Date.now()}_avatar.${fileExt}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData?.publicUrl;
+      if (!publicUrl) throw new Error('Failed to retrieve public URL');
+
+      // Update profiles table
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      // Update local state immediately
+      setAvatarUrl(publicUrl);
+
+      // Refresh AuthContext profile so avatar propagates globally (sidebar, header, etc.)
+      if (refreshProfile) await refreshProfile();
+
+      toast({
+        title: 'Avatar Updated',
+        description: 'Your profile photo has been changed successfully.',
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      toast({
+        title: 'Upload Failed',
+        description: error.message || 'Failed to upload avatar. Please try again.',
+        variant: 'error'
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const roleBadge = getRoleBadge();
+  const passwordsMatch = newPassword && confirmPassword && newPassword === confirmPassword;
+  const passwordLongEnough = newPassword.length >= 6;
+  const canSubmitPassword = passwordsMatch && passwordLongEnough && !loading;
+
+  return (
+    <div className="flex-1 bg-gray-50/50 min-h-screen">
+      {/* Sticky Glassmorphism Header */}
+      <div className="sticky top-0 z-20 bg-gray-50/80 backdrop-blur-md pt-8 pb-4 px-6 border-b border-gray-200/50">
+        <div className="max-w-3xl">
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Account Settings</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage your profile and security preferences.</p>
+        </div>
+      </div>
+
+      <main className="max-w-3xl p-6 space-y-6">
+
+        {/* ═══════════════════════════════════════════════════ */}
+        {/* Section 1: Profile Card                            */}
+        {/* ═══════════════════════════════════════════════════ */}
+        <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {/* Card Header */}
+          <div className="px-6 py-5 border-b border-gray-100">
+            <h2 className="text-base font-semibold text-gray-900">Profile</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Your personal information and role.</p>
+          </div>
+
+          {/* Card Body */}
+          <div className="px-6 py-6 space-y-6">
+
+            {/* Avatar Row */}
+            <div className="flex items-center gap-5">
+              {/* Avatar with upload */}
+              <div className="relative group">
+                <label
+                  htmlFor="avatar-upload"
+                  className="block w-[72px] h-[72px] rounded-full cursor-pointer ring-4 ring-white shadow-md overflow-hidden"
+                >
+                  {/* Avatar image or initials fallback */}
+                  {(avatarUrl || profile?.avatar_url) ? (
+                    <img
+                      src={avatarUrl || profile?.avatar_url}
+                      alt={profile?.full_name || 'Avatar'}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+                    />
+                  ) : null}
+                  <div
+                    className={`w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-xl font-bold text-white tracking-wider ${(avatarUrl || profile?.avatar_url) ? 'hidden' : ''}`}
+                  >
+                    {getInitials()}
+                  </div>
+
+                  {/* Hover overlay */}
+                  {!isUploading && (
+                    <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-all">
+                      <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  )}
+
+                  {/* Upload spinner overlay */}
+                  {isUploading && (
+                    <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+                    </div>
+                  )}
+                </label>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/png, image/jpeg, image/webp"
+                  className="hidden"
+                  disabled={isUploading}
+                  onChange={handleAvatarUpload}
+                />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-gray-900 truncate">{profile?.full_name || 'Unknown User'}</h3>
+                <p className="text-sm text-gray-500 truncate">{profile?.email}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ring-1 ${roleBadge.bg} ${roleBadge.text} ${roleBadge.ring}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${roleBadge.dot}`} />
                     {getRoleDisplay()}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="text-xs text-gray-500 hover:text-gray-800 underline underline-offset-2 transition-colors disabled:opacity-50"
+                  >
+                    {isUploading ? 'Uploading...' : 'Change photo'}
+                  </button>
                 </div>
               </div>
             </div>
-            
-            <div className="p-6 space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <Mail className="w-5 h-5 text-gray-400" />
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Email</p>
-                  <p className="text-gray-800 font-medium">{profile?.email || 'N/A'}</p>
-                </div>
+
+            {/* Divider */}
+            <div className="border-t border-gray-100" />
+
+            {/* Form Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              {/* Full Name */}
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
+                  <User className="w-3.5 h-3.5 text-gray-400" />
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={profile?.full_name || ''}
+                  disabled
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm cursor-not-allowed"
+                />
               </div>
-              
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <Building2 className="w-5 h-5 text-gray-400" />
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Primary Department</p>
-                  <p className="text-gray-800 font-medium">{getDepartmentName()}</p>
-                  {departmentCode && (
-                    <p className="text-xs text-gray-400">Code: {departmentCode}</p>
-                  )}
-                  
-                  {/* Additional Access Section */}
-                  {profile?.additional_departments && profile.additional_departments.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                        Additional Access
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.additional_departments.map(code => (
-                          <span 
-                            key={code} 
-                            className="px-2.5 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded-md text-xs font-mono font-medium"
+
+              {/* Email */}
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
+                  <Mail className="w-3.5 h-3.5 text-gray-400" />
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={profile?.email || ''}
+                  disabled
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm cursor-not-allowed"
+                />
+              </div>
+
+              {/* Role */}
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
+                  <Shield className="w-3.5 h-3.5 text-gray-400" />
+                  Role
+                </label>
+                <input
+                  type="text"
+                  value={getRoleDisplay()}
+                  disabled
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm cursor-not-allowed"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {isAdmin ? 'Full system access' : isLeader ? 'Department management & team oversight' : 'Personal workspace'}
+                </p>
+              </div>
+
+              {/* Department */}
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                  Department
+                </label>
+                <input
+                  type="text"
+                  value={`${getDepartmentName()}${departmentCode ? ` (${departmentCode})` : ''}`}
+                  disabled
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 text-sm cursor-not-allowed"
+                />
+                {/* Additional Access */}
+                {profile?.additional_departments && profile.additional_departments.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-400 mb-1.5">Additional access:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {profile.additional_departments.map(code => {
+                        const dept = departments.find(d => d.code === code);
+                        return (
+                          <span
+                            key={code}
+                            className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono"
+                            title={dept?.name || code}
                           >
                             {code}
                           </span>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                <Shield className="w-5 h-5 text-gray-400" />
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Role</p>
-                  <p className="text-gray-800 font-medium">{getRoleDisplay()}</p>
-                  <p className="text-xs text-gray-400">
-                    {isAdmin ? 'Full system access' : isLeader ? 'Department management' : 'Personal workspace'}
-                  </p>
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Change Password Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-                  <Lock className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-800">Change Password</h3>
-                  <p className="text-sm text-gray-500">Update your account password</p>
-                </div>
-              </div>
+          {/* Card Footer */}
+          <div className="bg-gray-50/70 border-t border-gray-100 px-6 py-3 flex items-center justify-between">
+            <p className="text-xs text-gray-400">Profile details are managed by your administrator.</p>
+            <button
+              type="button"
+              disabled
+              className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-40 cursor-not-allowed"
+            >
+              Save Changes
+            </button>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════ */}
+        {/* Section 2: Password & Security Card                */}
+        {/* ═══════════════════════════════════════════════════ */}
+        <section className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {/* Card Header */}
+          <div className="px-6 py-5 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-gray-400" />
+              <h2 className="text-base font-semibold text-gray-900">Password & Security</h2>
             </div>
-            
-            <form onSubmit={handlePasswordUpdate} className="p-6 space-y-4">
-              {/* Success Message */}
+            <p className="text-sm text-gray-500 mt-0.5">Update your password to keep your account secure.</p>
+          </div>
+
+          {/* Card Body */}
+          <form onSubmit={handlePasswordUpdate}>
+            <div className="px-6 py-6 space-y-5">
+
+              {/* Success Banner */}
               {success && (
-                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700">
-                  <CheckCircle className="w-5 h-5" />
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-green-700">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
                   <span className="text-sm font-medium">Password updated successfully!</span>
                 </div>
               )}
-              
+
               {/* New Password */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   New Password
                 </label>
                 <div className="relative">
@@ -211,22 +421,27 @@ export default function UserProfile() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Enter new password"
-                    className="w-full px-3 py-2.5 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    className="w-full px-3 py-2.5 pr-10 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-gray-900 focus:border-gray-900 transition-shadow placeholder:text-gray-400"
                     minLength={6}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <p className={`text-xs mt-1.5 transition-colors ${passwordLongEnough ? 'text-green-600' : 'text-gray-400'}`}>
+                  {passwordLongEnough ? '✓' : '•'} Minimum 6 characters
+                </p>
               </div>
-              
+
               {/* Confirm Password */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Confirm New Password
                 </label>
                 <div className="relative">
@@ -235,41 +450,39 @@ export default function UserProfile() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Confirm new password"
-                    className={`w-full px-3 py-2.5 pr-10 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
-                      confirmPassword && newPassword !== confirmPassword
-                        ? 'border-red-300 bg-red-50'
-                        : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2.5 pr-10 border rounded-lg text-sm focus:ring-2 transition-all placeholder:text-gray-400 ${confirmPassword && !passwordsMatch
+                      ? 'border-red-300 bg-red-50/50 focus:ring-red-400 focus:border-red-400'
+                      : confirmPassword && passwordsMatch
+                        ? 'border-green-300 bg-green-50/30 focus:ring-green-500 focus:border-green-500'
+                        : 'border-gray-200 focus:ring-gray-900 focus:border-gray-900'
+                      }`}
                     minLength={6}
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    tabIndex={-1}
                   >
                     {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                {confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-red-500 text-xs mt-1">Passwords do not match</p>
+                {confirmPassword && !passwordsMatch && (
+                  <p className="text-red-500 text-xs mt-1.5">Passwords do not match.</p>
+                )}
+                {passwordsMatch && (
+                  <p className="text-green-600 text-xs mt-1.5">✓ Passwords match</p>
                 )}
               </div>
-              
-              {/* Password Requirements */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500 font-medium mb-1">Password Requirements:</p>
-                <ul className="text-xs text-gray-400 space-y-0.5">
-                  <li className={newPassword.length >= 6 ? 'text-green-600' : ''}>
-                    • Minimum 6 characters {newPassword.length >= 6 && '✓'}
-                  </li>
-                </ul>
-              </div>
-              
-              {/* Submit Button */}
+            </div>
+
+            {/* Card Footer */}
+            <div className="bg-gray-50/70 border-t border-gray-100 px-6 py-3 flex items-center justify-end">
               <button
                 type="submit"
-                disabled={loading || !newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6}
-                className="w-full py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={!canSubmitPassword}
+                className="px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {loading ? (
                   <>
@@ -278,14 +491,17 @@ export default function UserProfile() {
                   </>
                 ) : (
                   <>
-                    <Lock className="w-4 h-4" />
+                    <Lock className="w-3.5 h-3.5" />
                     Update Password
                   </>
                 )}
               </button>
-            </form>
-          </div>
-        </div>
+            </div>
+          </form>
+        </section>
+
+        {/* Bottom spacer */}
+        <div className="h-8" />
       </main>
     </div>
   );

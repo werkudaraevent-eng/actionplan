@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useCompanyContext } from '../../context/CompanyContext';
 import { supabase } from '../../lib/supabase';
+import { getPicDisplayName } from '../../utils/picUtils';
+import { usePicProfiles } from '../../hooks/usePicProfiles';
 
 // Helper function for priority badge styling
 const getPriorityStyle = (priority) => {
@@ -23,9 +26,14 @@ const getPriorityStyle = (priority) => {
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
   const { profile } = useAuth();
+  const { activeCompanyId } = useCompanyContext();
   const [score, setScore] = useState(85);
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Resolve PIC display name from UUIDs
+  const { profileMap } = usePicProfiles(plan ? [plan] : []);
+  const picDisplayName = plan ? getPicDisplayName(plan, profileMap) : '—';
 
   // Verdict state for failed plans
   const [verdict, setVerdict] = useState('revision'); // 'revision' | 'carry_over' | 'failed'
@@ -45,11 +53,18 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   // Fetch grading config when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    supabase
+    // MULTI-TENANT: scope grading config to active company
+    let query = supabase
       .from('system_settings')
-      .select('is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l')
-      .eq('id', 1)
-      .single()
+      .select('is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l');
+
+    if (activeCompanyId) {
+      query = query.eq('company_id', activeCompanyId);
+    } else {
+      query = query.eq('id', 1);
+    }
+
+    query.maybeSingle()
       .then(({ data }) => {
         if (data) {
           setGradingConfig({
@@ -61,7 +76,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
           });
         }
       });
-  }, [isOpen]);
+  }, [isOpen, activeCompanyId]);
 
   // CRITICAL: Reset all state when modal opens or plan changes
   useEffect(() => {
@@ -287,7 +302,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                       <User className="w-3 h-3" />
                       PIC
                     </div>
-                    <p className="font-semibold text-gray-800 text-sm truncate" title={plan.pic}>{plan.pic}</p>
+                    <p className="font-semibold text-gray-800 text-sm truncate" title={picDisplayName}>{picDisplayName}</p>
                   </div>
                   <div className="bg-white/70 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-1.5 text-gray-500 text-xs mb-0.5">

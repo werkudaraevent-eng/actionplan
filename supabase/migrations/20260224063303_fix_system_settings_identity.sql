@@ -1,4 +1,7 @@
--- 1. Bersihkan aturan default lama (jika ada) untuk menghindari konflik
+-- 1. Hancurkan nilai DEFAULT konvensional peninggalan masa lalu
+ALTER TABLE public.system_settings ALTER COLUMN id DROP DEFAULT;
+
+-- 1.5 Hancurkan juga Identity lama jika kebetulan sudah ada (Idempotent)
 ALTER TABLE public.system_settings ALTER COLUMN id DROP IDENTITY IF EXISTS;
 
 -- 2. Pasang mesin tiket otomatis (Identity) standar Enterprise

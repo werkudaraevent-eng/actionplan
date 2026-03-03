@@ -1,5 +1,17 @@
 -- 1. Mengubah nama kolom teks mentah menjadi "museum" data lama
-ALTER TABLE public.action_plans RENAME COLUMN pic TO legacy_pic_text;
+DO $$
+BEGIN
+    -- Cek apakah kolom 'pic' memang ada sebelum mencoba mengubah namanya
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'action_plans' 
+          AND column_name = 'pic'
+    ) THEN
+        ALTER TABLE public.action_plans RENAME COLUMN pic TO legacy_pic_text;
+    END IF;
+END $$;
 
 -- 2. Menambahkan kolom baru berwujud Array untuk menampung banyak UUID staf
 -- Kita memberikan nilai default array kosong '{}' agar tidak terjadi error saat query

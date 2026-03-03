@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Building2, Plus, Pencil, Trash2, Save, X, Loader2, Search,
-    Shield, Crown, Globe2, ArrowRight
+    Shield, Crown, Globe2, ArrowRight, MoreVertical, Users, FileText, CheckCircle2,
+    Camera, ImageIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +25,10 @@ export default function HoldingManagement() {
     const [modalMode, setModalMode] = useState('add'); // 'add' | 'edit'
     const [editTarget, setEditTarget] = useState(null);
     const [formName, setFormName] = useState('');
+    const [formDescription, setFormDescription] = useState('');
+    const [formLogoUrl, setFormLogoUrl] = useState('');
+    const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+    const logoInputRef = useRef(null);
     const [saving, setSaving] = useState(false);
 
     // Delete confirmation
@@ -31,6 +36,26 @@ export default function HoldingManagement() {
 
     // Search
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Dropdown menu state
+    const [openMenuId, setOpenMenuId] = useState(null);
+
+    // Workspace switch transition
+    const [isSwitchingId, setIsSwitchingId] = useState(null);
+
+    const handleSwitchWorkspace = (company) => {
+        if (isSwitchingId || company.id === activeCompanyId) return;
+        setIsSwitchingId(company.id);
+        setTimeout(() => {
+            setActiveCompanyId(company.id);
+            toast({
+                title: 'Workspace Switched',
+                description: `Now viewing ${company.name}.`,
+                variant: 'success'
+            });
+            setIsSwitchingId(null);
+        }, 400);
+    };
 
     // Access guard — belt-and-suspenders, ProtectedRoute in App.jsx is the primary guard
     if (!isHoldingAdmin) {
@@ -108,11 +133,25 @@ export default function HoldingManagement() {
         return companyList.filter(c => c.name.toLowerCase().includes(q));
     }, [companyList, searchQuery]);
 
+    // Separate holding parent from subsidiaries
+    const holdingCompany = useMemo(() => {
+        return companyList.find(c => c.name === 'Werkudara Group') || null;
+    }, [companyList]);
+
+    const subsidiaryCompanies = useMemo(() => {
+        const subs = companyList.filter(c => c.name !== 'Werkudara Group');
+        if (!searchQuery.trim()) return subs;
+        const q = searchQuery.toLowerCase();
+        return subs.filter(c => c.name.toLowerCase().includes(q));
+    }, [companyList, searchQuery]);
+
     // Open Add modal
     const openAddModal = () => {
         setModalMode('add');
         setEditTarget(null);
         setFormName('');
+        setFormDescription('');
+        setFormLogoUrl('');
         setModalOpen(true);
     };
 
@@ -121,6 +160,8 @@ export default function HoldingManagement() {
         setModalMode('edit');
         setEditTarget(company);
         setFormName(company.name);
+        setFormDescription(company.description || '');
+        setFormLogoUrl(company.logo_url || '');
         setModalOpen(true);
     };
 
@@ -129,6 +170,8 @@ export default function HoldingManagement() {
         setModalOpen(false);
         setEditTarget(null);
         setFormName('');
+        setFormDescription('');
+        setFormLogoUrl('');
     };
 
     // Save (create or update)
@@ -151,9 +194,13 @@ export default function HoldingManagement() {
         setSaving(true);
         try {
             if (modalMode === 'add') {
+                const payload = { name };
+                if (formDescription.trim()) payload.description = formDescription.trim();
+                if (formLogoUrl) payload.logo_url = formLogoUrl;
+
                 const { data, error } = await supabase
                     .from('companies')
-                    .insert({ name })
+                    .insert(payload)
                     .select()
                     .single();
 
@@ -170,9 +217,13 @@ export default function HoldingManagement() {
                     setActiveCompanyId(data.id);
                 }
             } else {
+                const payload = { name };
+                payload.description = formDescription.trim() || null;
+                payload.logo_url = formLogoUrl || null;
+
                 const { error } = await supabase
                     .from('companies')
-                    .update({ name })
+                    .update(payload)
                     .eq('id', editTarget.id);
 
                 if (error) throw error;
@@ -191,6 +242,57 @@ export default function HoldingManagement() {
             toast({ title: 'Save Failed', description: err.message || 'Unknown error', variant: 'error' });
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Logo upload handler
+    const MAX_LOGO_SIZE = 2 * 1024 * 1024; // 2MB
+
+    const handleLogoUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        e.target.value = '';
+
+        if (file.size > MAX_LOGO_SIZE) {
+            toast({
+                title: 'File Too Large',
+                description: `Maximum file size is 2MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`,
+                variant: 'error'
+            });
+            return;
+        }
+
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            toast({ title: 'Invalid File Type', description: 'Please upload a PNG, JPEG, or WebP image.', variant: 'error' });
+            return;
+        }
+
+        setIsUploadingLogo(true);
+        try {
+            const fileExt = file.name.split('.').pop();
+            const filePath = `logos/${Date.now()}_logo.${fileExt}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('company_logos')
+                .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabase.storage
+                .from('company_logos')
+                .getPublicUrl(filePath);
+
+            const publicUrl = urlData?.publicUrl;
+            if (!publicUrl) throw new Error('Failed to retrieve public URL');
+
+            setFormLogoUrl(publicUrl);
+            toast({ title: 'Logo Uploaded', description: 'Preview ready. Click Save to apply.', variant: 'success' });
+        } catch (error) {
+            console.error('Logo upload error:', error);
+            toast({ title: 'Upload Failed', description: error.message || 'Failed to upload logo.', variant: 'error' });
+        } finally {
+            setIsUploadingLogo(false);
         }
     };
 
@@ -305,11 +407,101 @@ export default function HoldingManagement() {
                     </div>
                 </div>
 
-                {/* Company Table */}
+                {/* ═══════════════════════════════════════════════════════ */}
+                {/* Section 1: Headquarters / Parent Organization Card     */}
+                {/* ═══════════════════════════════════════════════════════ */}
+                {holdingCompany && (() => {
+                    const hqStats = stats[holdingCompany.id] || { departments: 0, users: 0, plans: 0 };
+                    const isHqActive = holdingCompany.id === activeCompanyId;
+                    return (
+                        <div
+                            onClick={() => openEditModal(holdingCompany)}
+                            className={`bg-white rounded-xl shadow-sm border overflow-hidden mb-6 cursor-pointer transition-all hover:shadow-md ${isHqActive ? 'border-amber-300 ring-1 ring-amber-200' : 'border-gray-100'
+                                }`}
+                        >
+                            <div className="px-5 py-4 flex items-center gap-4">
+                                {/* HQ Logo */}
+                                <div className="flex-shrink-0">
+                                    {holdingCompany.logo_url ? (
+                                        <div className="w-14 h-14 bg-white rounded-xl border border-gray-200/80 shadow-sm p-1.5 flex items-center justify-center">
+                                            <img
+                                                src={holdingCompany.logo_url}
+                                                alt={holdingCompany.name}
+                                                className="w-full h-full object-contain"
+                                                onError={(e) => { e.target.parentElement.style.display = 'none'; e.target.parentElement.nextSibling.style.display = 'flex'; }}
+                                            />
+                                        </div>
+                                    ) : null}
+                                    <div
+                                        className={`w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-sm ${holdingCompany.logo_url ? 'hidden' : ''}`}
+                                    >
+                                        <Crown className="w-6 h-6 text-white" />
+                                    </div>
+                                </div>
+
+                                {/* HQ Details */}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-base font-bold text-gray-900 truncate">{holdingCompany.name}</p>
+                                        <span className="inline-flex items-center px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-semibold uppercase tracking-wide flex-shrink-0">
+                                            Holding
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                        {holdingCompany.description || 'Parent organization'}
+                                    </p>
+                                </div>
+
+                                {/* HQ Stats */}
+                                <div className="hidden sm:flex items-center gap-4 flex-shrink-0">
+                                    <div className="text-center">
+                                        <p className="text-lg font-bold text-gray-800">{hqStats.departments}</p>
+                                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Depts</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-lg font-bold text-gray-800">{hqStats.users}</p>
+                                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Users</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-lg font-bold text-gray-800">{hqStats.plans}</p>
+                                        <p className="text-[10px] text-gray-400 uppercase tracking-wide">Plans</p>
+                                    </div>
+                                </div>
+
+                                {/* Active/Switch */}
+                                <div className="flex-shrink-0">
+                                    {isSwitchingId === holdingCompany.id ? (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-full text-xs font-semibold ring-1 ring-amber-200">
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            Switching…
+                                        </span>
+                                    ) : isHqActive ? (
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold ring-1 ring-green-200">
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            Active
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleSwitchWorkspace(holdingCompany); }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:border-amber-300 hover:text-amber-700 hover:bg-amber-50 transition-all"
+                                        >
+                                            <ArrowRight className="w-3 h-3" />
+                                            Switch
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
+
+                {/* ═══════════════════════════════════════════════════════ */}
+                {/* Section 2: Subsidiary Companies List                   */}
+                {/* ═══════════════════════════════════════════════════════ */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-                    {/* Table Header */}
+                    {/* List Header */}
                     <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
-                        <h2 className="font-semibold text-gray-800">Subsidiary Companies</h2>
+                        <h2 className="font-semibold text-gray-800">Subsidiaries</h2>
                         {companyList.length > 3 && (
                             <div className="relative max-w-xs flex-1">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -324,52 +516,107 @@ export default function HoldingManagement() {
                         )}
                     </div>
 
-                    {/* Column Headers */}
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        <div className="col-span-1">Status</div>
-                        <div className="col-span-4">Company Name</div>
-                        <div className="col-span-2 text-center">Departments</div>
-                        <div className="col-span-2 text-center">Users</div>
-                        <div className="col-span-1 text-center">Plans</div>
-                        <div className="col-span-2 text-right">Actions</div>
-                    </div>
-
-                    {/* Rows */}
+                    {/* Card Rows */}
                     <div className="divide-y divide-gray-100">
                         {loading ? (
-                            <div className="p-8 text-center">
-                                <Loader2 className="w-6 h-6 text-amber-500 animate-spin mx-auto mb-2" />
+                            <div className="p-12 text-center">
+                                <Loader2 className="w-6 h-6 text-amber-500 animate-spin mx-auto mb-3" />
                                 <p className="text-gray-500 text-sm">Loading subsidiaries...</p>
                             </div>
-                        ) : filteredCompanies.length === 0 ? (
-                            <div className="p-8 text-center text-gray-500">
-                                {searchQuery ? 'No companies match your search.' : 'No subsidiaries found. Add one to get started.'}
+                        ) : subsidiaryCompanies.length === 0 ? (
+                            <div className="p-12 text-center">
+                                <Globe2 className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-sm">
+                                    {searchQuery ? 'No companies match your search.' : 'No subsidiaries found. Add one to get started.'}
+                                </p>
                             </div>
                         ) : (
-                            filteredCompanies.map((company) => {
+                            subsidiaryCompanies.map((company) => {
                                 const companyStats = stats[company.id] || { departments: 0, users: 0, plans: 0 };
                                 const isCurrentlyActive = company.id === activeCompanyId;
+                                const isMenuOpen = openMenuId === company.id;
+
+                                // Generate vibrant gradient for avatar fallback
+                                const gradients = [
+                                    'from-violet-500 to-purple-600',
+                                    'from-blue-500 to-indigo-600',
+                                    'from-emerald-500 to-teal-600',
+                                    'from-orange-500 to-red-500',
+                                    'from-pink-500 to-rose-600',
+                                    'from-cyan-500 to-blue-600',
+                                    'from-amber-500 to-orange-600',
+                                ];
+                                const gradientIndex = company.name.charCodeAt(0) % gradients.length;
+                                const avatarGradient = gradients[gradientIndex];
 
                                 return (
                                     <div
                                         key={company.id}
-                                        className={`p-4 grid grid-cols-12 gap-4 items-center transition-colors ${isCurrentlyActive
-                                            ? 'bg-amber-50/50 border-l-4 border-l-amber-500'
-                                            : 'hover:bg-gray-50/50 border-l-4 border-l-transparent'
+                                        onClick={() => openEditModal(company)}
+                                        className={`relative px-5 py-4 flex items-center gap-4 transition-all cursor-pointer ${isCurrentlyActive
+                                            ? 'bg-green-50/60 border-l-[3px] border-l-green-500 hover:bg-green-50/80'
+                                            : 'hover:bg-gray-50/70 border-l-[3px] border-l-transparent'
                                             }`}
                                     >
-                                        {/* Active indicator */}
-                                        <div className="col-span-1">
-                                            {isCurrentlyActive ? (
-                                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
-                                                    <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                                        {/* LEFT: Company Logo / Avatar */}
+                                        <div className="flex-shrink-0">
+                                            {company.logo_url ? (
+                                                <div className="w-11 h-11 bg-white rounded-xl border border-gray-200/80 shadow-sm p-1.5 flex items-center justify-center">
+                                                    <img
+                                                        src={company.logo_url}
+                                                        alt={company.name}
+                                                        className="w-full h-full object-contain"
+                                                        onError={(e) => { e.target.parentElement.style.display = 'none'; e.target.parentElement.nextSibling.style.display = 'flex'; }}
+                                                    />
+                                                </div>
+                                            ) : null}
+                                            <div
+                                                className={`w-11 h-11 rounded-xl bg-gradient-to-br ${avatarGradient} flex items-center justify-center text-white font-bold text-base shadow-sm ${company.logo_url ? 'hidden' : ''}`}
+                                            >
+                                                {company.name.charAt(0).toUpperCase()}
+                                            </div>
+                                        </div>
+
+                                        {/* MIDDLE: Name + Description */}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold text-gray-900 truncate">{company.name}</p>
+                                            <p className="text-xs text-gray-400 font-mono mt-0.5 truncate" title={company.id}>
+                                                {company.id.substring(0, 8)}…
+                                            </p>
+                                        </div>
+
+                                        {/* RIGHT-MIDDLE: Stats */}
+                                        <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+                                            <div className="flex items-center gap-1 text-gray-500" title="Departments">
+                                                <Building2 className="w-3.5 h-3.5" />
+                                                <span className="text-xs font-medium">{companyStats.departments}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 text-gray-500" title="Users">
+                                                <Users className="w-3.5 h-3.5" />
+                                                <span className="text-xs font-medium">{companyStats.users}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 text-gray-500" title="Action Plans">
+                                                <FileText className="w-3.5 h-3.5" />
+                                                <span className="text-xs font-medium">{companyStats.plans}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* RIGHT: Active Badge / Switch Button */}
+                                        <div className="flex-shrink-0">
+                                            {isSwitchingId === company.id ? (
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-full text-xs font-semibold ring-1 ring-amber-200">
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    Switching…
+                                                </span>
+                                            ) : isCurrentlyActive ? (
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold ring-1 ring-green-200">
+                                                    <CheckCircle2 className="w-3 h-3" />
                                                     Active
                                                 </span>
                                             ) : (
                                                 <button
-                                                    onClick={() => setActiveCompanyId(company.id)}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-full text-xs font-medium transition-colors"
-                                                    title="Switch to this company"
+                                                    onClick={(e) => { e.stopPropagation(); handleSwitchWorkspace(company); }}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:border-amber-300 hover:text-amber-700 hover:bg-amber-50 transition-all"
                                                 >
                                                     <ArrowRight className="w-3 h-3" />
                                                     Switch
@@ -377,50 +624,34 @@ export default function HoldingManagement() {
                                             )}
                                         </div>
 
-                                        {/* Name */}
-                                        <div className="col-span-4">
-                                            <p className="text-gray-800 font-semibold text-sm">{company.name}</p>
-                                            <p className="text-gray-400 text-xs font-mono mt-0.5 truncate" title={company.id}>
-                                                ID: {company.id.substring(0, 8)}…
-                                            </p>
-                                        </div>
-
-                                        {/* Departments */}
-                                        <div className="col-span-2 text-center">
-                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-sm font-medium">
-                                                <Building2 className="w-3 h-3" />
-                                                {companyStats.departments}
-                                            </span>
-                                        </div>
-
-                                        {/* Users */}
-                                        <div className="col-span-2 text-center">
-                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
-                                                {companyStats.users}
-                                            </span>
-                                        </div>
-
-                                        {/* Plans */}
-                                        <div className="col-span-1 text-center">
-                                            <span className="text-sm font-medium text-gray-600">{companyStats.plans}</span>
-                                        </div>
-
-                                        {/* Actions */}
-                                        <div className="col-span-2 flex justify-end gap-2">
+                                        {/* RIGHT: 3-dot Menu */}
+                                        <div className="relative flex-shrink-0">
                                             <button
-                                                onClick={() => openEditModal(company)}
-                                                className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                                                title="Edit company name"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOpenMenuId(isMenuOpen ? null : company.id);
+                                                }}
+                                                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                             >
-                                                <Pencil className="w-4 h-4" />
+                                                <MoreVertical className="w-4 h-4" />
                                             </button>
-                                            <button
-                                                onClick={() => setDeleteTarget(company)}
-                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                title="Delete company"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+
+                                            {/* Dropdown */}
+                                            {isMenuOpen && (
+                                                <>
+                                                    {/* Backdrop to close menu */}
+                                                    <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); }} />
+                                                    <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-40">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(company); setOpenMenuId(null); }}
+                                                            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            Delete Subsidiary
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -465,7 +696,7 @@ export default function HoldingManagement() {
                                     )}
                                 </div>
                                 <h3 className="text-lg font-semibold text-gray-800">
-                                    {modalMode === 'add' ? 'Add New Subsidiary' : 'Edit Company Name'}
+                                    {modalMode === 'add' ? 'Add New Subsidiary' : 'Edit Subsidiary Profile'}
                                 </h3>
                             </div>
                             <button
@@ -477,21 +708,104 @@ export default function HoldingManagement() {
                         </div>
 
                         {/* Modal Body */}
-                        <div className="p-5">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Company Name
-                            </label>
-                            <input
-                                type="text"
-                                value={formName}
-                                onChange={(e) => setFormName(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-                                placeholder="e.g. PT Takshaka"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
-                                autoFocus
-                            />
+                        <div className="p-5 space-y-5">
+                            {/* Logo Uploader */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Company Logo
+                                </label>
+                                <div className="flex items-center gap-4">
+                                    <div className="relative group">
+                                        <label
+                                            htmlFor="logo-upload-input"
+                                            className="block w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 hover:border-amber-400 cursor-pointer overflow-hidden transition-colors bg-gray-50"
+                                        >
+                                            {formLogoUrl ? (
+                                                <img src={formLogoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center">
+                                                    <ImageIcon className="w-6 h-6 text-gray-300" />
+                                                </div>
+                                            )}
+                                            {/* Hover overlay */}
+                                            {!isUploadingLogo && (
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-all rounded-xl">
+                                                    <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                </div>
+                                            )}
+                                            {/* Upload spinner */}
+                                            {isUploadingLogo && (
+                                                <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-xl">
+                                                    <Loader2 className="w-5 h-5 text-white animate-spin" />
+                                                </div>
+                                            )}
+                                        </label>
+                                        <input
+                                            ref={logoInputRef}
+                                            id="logo-upload-input"
+                                            type="file"
+                                            accept="image/png, image/jpeg, image/webp"
+                                            className="hidden"
+                                            disabled={isUploadingLogo}
+                                            onChange={handleLogoUpload}
+                                        />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => logoInputRef.current?.click()}
+                                            disabled={isUploadingLogo}
+                                            className="text-sm text-amber-600 hover:text-amber-700 font-medium underline underline-offset-2 disabled:opacity-50"
+                                        >
+                                            {isUploadingLogo ? 'Uploading...' : formLogoUrl ? 'Change logo' : 'Upload logo'}
+                                        </button>
+                                        <p className="text-xs text-gray-400 mt-0.5">PNG, JPG, or WebP. Max 2MB.</p>
+                                        {formLogoUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormLogoUrl('')}
+                                                className="text-xs text-red-500 hover:text-red-600 mt-1"
+                                            >
+                                                Remove logo
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Company Name */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                    Company Name <span className="text-red-400">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formName}
+                                    onChange={(e) => setFormName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSave()}
+                                    placeholder="e.g. PT Takshaka"
+                                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
+                                    autoFocus
+                                />
+                            </div>
+
+                            {/* Description */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                    Description
+                                </label>
+                                <textarea
+                                    value={formDescription}
+                                    onChange={(e) => setFormDescription(e.target.value)}
+                                    placeholder="Brief description of this subsidiary..."
+                                    rows={3}
+                                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all resize-none"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">{formDescription.length}/200</p>
+                            </div>
+
                             {modalMode === 'add' && (
-                                <p className="mt-2 text-xs text-gray-500">
+                                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
                                     After creating the subsidiary, switch to it using the sidebar company switcher to start adding departments and users.
                                 </p>
                             )}

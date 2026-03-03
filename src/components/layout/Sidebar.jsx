@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { useDepartments } from '../../hooks/useDepartments';
 import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
+import { useToast } from '../common/Toast';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -26,23 +27,88 @@ export default function Sidebar() {
   // Pending drop requests count (Admin + Executive)
   const [pendingDropCount, setPendingDropCount] = useState(0);
 
+  // Workspace switch transition
+  const [isSwitching, setIsSwitching] = useState(false);
+  const { toast } = useToast();
+
+  const handleWorkspaceSwitch = (newCompanyId) => {
+    if (isSwitching || newCompanyId === activeCompanyId) return;
+    const targetCompany = companies.find(c => c.id === newCompanyId);
+    setIsSwitching(true);
+    setTimeout(() => {
+      setActiveCompanyId(newCompanyId);
+      toast({
+        title: 'Workspace Switched',
+        description: `Now viewing ${targetCompany?.name || 'workspace'}.`,
+        variant: 'success'
+      });
+      setIsSwitching(false);
+    }, 500);
+  };
+
+  // Department switch transition
+  const [isActivatingDeptCode, setIsActivatingDeptCode] = useState(null);
+
+  const handleDeptSwitch = (dept) => {
+    if (isActivatingDeptCode) return;
+    // If already on the same dept, do nothing
+    if (isActive(`/dept/${dept.code}`)) return;
+    setIsActivatingDeptCode(dept.code);
+    setTimeout(() => {
+      navigate(`/dept/${dept.code}/plans`);
+      toast({
+        title: 'Department Selected',
+        description: `Now viewing ${dept.name}.`,
+        variant: 'success'
+      });
+      setIsActivatingDeptCode(null);
+    }, 500);
+  };
+
+  // Department dropdown transition (Staff/Leader)
+  const [isSwitchingDept, setIsSwitchingDept] = useState(false);
+
+  const handleDeptDropdownSwitch = (newCode, navigateTo) => {
+    if (isSwitchingDept || newCode === currentDept) return;
+    const targetDept = accessibleDepts.find(d => d.code === newCode);
+    setIsSwitchingDept(true);
+    setTimeout(() => {
+      switchDept(newCode);
+      navigate(navigateTo);
+      toast({
+        title: 'Department Switched',
+        description: `Now viewing ${targetDept?.name || newCode}.`,
+        variant: 'success'
+      });
+      setIsSwitchingDept(false);
+    }, 500);
+  };
+
   useEffect(() => {
     if (!isAdmin || !supabase) return;
 
     // Fetch initial count — scoped to active company
+    // Count BATCHES (grouped by dept+month+year+requester), not raw items
     const fetchCount = async () => {
       let query = supabase
         .from('action_plans')
-        .select('*', { count: 'exact', head: true })
-        .eq('unlock_status', 'pending');
+        .select('department_code, month, year, unlock_requested_by')
+        .eq('unlock_status', 'pending')
+        .is('deleted_at', null);
 
       // MULTI-TENANT: scope to active company
       if (activeCompanyId) {
         query = query.eq('company_id', activeCompanyId);
       }
 
-      const { count, error } = await query;
-      if (!error) setPendingCount(count || 0);
+      const { data, error } = await query;
+      if (!error && data) {
+        // Group by batch key to count actionable requests
+        const batches = new Set(
+          data.map(r => `${r.department_code}-${r.month}-${r.year}-${r.unlock_requested_by}`)
+        );
+        setPendingCount(batches.size);
+      }
     };
 
     fetchCount();
@@ -127,14 +193,32 @@ export default function Sidebar() {
 
   return (
     <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col relative z-40">
-      {/* Header */}
+      {/* Header — Dynamic Tenant Branding */}
       <div className="p-4 border-b border-teal-700 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 flex-shrink-0 bg-teal-600 rounded-lg flex items-center justify-center">
-            <Building2 className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 flex-shrink-0 rounded-lg overflow-hidden shadow-sm">
+            {activeCompany?.logo_url ? (
+              <div className="w-full h-full bg-white rounded-lg border border-teal-600/30 p-1 flex items-center justify-center">
+                <img
+                  src={activeCompany.logo_url}
+                  alt={activeCompany.name}
+                  className="w-full h-full object-contain"
+                  onError={(e) => { e.target.parentElement.style.display = 'none'; e.target.parentElement.nextSibling.style.display = 'flex'; }}
+                />
+              </div>
+            ) : null}
+            <div
+              className={`w-full h-full bg-gradient-to-br from-teal-500 to-teal-700 rounded-lg flex items-center justify-center ${activeCompany?.logo_url ? 'hidden' : ''}`}
+            >
+              <span className="text-white font-bold text-sm">
+                {(activeCompany?.name || 'W').charAt(0).toUpperCase()}
+              </span>
+            </div>
           </div>
           <div className="min-w-0">
-            <h1 className="text-white font-bold text-sm">Werkudara Group</h1>
+            <h1 className="text-white font-bold text-sm truncate" title={activeCompany?.name || 'Werkudara Group'}>
+              {activeCompany?.name || 'Werkudara Group'}
+            </h1>
             <p className="text-teal-300 text-xs">Action Plan Tracker</p>
           </div>
         </div>
@@ -143,8 +227,24 @@ export default function Sidebar() {
       {/* User Info — Compact */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <div className="flex items-center gap-2.5 bg-teal-700/40 rounded-lg px-2.5 py-2 mb-2">
-          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs ${isHoldingAdmin ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-teal-600'}`}>
-            {isHoldingAdmin ? <Crown className="w-4 h-4" /> : (profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?')}
+          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-teal-600'}`}>
+            {/* Priority 1: Uploaded avatar (always wins) */}
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={profile.full_name || 'Avatar'}
+                className="w-full h-full object-cover"
+                onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+              />
+            ) : null}
+            {/* Priority 2: Role icon or initials fallback */}
+            <span className={`flex items-center justify-center w-full h-full ${profile?.avatar_url ? 'hidden' : ''}`}>
+              {isHoldingAdmin ? (
+                <Crown className="w-4 h-4" />
+              ) : (
+                profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?'
+              )}
+            </span>
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-white font-medium text-sm truncate leading-tight">{profile?.full_name}</p>
@@ -172,30 +272,38 @@ export default function Sidebar() {
                 </>
               )}
             </label>
-            <select
-              id="company-switcher"
-              value={activeCompanyId || ''}
-              onChange={(e) => setActiveCompanyId(e.target.value)}
-              className="w-full max-w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900 overflow-hidden text-ellipsis"
-              style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
-            >
-              {/* Holding entity at the top */}
-              {companies.filter(c => c.name === 'Werkudara Group').map(c => (
-                <option key={c.id} value={c.id}>
-                  Group Overview
-                </option>
-              ))}
-              {/* Separator */}
-              {companies.some(c => c.name === 'Werkudara Group') && companies.some(c => c.name !== 'Werkudara Group') && (
-                <option disabled>{'\u2500\u2500 Subsidiaries \u2500\u2500'}</option>
+            <div className="relative">
+              {isSwitching && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10">
+                  <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                </div>
               )}
-              {/* Operational subsidiaries */}
-              {companies.filter(c => c.name !== 'Werkudara Group').map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              <select
+                id="company-switcher"
+                value={activeCompanyId || ''}
+                onChange={(e) => handleWorkspaceSwitch(e.target.value)}
+                disabled={isSwitching}
+                className={`w-full max-w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
+                style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
+              >
+                {/* Holding entity at the top */}
+                {companies.filter(c => c.name === 'Werkudara Group').map(c => (
+                  <option key={c.id} value={c.id}>
+                    Group Overview
+                  </option>
+                ))}
+                {/* Separator */}
+                {companies.some(c => c.name === 'Werkudara Group') && companies.some(c => c.name !== 'Werkudara Group') && (
+                  <option disabled>{'\u2500\u2500 Subsidiaries \u2500\u2500'}</option>
+                )}
+                {/* Operational subsidiaries */}
+                {companies.filter(c => c.name !== 'Werkudara Group').map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -250,19 +358,29 @@ export default function Sidebar() {
               ) : departments.length === 0 ? (
                 <div className="px-3 py-2 text-teal-300 text-sm">No departments found</div>
               ) : (
-                departments.map((dept) => (
-                  <button
-                    key={dept.code}
-                    onClick={() => navigate(`/dept/${dept.code}/plans`)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${dept.code}`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
-                      }`}
-                  >
-                    <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
-                      {dept.code}
-                    </span>
-                    <span className="text-sm truncate flex-1" title={dept.name}>{dept.name}</span>
-                  </button>
-                ))
+                <div className={`space-y-1 transition-opacity ${isActivatingDeptCode ? 'pointer-events-none' : ''}`}>
+                  {departments.map((dept) => {
+                    const isDeptActive = isActive(`/dept/${dept.code}`);
+                    const isDeptLoading = isActivatingDeptCode === dept.code;
+                    return (
+                      <button
+                        key={dept.code}
+                        onClick={() => handleDeptSwitch(dept)}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
+                          ? 'bg-teal-600/70 text-white'
+                          : isDeptActive ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                          }`}
+                      >
+                        <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
+                          {isDeptLoading ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
+                          ) : dept.code}
+                        </span>
+                        <span className="text-sm truncate flex-1" title={dept.name}>{dept.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
@@ -347,14 +465,9 @@ export default function Sidebar() {
                 <div className="relative">
                   <select
                     value={currentDept}
-                    onChange={(e) => {
-                      const newCode = e.target.value;
-                      // Update global state
-                      switchDept(newCode);
-                      // Staff navigates to workspace (their action plans view)
-                      navigate('/workspace');
-                    }}
-                    className="w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    onChange={(e) => handleDeptDropdownSwitch(e.target.value, '/workspace')}
+                    disabled={isSwitchingDept}
+                    className={`w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
                       <option key={dept.code} value={dept.code} className="bg-teal-800">
@@ -362,7 +475,11 @@ export default function Sidebar() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                  {isSwitchingDept ? (
+                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 animate-spin" />
+                  ) : (
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                  )}
                 </div>
               </div>
             )}
@@ -404,14 +521,9 @@ export default function Sidebar() {
                 <div className="relative">
                   <select
                     value={currentDept}
-                    onChange={(e) => {
-                      const newCode = e.target.value;
-                      // Update global state
-                      switchDept(newCode);
-                      // Leader navigates to department dashboard
-                      navigate(`/dept/${newCode}/dashboard`);
-                    }}
-                    className="w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    onChange={(e) => handleDeptDropdownSwitch(e.target.value, `/dept/${e.target.value}/dashboard`)}
+                    disabled={isSwitchingDept}
+                    className={`w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
                       <option key={dept.code} value={dept.code} className="bg-teal-800">
@@ -419,7 +531,11 @@ export default function Sidebar() {
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                  {isSwitchingDept ? (
+                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 animate-spin" />
+                  ) : (
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                  )}
                 </div>
               </div>
             )}

@@ -1635,11 +1635,16 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   const isDateLocked = itemLockStatus.isLocked;
                   const lockMessage = getLockStatusMessage(itemLockStatus);
                   const isDropPending = item.is_drop_pending === true;
+                  // Detect drop rejection: plan was restored to Open but remark contains rejection marker
+                  const isDropRejected = !isDropPending && item.status === 'Open' && item.remark && item.remark.includes('[Drop Rejected');
+
+                  // ASSERTIVE STATE: Detect rejected unlock (terminal state requiring resolution)
+                  const isUnlockRejected = isDateLocked && !isAdmin && item.unlock_status === 'rejected' && item.status !== 'Not Achieved';
 
                   // Determine if row should have "Ghost Style" (visually distinct locked appearance)
                   // Apply when date-locked AND not admin AND not approved for unlock
                   // OR when drop request is pending
-                  const isGhostRow = (isDateLocked && !isAdmin && item.unlock_status !== 'approved') || (!isAdmin && isDropPending);
+                  const isGhostRow = !isUnlockRejected && ((isDateLocked && !isAdmin && item.unlock_status !== 'approved') || (!isAdmin && isDropPending));
 
                   // Check escalation level for left-border indicator
                   const isFinalStatus = item.status === 'Achieved' || item.status === 'Not Achieved';
@@ -1649,24 +1654,31 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   // Define row background color for sticky column consistency
                   // Clean white rows — escalation indicated by left border strip only
                   // Carry-over items get a subtle amber/rose tint
-                  // IMPORTANT: Use solid colors (no opacity) for sticky column compatibility
+                  // UNLOCK REJECTED: Red danger tint to assertively flag rejected items
+                  // IMPORTANT: Use solid colors ONLY (no /opacity) for sticky column compatibility
+                  // Opacity causes content to bleed through sticky cells when scrolling
                   const isLateM2 = item.carry_over_status === 'Late_Month_2';
                   const isLateM1 = item.carry_over_status === 'Late_Month_1';
-                  const rowBgColor = isGhostRow ? 'bg-gray-100'
-                    : isLateM2 ? 'bg-rose-50'
-                      : isLateM1 ? 'bg-amber-50/60'
-                        : 'bg-white';
-                  const rowHoverBgColor = isGhostRow ? 'group-hover/row:bg-gray-200'
-                    : isLateM2 ? 'group-hover/row:bg-rose-100/60'
-                      : isLateM1 ? 'group-hover/row:bg-amber-100/60'
-                        : 'group-hover/row:bg-gray-50';
+                  const rowBgColor = isUnlockRejected ? 'bg-red-50'
+                    : isGhostRow ? 'bg-gray-100'
+                      : isLateM2 ? 'bg-rose-50'
+                        : isLateM1 ? 'bg-amber-50'
+                          : 'bg-white';
+                  const rowHoverBgColor = isUnlockRejected ? 'group-hover/row:bg-red-100'
+                    : isGhostRow ? 'group-hover/row:bg-gray-200'
+                      : isLateM2 ? 'group-hover/row:bg-rose-100'
+                        : isLateM1 ? 'group-hover/row:bg-amber-100'
+                          : 'group-hover/row:bg-gray-50';
 
                   // Left-border escalation indicator class
-                  const escalationBorderClass = isManagementEscalated
-                    ? 'border-l-4 border-l-rose-600'
-                    : isLeaderEscalated
-                      ? 'border-l-4 border-l-amber-500'
-                      : '';
+                  // Unlock rejected gets highest-priority red border
+                  const escalationBorderClass = isUnlockRejected
+                    ? 'border-l-4 border-l-red-500'
+                    : isManagementEscalated
+                      ? 'border-l-4 border-l-rose-600'
+                      : isLeaderEscalated
+                        ? 'border-l-4 border-l-amber-500'
+                        : '';
 
                   // Check if this row should be highlighted (from notification click)
                   const isHighlighted = highlightedId === item.id;
@@ -1799,7 +1811,70 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                   {/* REMOVED: Direct dropdown that caused "Update Failed" errors */}
                                   {/* All status changes now go through ActionPlanModal for proper validation */}
                                   {/* LAYOUT: justify-between pushes text LEFT and icon RIGHT for perfect alignment */}
-                                  {isRevisionMode ? (
+
+                                  {/* ASSERTIVE STATE: Unlock Rejected — red pulsing badge, highest priority */}
+                                  {isUnlockRejected ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onEdit) onEdit(item);
+                                      }}
+                                      className="group w-[150px] h-7 rounded-full text-xs font-bold flex items-center justify-between overflow-hidden cursor-pointer bg-red-200 text-red-900 ring-2 ring-red-400 animate-pulse hover:ring-red-500 hover:bg-red-300 transition-all whitespace-nowrap"
+                                      title="Your unlock request was denied. Click to resolve this plan."
+                                    >
+                                      {/* Left: Warning icon + Text */}
+                                      <div className="pl-2.5 flex items-center gap-1 whitespace-nowrap">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-red-700 flex-shrink-0" />
+                                        <span>Action Required</span>
+                                      </div>
+                                      {/* Right: Divider + X icon */}
+                                      <div className="pr-2 flex items-center gap-1.5">
+                                        <div className="w-px h-4 bg-red-400/40" />
+                                        <XCircle className="w-3.5 h-3.5 text-red-700 opacity-80" />
+                                      </div>
+                                    </button>
+                                  ) : isDropPending ? (
+                                    /* DROP PENDING: Amber badge - awaiting management decision */
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onEdit && isAdmin) onEdit(item);
+                                      }}
+                                      className="group w-[150px] h-7 rounded-full text-xs font-semibold flex items-center justify-between overflow-hidden bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:ring-2 hover:ring-amber-400 transition-all whitespace-nowrap cursor-default"
+                                      title="Drop request is pending management approval."
+                                    >
+                                      <div className="pl-2.5 flex items-center gap-1 whitespace-nowrap">
+                                        <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse flex-shrink-0" />
+                                        <span>Drop Pending</span>
+                                      </div>
+                                      <div className="pr-2 flex items-center gap-1.5">
+                                        <div className="w-px h-4 bg-amber-400/40" />
+                                        <Hourglass className="w-3.5 h-3.5 text-amber-600 opacity-70" />
+                                      </div>
+                                    </button>
+                                  ) : isDropRejected ? (
+                                    /* DROP REJECTED: Red badge - management denied the drop */
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onEdit) onEdit(item);
+                                      }}
+                                      className="group w-[150px] h-7 rounded-full text-xs font-bold flex items-center justify-between overflow-hidden cursor-pointer bg-red-100 text-red-800 ring-1 ring-red-300 hover:ring-2 hover:ring-red-400 transition-all whitespace-nowrap"
+                                      title="Drop request was rejected by management. Click to view details."
+                                    >
+                                      <div className="pl-2.5 flex items-center gap-1 whitespace-nowrap">
+                                        <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                                        <span>Drop Rejected</span>
+                                      </div>
+                                      <div className="pr-2 flex items-center gap-1.5">
+                                        <div className="w-px h-4 bg-red-400/40" />
+                                        <Pencil className="w-3.5 h-3.5 text-red-600 opacity-0 group-hover:opacity-70 transition-opacity" />
+                                      </div>
+                                    </button>
+                                  ) : isRevisionMode ? (
                                     <span
                                       className="group w-[150px] h-7 rounded-full text-xs font-medium flex items-center justify-between overflow-hidden cursor-pointer bg-amber-100 text-amber-800 hover:ring-2 hover:ring-amber-400 transition-all whitespace-nowrap select-none"
                                       title={`Admin requested revision. Access open until: ${new Date(item.temporary_unlock_expiry).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}`}

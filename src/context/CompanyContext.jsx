@@ -25,7 +25,7 @@ export function CompanyProvider({ children }) {
         try {
             const { data, error } = await supabase
                 .from('companies')
-                .select('id, name')
+                .select('id, name, logo_url, description')
                 .order('name', { ascending: true });
 
             if (error) {

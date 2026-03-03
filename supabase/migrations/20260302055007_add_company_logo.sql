@@ -1,0 +1,2 @@
+CREATE POLICY "Allow authenticated to upload company logos" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'company_logos');
+CREATE POLICY "Allow authenticated to update company logos" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'company_logos');

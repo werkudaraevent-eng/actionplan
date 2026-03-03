@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import ImportModal from '../components/action-plan/ImportModal';
@@ -344,8 +344,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
                         onClick={() => onNavigateToUsers && onNavigateToUsers(dept.code)}
                         disabled={headcount === 0}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm transition-colors ${headcount === 0
-                            ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
+                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer'
                           }`}
                         title={headcount > 0 ? `View ${headcount} primary team members` : 'No primary users in this department'}
                       >
@@ -2417,9 +2417,309 @@ function SystemSettingsTab() {
         </div>
       </div>
 
+      {/* Maintenance / Global System Control */}
+      <MaintenanceControlPanel />
+
       {/* Developer Zone - UAT/Testing Cleanup Tools */}
       <DeveloperZone />
     </div>
+  );
+}
+
+// ==================== MAINTENANCE CONTROL PANEL ====================
+function MaintenanceControlPanel() {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+
+  // system_settings row state
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [announcementText, setAnnouncementText] = useState('');
+  const [announcementType, setAnnouncementType] = useState('info');
+
+  // Fetch current settings
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setMaintenanceMode(data.is_maintenance_mode || false);
+        setAnnouncementText(data.announcement_text || '');
+        setAnnouncementType(data.announcement_type || 'info');
+      }
+    } catch (err) {
+      console.error('[MaintenancePanel] Fetch error:', err);
+      toast({ title: 'Failed to Load', description: 'Could not fetch system settings.', variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Toggle maintenance mode
+  const handleToggleMaintenance = () => {
+    if (maintenanceMode) {
+      // Disabling — no confirmation needed
+      confirmMaintenanceToggle(false);
+    } else {
+      // Enabling — show danger modal
+      setShowMaintenanceModal(true);
+    }
+  };
+
+  const confirmMaintenanceToggle = async (newValue) => {
+    setShowMaintenanceModal(false);
+    setToggling(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({ is_maintenance_mode: newValue })
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      setMaintenanceMode(newValue);
+      toast({
+        title: newValue ? '🔒 Maintenance Mode Enabled' : '✅ Maintenance Mode Disabled',
+        description: newValue
+          ? 'All users are now locked out. The maintenance screen is active.'
+          : 'The system is back online. Users can access the platform.',
+        variant: newValue ? 'warning' : 'success'
+      });
+    } catch (err) {
+      console.error('[MaintenancePanel] Toggle error:', err);
+      toast({ title: 'Toggle Failed', description: err.message || 'Unknown error', variant: 'error' });
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  // Save announcement
+  const handleSaveAnnouncement = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({
+          announcement_text: announcementText.trim(),
+          announcement_type: announcementType,
+        })
+        .eq('id', 1);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Announcement Saved',
+        description: announcementText.trim()
+          ? `${announcementType.charAt(0).toUpperCase() + announcementType.slice(1)} announcement updated.`
+          : 'Announcement cleared.',
+        variant: 'success'
+      });
+    } catch (err) {
+      console.error('[MaintenancePanel] Save error:', err);
+      toast({ title: 'Save Failed', description: err.message || 'Unknown error', variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+        <div className="flex items-center justify-center gap-3 text-gray-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Loading system controls...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const typeColors = {
+    info: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', ring: 'ring-blue-500' },
+    warning: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', ring: 'ring-amber-500' },
+    critical: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', ring: 'ring-red-500' },
+  };
+
+  return (
+    <>
+      <div className={`mt-6 rounded-xl shadow-sm border-2 overflow-hidden ${maintenanceMode ? 'border-red-300 bg-red-50/30' : 'border-amber-200 bg-white'
+        }`}>
+        {/* Section Header */}
+        <div className={`px-5 py-4 border-b flex items-center gap-3 ${maintenanceMode ? 'bg-red-100/60 border-red-200' : 'bg-amber-50/60 border-amber-100'
+          }`}>
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${maintenanceMode
+            ? 'bg-gradient-to-br from-red-500 to-red-600'
+            : 'bg-gradient-to-br from-amber-500 to-amber-600'
+            }`}>
+            <Power className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-800">Global System Control</h3>
+            <p className="text-xs text-gray-500">Maintenance mode and system-wide announcements</p>
+          </div>
+          {maintenanceMode && (
+            <span className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold ring-1 ring-red-200 animate-pulse">
+              <ShieldAlert className="w-3 h-3" />
+              MAINTENANCE ACTIVE
+            </span>
+          )}
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Maintenance Mode Toggle */}
+          <div className={`rounded-xl border p-4 ${maintenanceMode
+            ? 'bg-red-50 border-red-200'
+            : 'bg-gray-50 border-gray-200'
+            }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Lock className={`w-5 h-5 ${maintenanceMode ? 'text-red-500' : 'text-gray-400'}`} />
+                <div>
+                  <p className="font-medium text-gray-800">Maintenance Mode</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {maintenanceMode
+                      ? 'System is LOCKED — all users see the maintenance screen'
+                      : 'System is online — all users have normal access'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleToggleMaintenance}
+                disabled={toggling}
+                className={`relative w-14 h-7 rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 ${toggling ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+                  } ${maintenanceMode
+                    ? 'bg-red-500 focus:ring-red-500'
+                    : 'bg-gray-300 focus:ring-gray-400'
+                  }`}
+              >
+                {toggling ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                ) : (
+                  <span className={`block w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 mt-1 ${maintenanceMode ? 'translate-x-8 ml-0' : 'translate-x-1'
+                    }`} />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Announcement Editor */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Megaphone className="w-4 h-4 text-gray-500" />
+              <p className="font-medium text-gray-800 text-sm">System Announcement</p>
+            </div>
+
+            {/* Type Selector */}
+            <div className="flex gap-2 mb-3">
+              {['info', 'warning', 'critical'].map((type) => {
+                const colors = typeColors[type];
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setAnnouncementType(type)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize border transition-all ${announcementType === type
+                      ? `${colors.bg} ${colors.text} ${colors.border} ring-2 ${colors.ring}/30`
+                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'
+                      }`}
+                  >
+                    {type}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Text Area */}
+            <textarea
+              value={announcementText}
+              onChange={(e) => setAnnouncementText(e.target.value)}
+              placeholder="Enter a system-wide announcement message..."
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none"
+            />
+
+            {/* Preview + Save */}
+            <div className="flex items-center justify-between mt-3">
+              {announcementText.trim() ? (
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs ${typeColors[announcementType].bg} ${typeColors[announcementType].text} ${typeColors[announcementType].border} border`}>
+                  <AlertTriangle className="w-3 h-3" />
+                  <span className="font-medium">Preview: </span>
+                  <span className="truncate max-w-[250px]">{announcementText}</span>
+                </div>
+              ) : (
+                <span className="text-xs text-gray-400 italic">No announcement set</span>
+              )}
+              <button
+                onClick={handleSaveAnnouncement}
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save Announcement
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Maintenance Confirmation Modal */}
+      {showMaintenanceModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-gradient-to-r from-red-50 to-amber-50 px-6 pt-6 pb-4 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-200">
+                <AlertTriangle className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Critical System Action</h3>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Are you sure you want to <span className="font-bold text-red-600">enable Maintenance Mode</span>?
+              </p>
+              <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-red-700">All active users will be <strong>instantly locked out</strong> of the platform.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Lock className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-red-700">The <strong>maintenance screen</strong> will be displayed to everyone.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Power className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-red-700">Only proceed if you have <strong>notified the team</strong>.</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowMaintenanceModal(false)}
+                className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmMaintenanceToggle(true)}
+                className="px-5 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-lg hover:from-red-600 hover:to-red-700 shadow-md shadow-red-200 transition-all flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                Yes, Lock System
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

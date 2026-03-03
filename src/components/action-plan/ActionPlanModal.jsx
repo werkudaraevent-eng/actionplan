@@ -22,23 +22,53 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
   const { toast } = useToast();
   const { departments } = useDepartments(activeCompanyId);
 
-  // Permission checks - granular access control
-  const canCreate = can('action_plan', 'create');
-  const canEditFull = can('action_plan', 'edit'); // Full edit access (planning details)
-  const canUpdateStatus = can('action_plan', 'update_status'); // Status/evidence updates only
+  // ═══════════════════════════════════════════════════════════════════
+  // TWO-AXIS PERMISSION MODEL
+  // Both axes must be TRUE for access to be granted.
+  //
+  // AXIS 1 — Row-Level Ownership (territory):
+  //   "Can this user access THIS specific plan?"
+  //   Admin: always TRUE
+  //   Leader: TRUE if plan.department_code is in their department(s)
+  //   Staff: TRUE if user.id is in plan.pic_ids or support_pic_ids
+  //
+  // AXIS 2 — Action-Level Permission (capability):
+  //   "Can this role perform this specific action?"
+  //   Checked via can() → reads role_permissions DB table (Access Control toggles)
+  //   These are the absolute source of truth set by the admin.
+  // ═══════════════════════════════════════════════════════════════════
 
-  // Ownership check: if user is PIC (main or support) of THIS plan, grant submission access
-  // This ensures staff members assigned as PIC can always see the Save button
+  // AXIS 2: Action-level permission checks from DB
+  const canCreate = can('action_plan', 'create');
+  const canEditFull = can('action_plan', 'edit'); // Full edit (planning details)
+  const canUpdateStatus = can('action_plan', 'update_status'); // Status/evidence only
+
+  // AXIS 1: Row-level ownership checks
   const isOwnerOfPlan = editData ? isUserPicOfPlan(editData, profile) : false;
 
-  // Determine access mode:
-  // - isFullEditMode: Can edit ALL fields (planning + execution)
-  // - isSubmissionMode: Can ONLY edit execution fields (status, evidence, remarks)
-  //   Now also grants access when user is the assigned PIC (ownership override)
-  // - isReadOnly: Cannot edit anything
+  const leaderDepartments = useMemo(() => {
+    if (!profile) return [];
+    return [profile.department_code, ...(profile.additional_departments || [])].filter(Boolean);
+  }, [profile]);
+
+  const isLeaderOfPlanDept = isLeader && editData?.department_code
+    && leaderDepartments.includes(editData.department_code);
+
+  // Row-level authorization: can this user access this plan at all?
+  // Admin: always (via can() admin bypass which returns true for everything)
+  // Leader: only plans in their department(s)
+  // Staff: only plans where they are PIC
+  const isAuthorizedForRow = isAdmin || isLeaderOfPlanDept || isOwnerOfPlan;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMBINED ACCESS MODE (both axes required)
+  // ═══════════════════════════════════════════════════════════════════
+  // - isFullEditMode: Row authorized AND action_plan:edit enabled
+  // - isSubmissionMode: Row authorized AND action_plan:update_status enabled
+  // - isReadOnly: Neither full edit nor submission access
   const isCreating = !editData;
-  const isFullEditMode = isCreating ? canCreate : canEditFull;
-  const isSubmissionMode = !isFullEditMode && (canUpdateStatus || isOwnerOfPlan) && !isCreating;
+  const isFullEditMode = isCreating ? canCreate : (canEditFull && isAuthorizedForRow);
+  const isSubmissionMode = !isFullEditMode && canUpdateStatus && isAuthorizedForRow && !isCreating;
 
   // Executives have read-only access regardless of permissions
   const isReadOnly = isExecutive || (!isFullEditMode && !isSubmissionMode);
@@ -157,6 +187,16 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
     (editData?.quality_score == null || isAutoGradedNotAchieved) && // Not manually graded
     (isLeader || isAdmin) && // Only Leaders or Admins can recall
     onRecall; // Recall handler must be provided
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TERMINAL STATE: Unlock Request Rejected
+  // When a plan is date-locked, unlock was rejected, and it's NOT already
+  // in terminal state — the user is STUCK. Force them to resolve it.
+  // ═══════════════════════════════════════════════════════════════════
+  const isUnlockRejected = isDateLocked
+    && editData?.unlock_status === 'rejected'
+    && editData?.status !== 'Not Achieved';
+  const [resolvingAction, setResolvingAction] = useState(null); // 'drop' | 'carry_over' | null
 
   // Recall confirmation state
   const [showRecallConfirm, setShowRecallConfirm] = useState(false);
@@ -821,14 +861,22 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
 
         if (followUpAction === 'carry_over') {
           finalFormData.resolution_type = 'carried_over';
+          finalFormData.is_carry_over = true;  // Signal to DB trigger
           finalFormData.is_drop_pending = false;
         } else if (followUpAction === 'drop') {
           finalFormData.resolution_type = 'dropped';
+          finalFormData.is_carry_over = false; // Signal DB trigger to delete any existing child plans
           if (needsDropApproval) {
             finalFormData.is_drop_pending = true; // Needs management approval per admin policy
           } else {
             finalFormData.is_drop_pending = false; // No approval required per admin policy
           }
+        } else {
+          // SAFETY NET: followUpAction is null/undefined/unexpected
+          // Ensure carry-over flags are explicitly cleared to prevent stale state
+          finalFormData.resolution_type = null;
+          finalFormData.is_carry_over = false;
+          finalFormData.is_drop_pending = false;
         }
 
         // Keep remark exactly as user entered it (or null if empty)
@@ -839,6 +887,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         finalFormData.gap_analysis = null;
         finalFormData.specify_reason = null;
         finalFormData.resolution_type = null; // Clear follow-up action
+        finalFormData.is_carry_over = false;   // Signal DB trigger to delete child plans
         finalFormData.is_drop_pending = false;
 
         // Keep remark exactly as user entered it
@@ -897,10 +946,21 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
           }
         }
 
-        // IMMEDIATE CARRY-OVER: If user selected "Carry Over", trigger via parent's handler
-        // The parent's carryOverPlan() calls the RPC AND updates React state automatically
-        if (editData?.id && followUpAction === 'carry_over' && onCarryOver) {
-          console.log('🔍 [ActionPlanModal] Triggering immediate carry-over for plan:', editData.id);
+        // IMMEDIATE CARRY-OVER: Only trigger on FIRST carry-over (not re-saves)
+        // STRICT GUARDS:
+        //   1. Status MUST be 'Not Achieved' (prevents Blocked/Open/On Progress from triggering)
+        //   2. followUpAction MUST be 'carry_over' (user explicitly selected it)
+        //   3. onCarryOver callback must exist
+        //   4. Plan was NOT already carried over (prevents duplicate RPC calls)
+        const isNotAchieved = finalFormData.status === 'Not Achieved';
+        const isNewCarryOver = editData?.id
+          && isNotAchieved
+          && followUpAction === 'carry_over'
+          && onCarryOver
+          && editData.resolution_type !== 'carried_over'; // NOT already carried over
+
+        if (isNewCarryOver) {
+          console.log('🔍 [ActionPlanModal] Triggering FIRST-TIME carry-over for plan:', editData.id);
           try {
             const coResult = await onCarryOver(editData.id);
             console.log('✅ [ActionPlanModal] Carry-over success:', coResult);
@@ -921,16 +981,27 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
               variant: 'warning'
             });
           }
+        } else if (editData?.id && followUpAction === 'carry_over' && editData.resolution_type === 'carried_over') {
+          console.log('[ActionPlanModal] Plan already carried over — skipping duplicate RPC call');
         }
 
         // Show contextual success toast
-        toast({
-          title: editData ? '✅ Changes Saved' : '✅ Action Plan Created',
-          description: editData
-            ? `"${finalFormData.action_plan?.substring(0, 50) || 'Action plan'}${(finalFormData.action_plan?.length || 0) > 50 ? '...' : ''}" updated successfully.`
-            : `New action plan created successfully.`,
-          variant: 'success'
-        });
+        if (finalFormData.is_drop_pending === true) {
+          // Drop request requires management approval
+          toast({
+            title: '⏳ Drop Request Submitted',
+            description: 'Your request has been sent to Management for approval. The plan is locked until a decision is made.',
+            variant: 'warning'
+          });
+        } else {
+          toast({
+            title: editData ? '✅ Changes Saved' : '✅ Action Plan Created',
+            description: editData
+              ? `"${finalFormData.action_plan?.substring(0, 50) || 'Action plan'}${(finalFormData.action_plan?.length || 0) > 50 ? '...' : ''}" updated successfully.`
+              : `New action plan created successfully.`,
+            variant: 'success'
+          });
+        }
       }
       onClose();
     } catch (error) {
@@ -980,6 +1051,101 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* Subsidiary context badge — only for new plan creation */}
           {!editData && <SubsidiaryBanner />}
+
+          {/* ═══════════════ TERMINAL RESOLUTION BANNER ═══════════════ */}
+          {/* When unlock is rejected + period locked + not yet resolved → FORCE resolution */}
+          {isUnlockRejected && (
+            <div className="bg-red-50 border-2 border-red-400 rounded-xl p-5 mb-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <ShieldAlert className="w-5 h-5 text-red-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-red-800 text-base">⛔ Unlock Request Rejected</p>
+                  <p className="text-sm text-red-700 mt-1">
+                    Your unlock request was rejected by Management. You <strong>cannot edit</strong> this plan.
+                    You must permanently resolve this item to proceed.
+                  </p>
+                  {editData?.unlock_rejection_reason && (
+                    <div className="mt-2 p-2.5 bg-white border border-red-200 rounded-lg">
+                      <p className="text-xs font-medium text-red-600 mb-0.5">Rejection Reason:</p>
+                      <p className="text-sm text-red-800 font-medium">"{editData.unlock_rejection_reason}"</p>
+                    </div>
+                  )}
+                  <div className="mt-4 flex gap-3">
+                    <button
+                      type="button"
+                      disabled={resolvingAction !== null}
+                      onClick={async () => {
+                        setResolvingAction('drop');
+                        try {
+                          const { data, error } = await supabase.rpc('resolve_locked_rejected_plan', {
+                            p_plan_id: editData.id,
+                            p_user_id: profile.id,
+                            p_resolution_action: 'drop',
+                          });
+                          if (error) throw error;
+                          toast({ title: 'Plan marked as Not Achieved (Dropped).', variant: 'success' });
+                          onClose();
+                          if (typeof onSave === 'function') {
+                            // Trigger parent refetch by calling onSave with a flag
+                            onSave({ _forceRefetch: true });
+                          }
+                        } catch (err) {
+                          console.error('[ForceResolve] Drop failed:', err);
+                          toast({ title: `Failed to resolve: ${err.message}`, variant: 'error' });
+                        } finally {
+                          setResolvingAction(null);
+                        }
+                      }}
+                      className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {resolvingAction === 'drop' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4" />
+                      )}
+                      Accept & Drop Plan
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolvingAction !== null}
+                      onClick={async () => {
+                        setResolvingAction('carry_over');
+                        try {
+                          const { data, error } = await supabase.rpc('resolve_locked_rejected_plan', {
+                            p_plan_id: editData.id,
+                            p_user_id: profile.id,
+                            p_resolution_action: 'carry_over',
+                          });
+                          if (error) throw error;
+                          toast({ title: 'Plan carried over to next month successfully.', variant: 'success' });
+                          onClose();
+                          if (typeof onSave === 'function') {
+                            onSave({ _forceRefetch: true });
+                          }
+                        } catch (err) {
+                          console.error('[ForceResolve] Carry over failed:', err);
+                          toast({ title: `Failed to resolve: ${err.message}`, variant: 'error' });
+                        } finally {
+                          setResolvingAction(null);
+                        }
+                      }}
+                      className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {resolvingAction === 'carry_over' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CircleArrowRight className="w-4 h-4" />
+                      )}
+                      Accept & Carry Over
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* REVISION REQUESTED ALERT - Shows when Management sent item back for revision */}
           {editData?.admin_feedback &&
             editData?.submission_status !== 'submitted' &&
@@ -1682,6 +1848,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 if (!wasBlocked || newStatus === 'Blocked') {
                   setResolutionNote('');
                 }
+                // STRICT RESET: Clear carry-over/drop follow-up action when status
+                // is NOT 'Not Achieved' to prevent stale state from triggering RPC
+                if (newStatus !== 'Not Achieved') {
+                  setFollowUpAction(null);
+                }
               }}
               className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
                 }`}
@@ -2242,7 +2413,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 {((isLocked && !isAdminOverride) || shouldDisableForDateLock) ? 'Close' : 'Cancel'}
               </button>
               {/* Hide Save button when locked (but show for admin override) OR when read-only (Executive) */}
-              {((!isLocked || isAdminOverride) && !shouldDisableForDateLock) && !isReadOnly && (
+              {((!isLocked || isAdminOverride) && !shouldDisableForDateLock) && !isReadOnly && !isUnlockRejected && (
                 <button
                   type="submit"
                   disabled={(() => {

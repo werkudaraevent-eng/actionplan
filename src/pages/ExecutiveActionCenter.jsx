@@ -157,7 +157,7 @@ export default function ExecutiveActionCenter() {
                     .from('action_plans')
                     .select(`
                         id, action_plan, goal_strategy, category, department_code,
-                        month, year, pic, legacy_pic_text, pic_ids, status, gap_analysis, gap_category,
+                        month, year, legacy_pic_text, pic_ids, support_pic_ids, status, gap_analysis, gap_category,
                         resolution_type, updated_at, submission_status,
                         carry_over_status, indicator, area_focus
                     `)
@@ -254,7 +254,24 @@ export default function ExecutiveActionCenter() {
     useEffect(() => {
         fetchUnlockRequests();
         fetchActiveUnlocks();
-    }, [fetchUnlockRequests, fetchActiveUnlocks]);
+
+        // Realtime: listen for unlock status changes on action_plans
+        if (!canSeeSystemTasks || !activeCompanyId) return;
+
+        const channel = supabase
+            .channel('action_center_unlock_realtime')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'action_plans' },
+                () => {
+                    fetchUnlockRequests();
+                    fetchActiveUnlocks();
+                }
+            )
+            .subscribe();
+
+        return () => supabase.removeChannel(channel);
+    }, [fetchUnlockRequests, fetchActiveUnlocks, canSeeSystemTasks, activeCompanyId]);
 
     // ─── Grading data ───
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -343,8 +360,9 @@ export default function ExecutiveActionCenter() {
         return Object.values(groups).sort((a, b) => new Date(a.approved_until) - new Date(b.approved_until));
     }, [activeUnlocks]);
 
-    const pendingUnlockCount = unlockRequests.length;
-    const activeUnlockCount = activeUnlocks.length;
+    // Badge counts: use GROUPED counts (actionable batches) not raw item counts
+    const pendingUnlockCount = groupedUnlockRequests.length;
+    const activeUnlockCount = groupedActiveUnlocks.length;
 
     // Fetch instruction status for escalation cards
     useEffect(() => {
@@ -554,7 +572,7 @@ export default function ExecutiveActionCenter() {
             const q = searchQuery.toLowerCase();
             const matchesSearch = !q
                 || (plan.action_plan || '').toLowerCase().includes(q)
-                || (plan.legacy_pic_text || plan.pic || '').toLowerCase().includes(q)
+                || (plan.legacy_pic_text || '').toLowerCase().includes(q)
                 || (plan.gap_analysis || '').toLowerCase().includes(q)
                 || (plan.goal_strategy || '').toLowerCase().includes(q);
             const matchesDept = selectedDept === 'All' || plan.department_code === selectedDept;
@@ -751,10 +769,10 @@ export default function ExecutiveActionCenter() {
                                                 {/* Left: Avatar + PIC */}
                                                 <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
                                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                                                        {(item.legacy_pic_text || item.pic || 'U').charAt(0).toUpperCase()}
+                                                        {(item.legacy_pic_text || 'U').charAt(0).toUpperCase()}
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || item.pic || 'Unknown'}</p>
+                                                        <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || 'Unknown'}</p>
                                                         <div className="flex items-center gap-1.5 mt-0.5">
                                                             <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
                                                             <span className="text-xs text-gray-400">{item.month} {item.year}</span>
@@ -899,7 +917,7 @@ export default function ExecutiveActionCenter() {
                                                             <span className="text-gray-300">•</span>
                                                             <span className="font-medium text-gray-600">{plan.month} {plan.year}</span>
                                                             <span className="text-gray-300">•</span>
-                                                            <span>PIC: <span className="font-semibold text-gray-700">{plan.legacy_pic_text || plan.pic || 'Unknown'}</span></span>
+                                                            <span>PIC: <span className="font-semibold text-gray-700">{plan.legacy_pic_text || 'Unknown'}</span></span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1045,10 +1063,10 @@ export default function ExecutiveActionCenter() {
                                                     <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
                                                         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${isInstructed ? 'bg-gradient-to-br from-gray-400 to-gray-600' : 'bg-gradient-to-br from-slate-600 to-slate-800'
                                                             }`}>
-                                                            {(item.legacy_pic_text || item.pic || 'U').charAt(0).toUpperCase()}
+                                                            {(item.legacy_pic_text || 'U').charAt(0).toUpperCase()}
                                                         </div>
                                                         <div className="min-w-0">
-                                                            <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || item.pic || 'Unknown'}</p>
+                                                            <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || 'Unknown'}</p>
                                                             <div className="flex items-center gap-1.5 mt-0.5">
                                                                 <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
                                                                 <span className="text-xs text-gray-400">{item.month}</span>

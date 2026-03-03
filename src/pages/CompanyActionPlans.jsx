@@ -634,6 +634,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   const handleSave = async (formData) => {
     try {
+      // FORCE REFETCH: Terminal Resolution banner triggers full reload
+      if (formData._forceRefetch) {
+        await refetch();
+        return;
+      }
+
       if (editData) {
         // Check if blocker will be auto-resolved (completing a blocked task)
         const originalPlan = plans.find(p => p.id === editData.id);
@@ -660,6 +666,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           // Follow-up action fields (Carry Over / Drop)
           ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
           ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
+          ...(formData.is_carry_over !== undefined && { is_carry_over: formData.is_carry_over }),
           // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
           ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
           ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),

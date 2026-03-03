@@ -336,6 +336,12 @@ export default function StaffWorkspace() {
     });
 
     try {
+      // FORCE REFETCH: Terminal Resolution banner triggers full reload
+      if (formData._forceRefetch) {
+        await refetch();
+        return;
+      }
+
       if (editData) {
         // Staff can only update status, outcome, remark, and gap analysis fields
         // Pass the original editData (before modal changes) for accurate audit logging
@@ -360,6 +366,7 @@ export default function StaffWorkspace() {
           // Follow-up action fields (Carry Over / Drop)
           ...(formData.resolution_type !== undefined && { resolution_type: formData.resolution_type }),
           ...(formData.is_drop_pending !== undefined && { is_drop_pending: formData.is_drop_pending }),
+          ...(formData.is_carry_over !== undefined && { is_carry_over: formData.is_carry_over }),
           // Blocker fields (set by ActionPlanModal when "Blocked" is selected)
           ...(formData.is_blocked !== undefined && { is_blocked: formData.is_blocked }),
           ...(formData.blocker_reason !== undefined && { blocker_reason: formData.blocker_reason }),

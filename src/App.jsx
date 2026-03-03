@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CompanyProvider } from './context/CompanyContext';
@@ -22,7 +22,8 @@ import DepartmentView from './pages/DepartmentView';
 import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
 import HoldingManagement from './pages/HoldingManagement';
-import { AlertCircle, LogOut, ShieldAlert } from 'lucide-react';
+import { supabase } from './lib/supabase';
+import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock } from 'lucide-react';
 
 // Error screen for missing profile
 function ProfileErrorScreen({ error, onSignOut }) {
@@ -69,6 +70,46 @@ function AccessDeniedScreen({ message, redirectTo = '/' }) {
   );
 }
 
+// Maintenance lockout screen (non-admin users)
+function MaintenanceScreen({ onSignOut, message }) {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+      <div className="max-w-lg w-full text-center">
+        {/* Animated icon */}
+        <div className="relative mx-auto mb-8 w-24 h-24">
+          <div className="absolute inset-0 bg-amber-500/20 rounded-full animate-ping" />
+          <div className="relative w-24 h-24 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center shadow-2xl shadow-amber-500/30">
+            <Wrench className="w-10 h-10 text-white" />
+          </div>
+        </div>
+
+        <h1 className="text-3xl font-bold text-white mb-3">System Under Maintenance</h1>
+        <p className="text-gray-300 text-lg mb-2">
+          {message || "We're performing scheduled maintenance to improve your experience."}
+        </p>
+        <p className="text-gray-500 text-sm mb-8">
+          Please check back shortly. If this is urgent, contact your system administrator.
+        </p>
+
+        {/* Status pills */}
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded-full text-xs font-medium border border-amber-500/20">
+            <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+            Maintenance in progress
+          </span>
+        </div>
+
+        <button
+          onClick={onSignOut}
+          className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-colors text-sm font-medium backdrop-blur-sm border border-white/10"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // Protected Route wrapper with RBAC
 function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
@@ -207,6 +248,35 @@ function AppRoutes() {
   const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
   const location = useLocation();
 
+  // ── MAINTENANCE MODE GATE (hooks must be before any returns) ──
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true);
+  const [announcementText, setAnnouncementText] = useState('');
+
+  useEffect(() => {
+    let interval;
+    const fetchMaintenanceStatus = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('is_maintenance_mode, announcement_text')
+          .eq('id', 1)
+          .single();
+        setIsMaintenanceMode(data?.is_maintenance_mode || false);
+        setAnnouncementText(data?.announcement_text || '');
+      } catch (err) {
+        console.error('[Maintenance] Fetch error:', err);
+      } finally {
+        setMaintenanceLoading(false);
+      }
+    };
+
+    fetchMaintenanceStatus();
+    // Poll every 30s so admin toggle is reflected quickly
+    interval = setInterval(fetchMaintenanceStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Show loading screen while checking auth
   if (loading) return <LoadingScreen />;
 
@@ -228,10 +298,27 @@ function AppRoutes() {
   // Show error if no profile
   if (!profile) return <ProfileErrorScreen error="PROFILE_NOT_FOUND" onSignOut={signOut} />;
 
+  // Wait for maintenance status before rendering
+  if (maintenanceLoading) return <LoadingScreen />;
+
+  // If maintenance mode is ON and user is NOT admin → lockout
+  if (isMaintenanceMode && !isAdmin) {
+    return <MaintenanceScreen onSignOut={signOut} message={announcementText} />;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* Admin maintenance awareness banner */}
+      {isMaintenanceMode && isAdmin && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg">
+          <Lock className="w-4 h-4 animate-pulse" />
+          <span>MAINTENANCE MODE IS ACTIVE</span>
+          <span className="hidden sm:inline text-red-200 font-normal">— Regular users are currently locked out.</span>
+          <Lock className="w-4 h-4 animate-pulse" />
+        </div>
+      )}
       <Sidebar />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden">
+      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${isMaintenanceMode && isAdmin ? 'pt-10' : ''}`}>
         <Routes>
           {/* Default redirect based on role */}
           <Route path="/" element={<DefaultRedirect />} />

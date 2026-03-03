@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FileText, ChevronDown, Send, Undo2, CheckCircle2, Clock, Lock, Loader2, AlertTriangle, Unlock } from 'lucide-react';
+import { FileText, ChevronDown, Send, Undo2, CheckCircle2, Clock, Lock, Loader2, AlertTriangle, Unlock, XCircle } from 'lucide-react';
 import { isPlanLocked } from '../../utils/lockUtils';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -104,6 +104,11 @@ export default function ReportStatusMenu({
       // CRITICAL: If month is locked, user cannot submit (must request unlock first)
       const canSubmit = draftCount > 0 && incompleteCount === 0 && !isMonthLocked;
 
+      // Check for rejected unlock items (terminal state - blocks new unlock requests)
+      const hasRejectedItems = monthPlans.some(
+        p => p.unlock_status === 'rejected' && p.status !== 'Not Achieved'
+      );
+
       return {
         month,
         status,
@@ -114,6 +119,7 @@ export default function ReportStatusMenu({
         ungradedCount,
         incompleteCount,
         isLocked: isMonthLocked,
+        hasRejectedItems,
         canSubmit,
         canRecall: ungradedCount > 0 && draftCount === 0
       };
@@ -197,11 +203,20 @@ export default function ReportStatusMenu({
     }
   }, [submitting]);
 
-  const getStatusBadge = (monthData) => {
-    // Show lock indicator for locked months with draft items
+  // Clean, minimal status indicator (subtle text, no badge spam)
+  const getStatusIndicator = (monthData) => {
+    if (monthData.hasRejectedItems) {
+      return (
+        <span className="text-xs font-medium text-red-600 flex items-center gap-1">
+          <XCircle className="w-3 h-3" />
+          Rejected
+        </span>
+      );
+    }
+
     if (monthData.isLocked && monthData.draftCount > 0) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+        <span className="text-xs text-gray-400 flex items-center gap-1">
           <Lock className="w-3 h-3" />
           Locked
         </span>
@@ -211,50 +226,49 @@ export default function ReportStatusMenu({
     switch (monthData.status) {
       case 'complete':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+          <span className="text-xs text-emerald-600 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" />
             Graded
           </span>
         );
       case 'submitted':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+          <span className="text-xs text-blue-500 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" />
             Submitted
           </span>
         );
       case 'ready':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
-            <FileText className="w-3 h-3" />
+          <span className="text-xs text-violet-600 font-medium">
             Ready
           </span>
         );
       case 'in-progress':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-            <Clock className="w-3 h-3" />
-            In Progress
-          </span>
-        );
+        return null; // Implicit - the Submit button says it all
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
-            Empty
-          </span>
+          <span className="text-xs text-gray-300 italic">No plans</span>
         );
     }
   };
 
+  // Single decisive action button per row
   const getActionButton = (monthData) => {
     const isLoading = submitting && actionMonth === monthData.month;
 
-    if (monthData.status === 'complete') {
+    if (monthData.status === 'empty' || monthData.status === 'complete') return null;
+
+    // REJECTED LOCKDOWN
+    if (monthData.hasRejectedItems) {
       return (
-        <span className="text-xs text-gray-400 flex items-center gap-1">
-          <Lock className="w-3 h-3" />
-          Locked
-        </span>
+        <button
+          disabled
+          className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-md cursor-not-allowed opacity-90"
+          title="Unlock denied. Resolve rejected items from the table."
+        >
+          Fix Now
+        </button>
       );
     }
 
@@ -263,28 +277,23 @@ export default function ReportStatusMenu({
         <button
           onClick={() => handleRecall(monthData.month)}
           disabled={submitting || disabled}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-2.5 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isLoading ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Undo2 className="w-3 h-3" />
-          )}
+          {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3 inline mr-1" />}
           Recall
         </button>
       );
     }
 
-    // Month is locked but has items ready to submit - show clickable unlock request button
-    if (monthData.isLocked && monthData.draftCount > 0 && monthData.incompleteCount === 0) {
+    // Locked - request unlock
+    if (monthData.isLocked && monthData.draftCount > 0) {
       return (
         <button
           onClick={() => handleRequestUnlock(monthData.month)}
           disabled={submitting || disabled}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Click to request permission to submit late"
+          className="px-2.5 py-1 text-[11px] font-medium text-amber-600 hover:bg-amber-50 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Request permission to submit late"
         >
-          <Unlock className="w-3 h-3" />
           Request
         </button>
       );
@@ -295,29 +304,10 @@ export default function ReportStatusMenu({
         <button
           onClick={() => handleSubmit(monthData.month)}
           disabled={submitting || disabled}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-2.5 py-1 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
         >
-          {isLoading ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Send className="w-3 h-3" />
-          )}
+          {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
           Submit
-        </button>
-      );
-    }
-
-    // Month is locked but has incomplete items - show clickable unlock request button
-    if (monthData.isLocked && monthData.status === 'in-progress') {
-      return (
-        <button
-          onClick={() => handleRequestUnlock(monthData.month)}
-          disabled={submitting || disabled}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Click to request permission to edit locked items"
-        >
-          <Unlock className="w-3 h-3" />
-          Request
         </button>
       );
     }
@@ -327,10 +317,10 @@ export default function ReportStatusMenu({
         <button
           onClick={() => handleSubmit(monthData.month)}
           disabled={submitting || disabled}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           title={`${monthData.incompleteCount} item(s) not yet Achieved/Not Achieved`}
         >
-          <Send className="w-3 h-3" />
+          {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
           Submit
         </button>
       );
@@ -338,15 +328,18 @@ export default function ReportStatusMenu({
 
     if (monthData.status === 'submitted') {
       return (
-        <span className="text-xs text-blue-600 flex items-center gap-1">
+        <span className="text-[11px] text-gray-400 flex items-center gap-1">
           <Clock className="w-3 h-3" />
-          Awaiting Grade
+          Grading
         </span>
       );
     }
 
-    return <span className="text-xs text-gray-400">—</span>;
+    return null;
   };
+
+  // Determine if any month has rejected items (for trigger button styling)
+  const hasAnyRejected = monthStatuses.some(m => m.hasRejectedItems);
 
   return (
     <div className="relative">
@@ -355,24 +348,28 @@ export default function ReportStatusMenu({
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${summary.lockedNeedAttention > 0
-            ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100'
-            : 'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
+        className={`flex items-center gap-2 px-3.5 py-2 border rounded-lg text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${hasAnyRejected
+          ? 'border-red-200 text-red-700 bg-red-50 hover:bg-red-100'
+          : summary.lockedNeedAttention > 0
+            ? 'border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50'
+            : 'border-gray-200 text-gray-700 bg-white hover:bg-gray-50'
           }`}
       >
         <FileText className="w-4 h-4" />
-        <span className="font-medium">Monthly Reports</span>
-        {summary.lockedNeedAttention > 0 && (
-          <span className="ml-1 px-1.5 py-0.5 text-xs font-bold bg-amber-500 text-white rounded-full" title="Locked months need attention">
+        <span className="font-medium">Reports</span>
+        {/* Single decisive badge */}
+        {hasAnyRejected ? (
+          <span className="px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full leading-none">!</span>
+        ) : summary.lockedNeedAttention > 0 ? (
+          <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded-full leading-none">
             {summary.lockedNeedAttention}
           </span>
-        )}
-        {summary.ready > 0 && (
-          <span className="ml-1 px-1.5 py-0.5 text-xs font-bold bg-purple-600 text-white rounded-full">
+        ) : summary.ready > 0 ? (
+          <span className="px-1.5 py-0.5 text-[10px] font-bold bg-violet-600 text-white rounded-full leading-none">
             {summary.ready}
           </span>
-        )}
-        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        ) : null}
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown Content (Portal) */}
@@ -385,43 +382,48 @@ export default function ReportStatusMenu({
             left: `${position.left}px`,
             zIndex: 9999,
           }}
-          className="w-80 bg-white border border-gray-200 shadow-xl rounded-xl overflow-hidden"
+          className="w-[340px] bg-white border border-gray-200 shadow-2xl rounded-xl overflow-hidden"
         >
           {/* Header */}
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-800">Report Submission Status</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {summary.submitted} submitted · {summary.ready} ready · {summary.inProgress} in progress
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Monthly Reports</h3>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              {summary.submitted} submitted &middot; {summary.ready} ready &middot; {summary.inProgress} in progress
             </p>
           </div>
 
           {/* Month List */}
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-[360px] overflow-y-auto divide-y divide-gray-100">
             {monthStatuses.map((monthData) => (
               <div
                 key={monthData.month}
-                className={`flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-b-0 ${monthData.status === 'empty' ? 'bg-gray-50/50' : 'hover:bg-gray-50'
+                className={`flex items-center justify-between px-4 py-2.5 transition-colors ${monthData.hasRejectedItems
+                  ? 'bg-red-50/40'
+                  : monthData.status === 'empty'
+                    ? 'opacity-40'
+                    : 'hover:bg-gray-50/80'
                   }`}
               >
-                {/* Month Name & Count */}
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-sm font-medium text-gray-800 w-12">
+                {/* Left: Month + Plan count */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`text-sm w-8 ${monthData.hasRejectedItems ? 'font-bold text-red-800' : 'font-semibold text-gray-800'
+                    }`}>
                     {monthData.month}
                   </span>
                   {monthData.totalCount > 0 && (
-                    <span className="text-xs text-gray-500">
-                      ({monthData.totalCount})
+                    <span className="text-[11px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full leading-none">
+                      {monthData.totalCount}
                     </span>
                   )}
                 </div>
 
-                {/* Status Badge */}
-                <div className="flex items-center gap-2">
-                  {getStatusBadge(monthData)}
+                {/* Center: Status */}
+                <div className="flex items-center justify-center min-w-[72px]">
+                  {getStatusIndicator(monthData)}
                 </div>
 
-                {/* Action Button */}
-                <div className="flex items-center justify-end min-w-[80px]">
+                {/* Right: Action */}
+                <div className="flex items-center justify-end min-w-[72px]">
                   {getActionButton(monthData)}
                 </div>
               </div>
@@ -429,17 +431,27 @@ export default function ReportStatusMenu({
           </div>
 
           {/* Footer */}
-          <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-200">
-            {summary.lockedNeedAttention > 0 ? (
-              <p className="text-xs text-amber-600">
-                ⚠️ {summary.lockedNeedAttention} month(s) locked. Click "Request" to ask for unlock.
+          {hasAnyRejected ? (
+            <div className="bg-red-50 border-t border-red-100 px-4 py-2.5 flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] text-red-700 leading-relaxed">
+                Unlock denied for some months. Resolve rejected items from the table before requesting again.
               </p>
-            ) : (
-              <p className="text-xs text-gray-500">
-                💡 Submit when all items are Achieved/Not Achieved
+            </div>
+          ) : summary.lockedNeedAttention > 0 ? (
+            <div className="bg-amber-50/60 border-t border-amber-100 px-4 py-2.5 flex items-start gap-2">
+              <Lock className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                {summary.lockedNeedAttention} month(s) locked past deadline. Click <span className="font-medium">Request</span> to ask for unlock.
               </p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="border-t border-gray-100 px-4 py-2.5">
+              <p className="text-[11px] text-gray-400">
+                Submit when all items are Achieved or Not Achieved.
+              </p>
+            </div>
+          )}
         </div>,
         document.body
       )}

@@ -1,18 +1,18 @@
 -- ============================================================================
--- Storage RLS Policies for 'avatars' bucket
+-- Storage RLS Policies for 'avatars' bucket (IDEMPOTENT VERSION)
 -- ============================================================================
--- Error: "new row violates row-level security policy"
--- The public 'avatars' bucket has RLS enabled but no policies allowing
--- authenticated users to upload, update, or delete their own avatars.
---
--- Policy scoping:
---   SELECT  -> Public (anyone can view avatars via public URL)
---   INSERT  -> Authenticated users can upload to their own folder ({userId}/*)
---   UPDATE  -> Authenticated users can update files in their own folder
---   DELETE  -> Authenticated users can delete files in their own folder
---
--- File path convention: {userId}/{timestamp}_avatar.{ext}
--- The (storage.foldername(name))[1] function extracts the first folder segment.
+
+-- ============================================================================
+-- 0. PROTOKOL SAPU BERSIH (Mencegah error 'already exists')
+-- ============================================================================
+DROP POLICY IF EXISTS "Avatars are publicly accessible" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload their own avatar" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their own avatar" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own avatar" ON storage.objects;
+
+
+-- ============================================================================
+-- 1. PEMBANGUNAN ULANG RLS
 -- ============================================================================
 
 -- 1. Public read access (avatars are displayed publicly in the UI)

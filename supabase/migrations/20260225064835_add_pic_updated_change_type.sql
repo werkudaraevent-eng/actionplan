@@ -35,4 +35,4 @@ ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_change_type_check CHECK 
     'RESCHEDULED'::text,
     'PIC_UPDATED'::text
   ])
-);
+) NOT VALID;

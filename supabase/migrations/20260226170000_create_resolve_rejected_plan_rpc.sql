@@ -58,6 +58,9 @@ ALTER TABLE public.audit_logs ADD CONSTRAINT audit_logs_change_type_check CHECK 
   ])
 );
 
+-- 1.5 Hancurkan fungsi lama yang memiliki return type berbeda sebelum membuat yang baru
+DROP FUNCTION IF EXISTS public.resolve_locked_rejected_plan(uuid, uuid, text);
+
 -- 2. Create the RPC
 CREATE OR REPLACE FUNCTION public.resolve_locked_rejected_plan(
   p_plan_id uuid,

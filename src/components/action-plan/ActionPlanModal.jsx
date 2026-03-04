@@ -974,11 +974,12 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
             return;
           } catch (coError) {
             console.error('🚨 CARRY OVER FAILED (ActionPlanModal):', coError.message, coError);
-            // Save succeeded but carry-over failed — warn user but don't block
+            // HARD ERROR: Save succeeded but carry-over INSERT failed (likely company_id NOT NULL violation)
+            // Do NOT tell the user "it will work later" — it won't without the fix.
             toast({
-              title: '⚠️ Carry Over Failed',
-              description: `Changes saved, but carry-over failed: ${coError.message}. The plan will be carried over when the report is submitted.`,
-              variant: 'warning'
+              title: '❌ Carry Over Failed',
+              description: `Changes were saved, but the carry-over clone could NOT be created: ${coError.message}. Please contact your administrator.`,
+              variant: 'error'
             });
           }
         } else if (editData?.id && followUpAction === 'carry_over' && editData.resolution_type === 'carried_over') {

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Action Plan Tracker — System Architecture</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --card-border: #334155;
+            --accent: #38bdf8;
+            --accent2: #818cf8;
+            --accent3: #34d399;
+            --accent4: #fb923c;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+            --danger: #f87171;
+            --warning: #fbbf24;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Print styles */
+        @media print {
+            .slide { page-break-after: always; min-height: 100vh; }
+            .no-print { display: none !important; }
+            body { background: white; color: #1e293b; }
+            .slide { background: white !important; border: none !important; }
+            h1, h2, h3 { color: #0f172a !important; }
+            p, li { color: #334155 !important; }
+            .slide-number { color: #94a3b8 !important; }
+        }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--card-border);
+            padding: 12px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .nav-title {
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--accent);
+            letter-spacing: 0.5px;
+        }
+        .nav-actions { display: flex; gap: 8px; }
+        .nav-btn {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover { background: var(--accent); color: var(--bg); }
+
+        /* Slide container */
+        .slides-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 80px 32px 60px;
+        }
+
+        .slide {
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 48px;
+            margin-bottom: 40px;
+            min-height: 500px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+        }
+
+        .slide-number {
+            position: absolute;
+            top: 20px;
+            right: 28px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 2px;
+        }
+
+        /* Title slide */
+        .slide.title-slide {
+            min-height: 600px;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        }
+        .title-slide h1 {
+            font-size: 48px;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+            line-height: 1.2;
+        }
+        .title-slide .subtitle {
+            font-size: 20px;
+            color: var(--text-muted);
+            font-weight: 400;
+            max-width: 600px;
+        }
+        .title-slide .meta {
+            margin-top: 32px;
+            font-size: 13px;
+            color: var(--text-muted);
+            opacity: 0.6;
+        }
+
+        /* Section headers */
+        .section-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+        .badge-blue { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
+        .badge-purple { background: rgba(129, 140, 248, 0.15); color: var(--accent2); }
+        .badge-green { background: rgba(52, 211, 153, 0.15); color: var(--accent3); }
+        .badge-orange { background: rgba(251, 146, 60, 0.15); color: var(--accent4); }
+        .badge-red { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+
+        h2 {
+            font-size: 32px;
+            font-weight: 800;
+            color: #f8fafc;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+        h3 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 12px;
+        }
+        .slide-desc {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin-bottom: 28px;
+            max-width: 700px;
+        }
+
+        /* Mermaid diagram container */
+        .diagram-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 24px;
+            overflow-x: auto;
+            min-height: 300px;
+        }
+        .diagram-container .mermaid {
+            width: 100%;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            margin-top: 12px;
+        }
+        th {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent);
+            font-weight: 600;
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 2px solid var(--card-border);
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            color: var(--text);
+        }
+        tr:hover td { background: rgba(56, 189, 248, 0.03); }
+
+        /* Issue cards */
+        .issue-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .issue-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 3px solid var(--warning);
+        }
+        .issue-card.critical { border-left-color: var(--danger); }
+        .issue-card.info { border-left-color: var(--accent); }
+        .issue-card.fixed { border-left-color: var(--accent3); }
+        .issue-card h4 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 6px;
+        }
+        .issue-card p {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .issue-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .tag-warn { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+        .tag-crit { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+        .tag-ok { background: rgba(52, 211, 153, 0.15); color: var(--accent3); }
+        .tag-info { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
+
+        /* Comparison layout */
+        .compare-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 16px;
+        }
+        .compare-col {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .compare-col h4 {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .compare-col ul { list-style: none; padding: 0; }
+        .compare-col li {
+            font-size: 13px;
+            padding: 4px 0;
+            color: var(--text-muted);
+        }
+        .compare-col li::before { content: '✦ '; color: var(--accent); }
+
+        /* Penalty cascade */
+        .penalty-flow {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .penalty-box {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 20px 28px;
+            text-align: center;
+            min-width: 150px;
+        }
+        .penalty-box .score {
+            font-size: 36px;
+            font-weight: 900;
+        }
+        .penalty-box .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+        .penalty-arrow {
+            font-size: 24px;
+            color: var(--text-muted);
+        }
+
+        /* Scroll indicator */
+        .scroll-hint {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-muted);
+            font-size: 12px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav no-print">
+    <div class="nav-title">📋 ACTION PLAN TRACKER — SYSTEM ARCHITECTURE</div>
+    <div class="nav-actions">
+        <button class="nav-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    </div>
+</nav>
+
+<div class="slides-container">
+
+    <!-- =========================================== -->
+    <!-- SLIDE 1: TITLE -->
+    <!-- =========================================== -->
+    <div class="slide title-slide" id="slide-1">
+        <span class="slide-number">01 / 15</span>
+        <h1>Action Plan Tracker<br>System Architecture</h1>
+        <p class="subtitle">Complete reverse-engineered workflow of the entire system — from database triggers to frontend routing</p>
+        <p class="meta">Generated from live codebase • 43 SQL migrations • 15 pages • 6 Edge Functions</p>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 2: ENTITY HIERARCHY -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-2">
+        <span class="slide-number">02 / 15</span>
+        <span class="section-badge badge-blue">1 — MULTI-TENANCY</span>
+        <h2>Entity Hierarchy</h2>
+        <p class="slide-desc">The system is a multi-tenant platform. Each subsidiary is isolated via <code>company_id</code> on every core table. The <b>holding_admin</b> can cross-switch between tenants.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+graph TD
+    subgraph HoldingCompany["🏢 HOLDING COMPANY (Werkudara Group)"]
+        HA["👑 holding_admin\n(God Mode — Cross-Tenant)"]
+    end
+
+    subgraph SubA["🏭 SUBSIDIARY A"]
+        AdminA["🔑 admin"]
+        DeptA1["📂 Dept: HC"]
+        DeptA2["📂 Dept: FA"]
+        DeptA3["📂 Dept: IT"]
+        LA1["👤 Leader (HC)"]
+        SA1["👤 Staff (HC)"]
+    end
+
+    subgraph SubB["🏭 SUBSIDIARY B"]
+        AdminB["🔑 admin"]
+        DeptB1["📂 Dept: OPS"]
+        LB1["👤 Leader (OPS)"]
+    end
+
+    HoldingCompany --> SubA
+    HoldingCompany --> SubB
+    HA -.->|"switches via\nCompanyContext"| SubA
+    HA -.->|"switches via\nCompanyContext"| SubB
+    SubA --- AdminA
+    SubA --- DeptA1
+    SubA --- DeptA2
+    SubA --- DeptA3
+    DeptA1 --- LA1
+    LA1 --- SA1
+    SubB --- AdminB
+    SubB --- DeptB1
+    DeptB1 --- LB1
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 3: TENANT ISOLATION -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-3">
+        <span class="slide-number">03 / 15</span>
+        <span class="section-badge badge-blue">1 — MULTI-TENANCY</span>
+        <h2>Tenant Isolation (RLS)</h2>
+        <p class="slide-desc">Data isolation is enforced at PostgreSQL Row-Level Security layer. Every query is automatically filtered by <code>company_id</code>. <b>holding_admin</b> role bypasses this wall.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart LR
+    subgraph Frontend
+        User["👤 User"]
+        CC["CompanyContext\n(activeCompanyId)"]
+    end
+
+    subgraph Auth["Supabase Auth"]
+        JWT["JWT → auth.uid()"]
+    end
+
+    subgraph RLS["PostgreSQL RLS Layer"]
+        GCI["get_auth_company_id()\n→ profiles.company_id"]
+        GAR["get_auth_role()\n→ profiles.role"]
+        POLICY["Tenant Isolation Policy"]
+    end
+
+    subgraph Data["Isolated Data"]
+        AP["action_plans"]
+        DP["departments"]
+        SS["system_settings"]
+    end
+
+    User --> JWT
+    JWT --> GCI
+    JWT --> GAR
+    GCI --> POLICY
+    GAR -->|"holding_admin?\nBYPASS"| POLICY
+    POLICY --> AP
+    POLICY --> DP
+    POLICY --> SS
+    User --> CC
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 4: AUTH BOOTSTRAP -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-4">
+        <span class="slide-number">04 / 15</span>
+        <span class="section-badge badge-blue">1 — MULTI-TENANCY</span>
+        <h2>Authentication Bootstrap</h2>
+        <p class="slide-desc">When a user signs in, the system cascades through three context providers to establish identity, company scope, and department access.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant U as 👤 User
+    participant SB as Supabase Auth
+    participant AC as AuthContext
+    participant CC as CompanyContext
+    participant DC as DepartmentContext
+
+    U->>SB: signIn(email, password)
+    SB-->>AC: onAuthStateChange('SIGNED_IN')
+    AC->>AC: Fetch profiles → set role flags
+    Note over AC: isAdmin, isLeader, isStaff, isExecutive, isHoldingAdmin
+    AC-->>CC: profile.company_id
+    CC->>CC: Set activeCompanyId
+    Note over CC: holding_admin can switch tenants
+    CC-->>DC: activeCompanyId
+    DC->>DC: Fetch departments, filter by role
+    Note over DC: accessibleDepts computed
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 5: STATE MACHINE -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-5">
+        <span class="slide-number">05 / 15</span>
+        <span class="section-badge badge-purple">2 — CORE ENGINE</span>
+        <h2>Action Plan State Machine</h2>
+        <p class="slide-desc">The primary lifecycle of every action plan. Status is enforced by a CHECK constraint. Only <b>Achieved</b> and <b>Not Achieved</b> are terminal states.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+stateDiagram-v2
+    [*] --> Open: Plan Created
+    Open --> OnProgress: Staff updates progress
+    Open --> Blocked: Blocker reported
+    OnProgress --> Blocked: Blocker reported
+    OnProgress --> Open: Progress cleared
+
+    Blocked --> OnProgress: Blocker resolved
+    Blocked --> Open: Blocker resolved
+
+    Open --> NotAchieved: Drop / Carry Over
+    OnProgress --> NotAchieved: Drop / Carry Over
+    Blocked --> NotAchieved: Drop / Carry Over
+
+    OnProgress --> Achieved: Grade ≥ threshold
+    OnProgress --> NotAchieved: Grade < threshold
+
+    note right of Achieved: ✅ Terminal State\nScore recorded
+    note right of NotAchieved: ❌ Terminal State\nEnters Resolution Path
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 6: DATA LIFECYCLE -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-6">
+        <span class="slide-number">06 / 15</span>
+        <span class="section-badge badge-purple">2 — CORE ENGINE</span>
+        <h2>Complete Data Lifecycle</h2>
+        <p class="slide-desc">From creation by Admin/Leader → execution by Staff → escalation → submission by Leader → grading by Admin → terminal resolution.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart TD
+    A["🆕 <b>Phase 1: Creation</b>\nAdmin/Leader creates plan\nstatus=Open, draft"]
+    B["⚡ <b>Phase 2: Execution</b>\nStaff updates progress\nAdds evidence & outcome"]
+    C{"🚧 Blocker?"}
+    D["🔴 <b>Phase 3: Escalation</b>\nis_blocked=TRUE\nNotify Leader → BOD"]
+    E["📤 <b>Phase 4: Submission</b>\nLeader batch-submits\nsubmission_status=submitted"]
+    F["⭐ <b>Phase 5: Grading</b>\nAdmin reviews & grades\nvia grade_action_plan RPC"]
+    G{"Score ≥\nThreshold?"}
+    H["✅ <b>Achieved</b>\nScore recorded"]
+    I["❌ <b>Not Achieved</b>\n→ Resolution Wizard"]
+
+    A --> B --> C
+    C -->|No| E
+    C -->|Yes| D
+    D -->|Resolved| E
+    E --> F --> G
+    G -->|Pass| H
+    G -->|Fail| I
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 7: TRIGGER CHAIN -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-7">
+        <span class="slide-number">07 / 15</span>
+        <span class="section-badge badge-purple">2 — CORE ENGINE</span>
+        <h2>Database Trigger Chain</h2>
+        <p class="slide-desc">Every <code>UPDATE</code> on <b>action_plans</b> fires 7 triggers in sequence. This drives the audit log, notifications, score clamping, and auto-cancellation of drop requests.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart TD
+    U["UPDATE action_plans"] --> T1
+    T1["⏱️ BEFORE: update_updated_at\n(sets updated_at = now)"] --> T2
+    T2["🔒 BEFORE: clamp_quality_score\n(caps score ≤ max_possible_score)"] --> T3
+    T3["🗑️ BEFORE: auto_cancel_drop_on_finalization\n(cancel PENDING drops on Achieved/Not Achieved)"] --> T4
+    T4["📋 AFTER: audit_trigger\n(→ audit_logs with change_type)"] --> T5
+    T5["🔔 AFTER: notify_on_escalation\n(attention_level changes)"] --> T6
+    T6["🔔 AFTER: notify_on_status_change\n(blockers, grades, unlocks)"] --> T7
+    T7["🔔 AFTER: notify_status_change\n(generic PIC notification)"]
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 8: ROLE ACCESS -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-8">
+        <span class="slide-number">08 / 15</span>
+        <span class="section-badge badge-green">3 — RBAC</span>
+        <h2>Role Hierarchy & Page Access</h2>
+        <p class="slide-desc">Five roles with cascading access. Routes are guarded by <code>ProtectedRoute</code> in App.jsx.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart LR
+    subgraph Roles
+        HA["👑 holding_admin"]
+        AD["🔑 admin"]
+        EX["👔 executive"]
+        LD["📋 leader"]
+        ST["👤 staff"]
+    end
+
+    subgraph Pages
+        DASH["/dashboard"]
+        PLANS["/plans"]
+        USERS["/users"]
+        SETTINGS["/settings"]
+        PERMS["/permissions"]
+        AC["/action-center"]
+        AUDIT["/audit-log"]
+        HOLDING["/holding"]
+        DEPT["/dept/:code"]
+        WS["/workspace"]
+    end
+
+    HA --> DASH & PLANS & USERS & SETTINGS & PERMS & AC & AUDIT & HOLDING & DEPT
+    AD --> DASH & PLANS & USERS & SETTINGS & PERMS & AC & AUDIT & DEPT
+    EX -->|read-only| DASH & PLANS & AUDIT
+    EX --> AC & DEPT
+    LD --> DEPT
+    ST --> WS & DEPT
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 9: PERMISSION MATRIX -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-9">
+        <span class="slide-number">09 / 15</span>
+        <span class="section-badge badge-green">3 — RBAC</span>
+        <h2>Permission Matrix</h2>
+        <p class="slide-desc">Hardcoded permission rules in <code>usePermission.js</code>. 🟢 = Always ON, 🔴 = Always OFF, ⚙️ = Admin-configurable via DB.</p>
+        <table>
+            <thead>
+                <tr><th>Action</th><th>Admin</th><th>Executive</th><th>Leader</th><th>Staff</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><b>Create Plan</b></td><td>🟢</td><td>🔴</td><td>⚙️</td><td>🔴</td></tr>
+                <tr><td><b>Edit Plan</b></td><td>🟢</td><td>🔴</td><td>⚙️</td><td>🔴</td></tr>
+                <tr><td><b>Delete Plan</b></td><td>🟢</td><td>🔴</td><td>⚙️</td><td>🔴</td></tr>
+                <tr><td><b>Update Status</b></td><td>🟢</td><td>🔴</td><td>🟢</td><td>🟢</td></tr>
+                <tr><td><b>Update Progress</b></td><td>🟢</td><td>🔴</td><td>🟢</td><td>🟢</td></tr>
+                <tr><td><b>Grade/Score</b></td><td>🟢</td><td>🔴</td><td>🔴</td><td>🔴</td></tr>
+                <tr><td><b>Submit Report</b></td><td>🔴</td><td>🔴</td><td>🟢</td><td>🔴</td></tr>
+                <tr><td><b>Manage Users</b></td><td>🟢</td><td>🔴</td><td>🔴</td><td>🔴</td></tr>
+                <tr><td><b>Export Report</b></td><td>🟢</td><td>⚙️</td><td>⚙️</td><td>🔴</td></tr>
+                <tr><td><b>Settings</b></td><td>🟢</td><td>🔴</td><td>🔴</td><td>🔴</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 10: ESCALATION MATRIX -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-10">
+        <span class="slide-number">10 / 15</span>
+        <span class="section-badge badge-green">3 — RBAC</span>
+        <h2>Escalation Matrix</h2>
+        <p class="slide-desc">When a Staff reports a blocker, it flows upward through three escalation tiers. Each tier triggers notifications to the appropriate audience.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart TD
+    S1["👤 <b>Staff</b> encounters issue"]
+    S2["RPC: report_action_plan_blocker\nis_blocked = TRUE"]
+    L1["🔔 Notify ALL dept Leaders"]
+    L2{"Leader\nresolves?"}
+    L3["✅ Blocker cleared\nNotify PIC"]
+    L4["⚠️ Escalate\nattention_level → 'Leader'"]
+    L5{"Still\nstuck?"}
+    M1["🔥 Escalate to BOD\nattention_level → 'Management_BOD'"]
+    M2["🔔 Notify ALL admins + executives"]
+    M3["👑 Admin/Executive intervenes"]
+    M4["⬇️ De-escalate → 'Standard'"]
+
+    S1 --> S2 --> L1 --> L2
+    L2 -->|Yes| L3
+    L2 -->|No| L4 --> L5
+    L5 -->|Resolved| L3
+    L5 -->|Needs BOD| M1 --> M2 --> M3 --> M4
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 11: HOLDING vs SUBSIDIARY -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-11">
+        <span class="slide-number">11 / 15</span>
+        <span class="section-badge badge-green">3 — RBAC</span>
+        <h2>Holding Admin vs Subsidiary Admin</h2>
+        <p class="slide-desc">Key differences between the God Mode cross-tenant admin and the subsidiary-scoped admin.</p>
+        <div class="compare-row">
+            <div class="compare-col" style="border-top: 3px solid var(--accent);">
+                <h4 style="color: var(--accent);">👑 Holding Admin (God Mode)</h4>
+                <ul>
+                    <li>See ALL companies' data across tenants</li>
+                    <li>Switch active company via CompanyContext</li>
+                    <li>Access /holding page (manage subsidiaries)</li>
+                    <li>RLS bypass: get_auth_role() = 'holding_admin'</li>
+                    <li>All admin powers across ALL tenants</li>
+                    <li>Can create new subsidiary companies</li>
+                </ul>
+            </div>
+            <div class="compare-col" style="border-top: 3px solid var(--accent4);">
+                <h4 style="color: var(--accent4);">🔑 Subsidiary Admin</h4>
+                <ul>
+                    <li>See ONLY own company's data</li>
+                    <li>Cannot switch companies</li>
+                    <li>Cannot access /holding page</li>
+                    <li>RLS enforced: company_id = own company</li>
+                    <li>Full admin powers within own tenant only</li>
+                    <li>Cannot create or manage subsidairies</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 12: MONTHLY LOCK/UNLOCK -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-12">
+        <span class="slide-number">12 / 15</span>
+        <span class="section-badge badge-orange">4 — SPECIAL WORKFLOWS</span>
+        <h2>Monthly Lock / Unlock Request</h2>
+        <p class="slide-desc">The system enforces monthly deadlines. After the lock date, plans are frozen. Leaders can request an unlock; if rejected, they get a force-resolve escape hatch.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart TD
+    A["⏰ Admin sets lock schedule\n(monthly_lock_schedules)"] --> B
+    B["🤖 Edge Function: process-auto-locks\nFinds due schedules, sends emails"] --> C
+    C["🔒 Month is LOCKED"]
+    C --> D["📋 Leader needs to edit locked plan"]
+    D --> E["📤 Submit unlock request\nunlock_status = 'pending'"]
+    E --> F{"Admin\ndecision?"}
+    F -->|Approve| G["✅ unlock_status = 'approved'\napproved_until = deadline"]
+    G --> H["Leader edits within window"]
+    H --> I["⏰ Auto-relock when expired\nrelock_expired_unlocks()"]
+    F -->|Reject| J["❌ unlock_status = 'rejected'"]
+    J --> K["⚡ ESCAPE HATCH\nresolve_locked_rejected_plan RPC"]
+    K --> L{"User\nchoice?"}
+    L -->|Drop| M["status = Not Achieved\nresolution = dropped"]
+    L -->|Carry Over| N["Create child plan\nin next month"]
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 13: RESOLUTION WIZARD -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-13">
+        <span class="slide-number">13 / 15</span>
+        <span class="section-badge badge-orange">4 — SPECIAL WORKFLOWS</span>
+        <h2>Resolution Wizard (Carry Over vs Drop)</h2>
+        <p class="slide-desc">Before submitting a monthly report, all unresolved plans must be resolved. Leaders choose to Carry Over (with penalty) or Drop each plan.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart TD
+    A["📋 Leader submits monthly report"]
+    B{"Unresolved\nplans?"}
+    C["✅ Normal submission"]
+    D["🧙 Resolution Wizard opens"]
+    E["For each plan: Carry Over or Drop?"]
+    F{"Already carried\nover twice?"}
+    G["❌ Must DROP\n(no more carry-overs)"]
+    H["🔄 CARRY OVER\n1. Mark parent Not Achieved\n2. Create child in next month\n3. Apply penalty cap"]
+    I["🗑️ DROP\n1. Mark Not Achieved\n2. resolution_type = dropped"]
+    J["📊 Summary:\nCarried: N, Dropped: M"]
+
+    A --> B
+    B -->|No| C
+    B -->|Yes| D --> E --> F
+    F -->|Yes| G --> I
+    F -->|No, Carry Over| H
+    E -->|"Drop"| I
+    H --> J
+    I --> J
+            </div>
+        </div>
+        <h3 style="margin-top: 24px;">Carry-Over Penalty Cascade</h3>
+        <div class="penalty-flow">
+            <div class="penalty-box">
+                <div class="score" style="color: var(--accent3);">100%</div>
+                <div class="label">Normal (Fresh)</div>
+            </div>
+            <div class="penalty-arrow">→</div>
+            <div class="penalty-box">
+                <div class="score" style="color: var(--warning);">80%</div>
+                <div class="label">Late Month 1</div>
+            </div>
+            <div class="penalty-arrow">→</div>
+            <div class="penalty-box">
+                <div class="score" style="color: var(--accent4);">50%</div>
+                <div class="label">Late Month 2</div>
+            </div>
+            <div class="penalty-arrow">→</div>
+            <div class="penalty-box" style="border-color: var(--danger);">
+                <div class="score" style="color: var(--danger);">🚫</div>
+                <div class="label">Must Be Dropped</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 14: GRADING ENGINE -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-14">
+        <span class="slide-number">14 / 15</span>
+        <span class="section-badge badge-orange">4 — SPECIAL WORKFLOWS</span>
+        <h2>Grading Engine & Drop Request</h2>
+        <p class="slide-desc">Two grading modes and the standalone Drop Request flow with smart branch logic based on report status.</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+flowchart LR
+    subgraph Grading["⭐ Grading Engine"]
+        G1["Admin grades plan"] --> G2{"Strict\nMode?"}
+        G2 -->|Yes| G3["Auto-determine status\nbased on category threshold"]
+        G2 -->|No| G4["Admin manually\nchooses status"]
+        G3 --> G5{"Score ≥\nthreshold?"}
+        G5 -->|Yes| G6["✅ Achieved"]
+        G5 -->|No| G7["❌ Not Achieved"]
+    end
+
+    subgraph DropReq["🗑️ Drop Request Rejection"]
+        D1["Admin rejects drop"] --> D2{"Report\nstatus?"}
+        D2 -->|"Submitted\n(Closed)"| D3["Auto-Carry Over\nto next month"]
+        D2 -->|"Draft\n(Open)"| D4["Restore to Open\nResume work"]
+    end
+            </div>
+        </div>
+        <div style="margin-top: 16px;">
+            <table>
+                <thead>
+                    <tr><th>Category</th><th>Threshold (Strict Mode)</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><b>Ultra High (UH)</b></td><td>100%</td><td>Must achieve perfect score</td></tr>
+                    <tr><td><b>High (H)</b></td><td>100%</td><td>Must achieve perfect score</td></tr>
+                    <tr><td><b>Medium (M)</b></td><td>80%</td><td>Standard passing threshold</td></tr>
+                    <tr><td><b>Low (L)</b></td><td>70%</td><td>Lower threshold for low-priority</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- =========================================== -->
+    <!-- SLIDE 15: IDENTIFIED ISSUES -->
+    <!-- =========================================== -->
+    <div class="slide" id="slide-15">
+        <span class="slide-number">15 / 15</span>
+        <span class="section-badge badge-red">5 — CODE AUDIT</span>
+        <h2>Identified Issues & Risks</h2>
+        <p class="slide-desc">Potential problems found during the full codebase reverse-engineering. These should be reviewed and addressed.</p>
+        <div class="issue-grid">
+            <div class="issue-card critical">
+                <span class="issue-tag tag-crit">⚠️ RISK</span>
+                <h4>Dual Notification Triggers</h4>
+                <p>Two AFTER UPDATE triggers (<code>notify_on_status_change</code> and <code>notify_status_change</code>) fire on the same event, potentially producing duplicate notifications for a single status change.</p>
+            </div>
+            <div class="issue-card">
+                <span class="issue-tag tag-warn">⚡ INCONSISTENCY</span>
+                <h4>PIC Column Transition</h4>
+                <p>The <code>pic</code> (text) column coexists with <code>pic_ids</code> (uuid[]). Some triggers still use name-based PIC lookups, while newer RPCs use UUID arrays — creating fragile joins.</p>
+            </div>
+            <div class="issue-card info">
+                <span class="issue-tag tag-info">ℹ️ DEAD-END</span>
+                <h4>Unused Status Values</h4>
+                <p><code>Internal Review</code> and <code>Waiting Approval</code> exist in the CHECK constraint but no code path transitions into them — dead-end states.</p>
+            </div>
+            <div class="issue-card">
+                <span class="issue-tag tag-warn">⚡ INCONSISTENCY</span>
+                <h4>Missing resolution_type in carry_over_plan</h4>
+                <p>The standalone <code>carry_over_plan</code> RPC doesn't set <code>resolution_type = 'carried_over'</code> on the parent plan (unlike the Resolution Wizard RPC).</p>
+            </div>
+            <div class="issue-card fixed">
+                <span class="issue-tag tag-ok">✅ FIXED</span>
+                <h4>Multi-Tenant Settings Lookup</h4>
+                <p>Original RPCs hardcoded <code>id=1</code> for settings. Fixed in migration <code>20260225100000</code> — now uses <code>company_id</code>. However, <code>grade_action_plan</code> may still need audit.</p>
+            </div>
+            <div class="issue-card">
+                <span class="issue-tag tag-warn">⚡ MISSING</span>
+                <h4>Role Check Constraint Dropped</h4>
+                <p>The <code>profiles_role_check</code> constraint was dropped to allow <code>holding_admin</code> but never recreated — no validation on role values.</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<p class="scroll-hint no-print">Tip: Click "Print / Save as PDF" in the top-right to export for PowerPoint import</p>
+
+<script>
+    mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        themeVariables: {
+            primaryColor: '#334155',
+            primaryBorderColor: '#475569',
+            primaryTextColor: '#e2e8f0',
+            lineColor: '#64748b',
+            secondaryColor: '#1e293b',
+            tertiaryColor: '#0f172a',
+            fontSize: '13px',
+            fontFamily: 'Inter, sans-serif',
+            noteBkgColor: '#1e293b',
+            noteTextColor: '#94a3b8',
+            noteBorderColor: '#475569',
+        },
+        flowchart: { curve: 'basis', padding: 16 },
+        sequence: { actorMargin: 40, mirrorActors: false },
+    });
+</script>
+
+</body>
+</html>

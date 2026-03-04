@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, KeyRound, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
@@ -15,6 +15,54 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const { signIn } = useAuth();
   const { toast } = useToast();
+
+  // ─── Maintenance Mode Lockdown ────────────────────────────────
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [maintenanceText, setMaintenanceText] = useState('');
+  const [maintenanceChecked, setMaintenanceChecked] = useState(false);
+
+  // Admin backdoor: ?admin_bypass=true in URL skips everything
+  const isAdminBypass = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('admin_bypass') === 'true';
+  }, []);
+
+  useEffect(() => {
+    // Skip the maintenance check entirely if admin bypass is active
+    if (isAdminBypass) {
+      setMaintenanceChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    const checkMaintenance = async () => {
+      try {
+        // Bypass browser cache with a timestamp query and fresh headers
+        const { data, error: fetchErr } = await supabase
+          .from('system_settings')
+          .select('is_maintenance_mode, announcement_text')
+          .limit(1)
+          .maybeSingle()
+          .abortSignal(AbortSignal.timeout(8000));
+
+        if (!cancelled && !fetchErr && data) {
+          setIsMaintenance(!!data.is_maintenance_mode);
+          setMaintenanceText(data.announcement_text || '');
+        }
+      } catch {
+        // Silently ignore — don't block login if the check fails
+      } finally {
+        if (!cancelled) setMaintenanceChecked(true);
+      }
+    };
+
+    checkMaintenance();
+    return () => { cancelled = true; };
+  }, [isAdminBypass]);
+
+  // Derived: should inputs be locked?
+  const isLocked = isMaintenance && !isAdminBypass;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -139,6 +187,21 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* ─── Maintenance Mode Lockdown Banner ─── */}
+        {isLocked && (
+          <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-300 rounded-xl flex items-start gap-3 shadow-sm" style={{ animation: 'pulse-border 2s ease-in-out infinite' }}>
+            <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <ShieldAlert className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-amber-800 text-sm font-bold">System Under Maintenance</p>
+              <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+                {maintenanceText || 'The system is currently undergoing scheduled maintenance. Login is temporarily disabled. Please try again later.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -165,15 +228,15 @@ export default function LoginPage() {
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${isLocked ? 'text-gray-300' : 'text-gray-400'}`} />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
-                  placeholder="you@werkudara.com"
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
+                  placeholder={isLocked ? 'Login disabled during maintenance' : 'you@werkudara.com'}
                   required
-                  disabled={loading}
+                  disabled={loading || isLocked}
                 />
               </div>
             </div>
@@ -186,21 +249,22 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={enterRecoveryMode}
-                  className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+                  className={`text-sm font-medium ${isLocked ? 'text-gray-400 cursor-not-allowed' : 'text-teal-600 hover:text-teal-700'}`}
+                  disabled={isLocked}
                 >
                   Forgot Password?
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${isLocked ? 'text-gray-300' : 'text-gray-400'}`} />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-10 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${error ? 'border-red-300' : 'border-gray-300'}`}
+                  className={`w-full pl-10 pr-10 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="••••••••"
                   required
-                  disabled={loading}
+                  disabled={loading || isLocked}
                 />
                 <button
                   type="button"
@@ -219,10 +283,18 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={loading || isLocked}
+              className={`w-full py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${isLocked
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-teal-600 text-white hover:bg-teal-700 disabled:bg-teal-400 disabled:cursor-not-allowed'
+                }`}
             >
-              {loading ? (
+              {isLocked ? (
+                <>
+                  <ShieldAlert className="w-5 h-5" />
+                  Login Disabled
+                </>
+              ) : loading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Signing in...
@@ -308,6 +380,16 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Pulse animation for maintenance banner */}
+      {isLocked && (
+        <style>{`
+          @keyframes pulse-border {
+            0%, 100% { border-color: rgb(252 211 77); box-shadow: 0 0 0 0 rgba(252, 211, 77, 0); }
+            50% { border-color: rgb(245 158 11); box-shadow: 0 0 8px 2px rgba(245, 158, 11, 0.15); }
+          }
+        `}</style>
+      )}
     </div>
   );
 }

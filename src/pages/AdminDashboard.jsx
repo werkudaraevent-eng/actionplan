@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import {
   Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar,
   X, Users, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon, Activity, Clock
@@ -1045,11 +1045,14 @@ export default function AdminDashboard({ onNavigate }) {
     // We DO NOT filter out 'BULK' generically - 'BULK_SUBMIT' is valid team work!
     const BLACKLIST_ACTIONS = ['IMPORT', 'RESET', 'DELETE', 'RESTORE'];
 
-    // ADMIN ROLES: Exclude these from chart statistics (they inflate department activity)
-    // Keep them in Latest Updates feed for transparency
-    const ADMIN_ROLES = ['admin', 'super_admin'];
+    // ─── GHOST MODE ─────────────────────────────────────────────
+    // ADMIN ROLES: Exclude these from BOTH chart statistics AND Latest Updates feed.
+    // holding_admin interventions (typo fixes, maintenance) must NOT inflate
+    // department operational KPIs. Raw data remains in audit_logs for auditors.
+    const GHOST_ROLES = ['admin', 'holding_admin', 'super_admin'];
 
     // Filter audit logs - BLACKLIST approach (everything NOT on blacklist is shown)
+    // Then GHOST MODE: exclude admin/holding_admin actors from operational metrics
     const organicLogs = auditLogs.filter(log => {
       const changeType = (log.change_type || '').toUpperCase();
       const description = (log.description || '').toUpperCase();
@@ -1058,7 +1061,12 @@ export default function AdminDashboard({ onNavigate }) {
       // Exclude actions on the blacklist (check both change_type AND description)
       if (BLACKLIST_ACTIONS.some(blocked => combinedText.includes(blocked))) return false;
 
-      // EVERYTHING ELSE is a valid "pulse" including:
+      // GHOST MODE: Exclude admin/holding_admin actors from operational metrics
+      // Their edits are administrative noise, not department output
+      const actorRole = (log.actor_role || '').toLowerCase();
+      if (GHOST_ROLES.includes(actorRole)) return false;
+
+      // EVERYTHING ELSE is a valid "pulse" from organic team activity:
       // - SUBMIT (manual or bulk monthly submission milestone)
       // - STATUS_UPDATE, STATUS_CHANGE
       // - CREATE, UPDATE
@@ -1067,12 +1075,9 @@ export default function AdminDashboard({ onNavigate }) {
       return true;
     });
 
-    // CHART LOGS: Further filter to exclude admin-performed actions
-    // This ensures the chart only shows "organic" department activity
-    const chartLogs = organicLogs.filter(log => {
-      const role = (log.actor_role || '').toLowerCase();
-      return !ADMIN_ROLES.includes(role);
-    });
+    // CHART LOGS: organicLogs already excludes GHOST_ROLES, so chartLogs = organicLogs
+    // (kept as separate variable for backward compatibility with chart/stats code below)
+    const chartLogs = organicLogs;
 
     // Create a set of action plan IDs with organic activity this week
     const organicPlanIds = new Set(organicLogs.map(log => log.action_plan_id));

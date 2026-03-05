@@ -385,22 +385,40 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         return;
       }
 
-      // Column definitions - maps table column IDs to PDF labels and data accessors
-      // Adjust month column width when consolidated (needs more space for ranges)
+      // Helper: Truncate long URLs to a readable format for PDF cells
+      const truncateUrl = (url, maxLen = 45) => {
+        if (!url || url === '-') return url;
+        try {
+          const u = new URL(url);
+          const host = u.hostname.replace('www.', '');
+          const pathParts = u.pathname.split('/').filter(Boolean);
+          const fileName = pathParts[pathParts.length - 1] || '';
+          const short = pathParts.length > 1
+            ? `${host}/.../${decodeURIComponent(fileName)}`
+            : `${host}/${decodeURIComponent(fileName)}`;
+          return short.length > maxLen ? short.substring(0, maxLen - 1) + '…' : short;
+        } catch {
+          return url.length > maxLen ? url.substring(0, maxLen - 1) + '…' : url;
+        }
+      };
+
+      // Column definitions - ALL columns have fixedWidth to enforce proportional
+      // layout and prevent any single column from cannibalizing the others.
+      // Total budget for landscape A4: ~273mm usable (297 - 2*12 margin).
       const COLUMN_DEFS = {
         dept: { label: 'Dept', fixedWidth: 14, align: 'center', getValue: (p) => String(p.department_code || '-') },
-        month: { label: 'Month', fixedWidth: isConsolidated ? 28 : 14, align: 'center', getValue: (p) => String(p.month || '-') },
-        category: { label: 'Category', fixedWidth: 20, align: 'center', getValue: (p) => String(p.category || '-') },
-        area_focus: { label: 'Area Focus', fixedWidth: null, align: 'left', getValue: (p) => String(p.area_focus || '-') },
-        goal_strategy: { label: 'Goal/Strategy', fixedWidth: null, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
-        action_plan: { label: 'Action Plan', fixedWidth: null, align: 'left', getValue: (p) => String(p.action_plan || '-') },
-        indicator: { label: 'Indicator', fixedWidth: null, align: 'left', getValue: (p) => String(p.indicator || '-') },
-        pic: { label: 'PIC', fixedWidth: 25, align: 'left', getValue: (p) => String(p.legacy_pic_text || p.pic || '-') },
-        evidence: { label: 'Evidence', fixedWidth: null, align: 'left', getValue: (p) => String(p.evidence || '-') },
-        status: { label: 'Status', fixedWidth: 22, align: 'center', getValue: (p) => String(p.status || '-') },
+        month: { label: 'Month', fixedWidth: isConsolidated ? 26 : 14, align: 'center', getValue: (p) => String(p.month || '-') },
+        category: { label: 'Category', fixedWidth: 18, align: 'center', getValue: (p) => String(p.category || '-') },
+        area_focus: { label: 'Area Focus', fixedWidth: 26, align: 'left', getValue: (p) => String(p.area_focus || '-') },
+        goal_strategy: { label: 'Goal/Strategy', fixedWidth: 34, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
+        action_plan: { label: 'Action Plan', fixedWidth: 40, align: 'left', getValue: (p) => String(p.action_plan || '-') },
+        indicator: { label: 'Indicator', fixedWidth: 30, align: 'left', getValue: (p) => String(p.indicator || '-') },
+        pic: { label: 'PIC', fixedWidth: 22, align: 'left', getValue: (p) => String(p.legacy_pic_text || p.pic || '-') },
+        evidence: { label: 'Evidence', fixedWidth: 26, align: 'left', getValue: (p) => String(p.evidence || '-') },
+        status: { label: 'Status', fixedWidth: 20, align: 'center', getValue: (p) => String(p.status || '-') },
         score: { label: 'Score', fixedWidth: 12, align: 'center', getValue: (p) => p.quality_score != null ? `${p.quality_score}%` : '-' },
-        outcome: { label: 'Proof', fixedWidth: null, align: 'left', getValue: (p) => String(p.outcome_link || '-') },
-        remark: { label: 'Remark', fixedWidth: null, align: 'left', getValue: (p) => String(p.remark || '-') },
+        outcome: { label: 'Proof', fixedWidth: 36, align: 'left', getValue: (p) => truncateUrl(p.outcome_link || '-') },
+        remark: { label: 'Remark', fixedWidth: 28, align: 'left', getValue: (p) => String(p.remark || '-') },
       };
 
       // Build active columns from table's columnOrder and visibleColumns state
@@ -477,15 +495,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         head: tableHead,
         body: tableBody,
         theme: 'grid',
-        styles: { fontSize: 8, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
-        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold', fontSize: 9, halign: 'center', valign: 'middle', cellPadding: 2 },
-        bodyStyles: { fontSize: 8, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak' },
+        styles: { fontSize: 7, cellPadding: 1.5, overflow: 'linebreak', valign: 'middle' },
+        headStyles: { fillColor: [13, 148, 136], textColor: 255, fontStyle: 'bold', fontSize: 7.5, halign: 'center', valign: 'middle', cellPadding: 2 },
+        bodyStyles: { fontSize: 7, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak' },
         columnStyles: colStyles,
         alternateRowStyles: { fillColor: [248, 250, 252] },
         margin: { top: 28, bottom: 20, left: margin, right: margin },
         tableLineColor: [200, 200, 200],
         tableLineWidth: 0.1,
-        tableWidth: 'auto',
+        tableWidth: 'wrap',
         didDrawPage: () => {
           doc.setFillColor(13, 148, 136);
           doc.rect(0, 0, pageWidth, 18, 'F');

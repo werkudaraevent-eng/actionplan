@@ -1027,6 +1027,23 @@ export function useActionPlans(departmentCode = null, companyId = null) {
             throw carryOverError;
           } else {
             console.log('[gradePlan] Carry-over success:', coResult);
+
+            // BELT-AND-SUSPENDERS: Ensure parent row has resolution_type = 'carried_over'
+            // The latest carry_over_plan RPC sets this, but older deployed versions may not.
+            // This guarantees the UI's "↳ Moved to next month" sub-text always appears.
+            const nextMonth = coResult?.next_month || null;
+            const { error: patchError } = await supabase
+              .from('action_plans')
+              .update({
+                resolution_type: 'carried_over',
+                is_carry_over: true,
+                ...(nextMonth && { carried_to_month: nextMonth }),
+              })
+              .eq('id', id);
+
+            if (patchError) {
+              console.warn('[gradePlan] Non-fatal: failed to patch parent resolution_type:', patchError.message);
+            }
           }
         }
         // If verdict === 'failed', nothing additional needed. Plan stays as Not Achieved with no copy.
@@ -1433,6 +1450,23 @@ export function useActionPlans(departmentCode = null, companyId = null) {
 
       if (result?.already_exists) {
         console.log('[carryOverPlan] Child plan already exists (idempotent) — ID:', result.new_plan_id);
+      }
+
+      // BELT-AND-SUSPENDERS: Ensure parent row has resolution_type = 'carried_over'
+      // The latest carry_over_plan RPC sets this, but older deployed versions may not.
+      // This guarantees the UI's "↳ Moved to next month" sub-text always appears.
+      const nextMonth = result?.next_month || null;
+      const { error: patchError } = await supabase
+        .from('action_plans')
+        .update({
+          resolution_type: 'carried_over',
+          is_carry_over: true,
+          ...(nextMonth && { carried_to_month: nextMonth }),
+        })
+        .eq('id', id);
+
+      if (patchError) {
+        console.warn('[carryOverPlan] Non-fatal: failed to patch parent resolution_type:', patchError.message);
       }
 
       // Always do a full refetch because the RPC updates BOTH the parent plan

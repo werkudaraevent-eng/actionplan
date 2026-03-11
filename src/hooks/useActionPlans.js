@@ -1046,7 +1046,52 @@ export function useActionPlans(departmentCode = null, companyId = null) {
             }
           }
         }
-        // If verdict === 'failed', nothing additional needed. Plan stays as Not Achieved with no copy.
+
+        // FAILED/DROP VERDICT: Explicitly set resolution_type and log the drop
+        if (verdict === 'failed') {
+          console.log(`[gradePlan] Applying "Drop" verdict for plan ${id}...`);
+
+          // 1. Patch the parent row with resolution_type = 'dropped'
+          //    The grade_action_plan RPC only sets status/score — it has no concept
+          //    of resolution_type, just like the carry_over path we already fixed.
+          const { error: dropPatchError } = await supabase
+            .from('action_plans')
+            .update({
+              resolution_type: 'dropped',
+              is_carry_over: false,
+              is_drop_pending: false,
+            })
+            .eq('id', id);
+
+          if (dropPatchError) {
+            console.warn('[gradePlan] Non-fatal: failed to patch resolution_type for drop:', dropPatchError.message);
+          }
+
+          // 2. Insert audit log entry for the drop action
+          //    The grade_action_plan RPC's status change triggers a STATUS_UPDATE audit,
+          //    but there is NO separate "Dropped" audit entry. We insert one explicitly.
+          const { error: auditError } = await supabase
+            .from('audit_logs')
+            .insert({
+              action_plan_id: id,
+              user_id: cleanGradeData.reviewed_by,
+              change_type: 'STATUS_UPDATE',
+              previous_value: { status: 'Submitted', resolution_type: null },
+              new_value: {
+                status: 'Not Achieved',
+                resolution_type: 'dropped',
+                quality_score: cleanGradeData.quality_score,
+                verdict: 'dropped_by_admin',
+              },
+              description: `❌ Dropped by Admin: Plan marked as Not Achieved and closed (score: ${cleanGradeData.quality_score}%). No carry-over.`,
+            });
+
+          if (auditError) {
+            console.warn('[gradePlan] Non-fatal: failed to insert drop audit log:', auditError.message);
+          } else {
+            console.log('[gradePlan] Drop verdict applied successfully with audit log.');
+          }
+        }
 
         // Re-fetch to get fresh data (including any new carry-over plans)
         await fetchPlans();

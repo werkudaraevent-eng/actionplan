@@ -36,7 +36,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const picDisplayName = plan ? getPicDisplayName(plan, profileMap) : '—';
 
   // Verdict state for failed plans
-  const [verdict, setVerdict] = useState('revision'); // 'revision' | 'carry_over' | 'failed'
+  const [verdict, setVerdict] = useState(null); // null | 'revision' | 'carry_over' | 'failed'
   const [revisionDays, setRevisionDays] = useState(3); // Configurable grace period (days)
 
   // Validation & Confirmation states
@@ -85,7 +85,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       const initialScore = plan.quality_score ?? Math.min(85, limit);
       setScore(Math.min(initialScore, limit));
       setFeedback('');
-      setVerdict('revision');
+      setVerdict(null);
       setErrorMessage('');
       setShowError(false);
       setShowConfirmReject(false);
@@ -160,6 +160,11 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
     // If this will result in "Not Achieved", show verdict confirmation first
     if (status === 'Not Achieved') {
+      // Revision verdict requires feedback (admin must explain what needs fixing)
+      if (verdict === 'revision' && (!feedback || feedback.trim() === '')) {
+        setShowError(true);
+        return;
+      }
       setShowConfirmVerdict(true);
       return;
     }
@@ -692,7 +697,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                   Cancel
                 </button>
 
-                {/* Revision button: hidden in strict mode when below target (forced Not Achieved) */}
+                {/* Revision button: hidden in strict mode when below target (verdict panel handles it) */}
                 {!(gradingConfig.strict && strictNotAchieved) && (
                   <button
                     onClick={handleRequestRevisionClick}
@@ -704,19 +709,35 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                   </button>
                 )}
 
-                {/* Primary action: changes based on strict mode + target */}
+                {/* Primary action: changes based on strict mode + target + verdict */}
                 {gradingConfig.strict && strictNotAchieved ? (
                   <button
                     onClick={handleApprove}
-                    disabled={loading}
-                    className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+                    disabled={loading || !verdict}
+                    className={`px-5 py-2.5 text-white rounded-lg transition-all font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${!verdict
+                        ? 'bg-gray-400'
+                        : verdict === 'revision'
+                          ? 'bg-amber-600 hover:bg-amber-700'
+                          : verdict === 'carry_over'
+                            ? 'bg-blue-600 hover:bg-blue-700'
+                            : 'bg-rose-600 hover:bg-rose-700'
+                      }`}
                   >
                     {loading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : !verdict ? (
+                      <Gavel className="w-4 h-4" />
                     ) : (
-                      <XCircle className="w-4 h-4" />
+                      <>
+                        {verdict === 'revision' && <RotateCcw className="w-4 h-4" />}
+                        {verdict === 'carry_over' && <CircleArrowRight className="w-4 h-4" />}
+                        {verdict === 'failed' && <XCircle className="w-4 h-4" />}
+                      </>
                     )}
-                    Mark Not Achieved ({score})
+                    {!verdict && 'Select a Verdict to Continue'}
+                    {verdict === 'revision' && 'Confirm Revision Request'}
+                    {verdict === 'carry_over' && `Carry Over & Fail (${score})`}
+                    {verdict === 'failed' && `Mark Not Achieved (${score})`}
                   </button>
                 ) : (
                   <button

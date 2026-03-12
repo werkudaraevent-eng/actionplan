@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, Calendar, Trash2, Lock, Loader2, AlertTriangle, Info, CheckCircle2, ShieldCheck, Undo2, Send, FileSpreadsheet, FileText, LockKeyhole, Unlock, X, Clock, XCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -57,18 +58,42 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
 
-  // Filter states - initialize status from prop if provided
-  const [searchQuery, setSearchQuery] = useState('');
-  const [startMonth, setStartMonth] = useState('Jan');
-  const [endMonth, setEndMonth] = useState('Dec');
-  const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  // ─── URL-Driven Filter State ───
+  // All filters are synced to URL query params so state survives page refresh.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Helper: merge a single param into the URL without wiping unrelated ones
+  const setParam = useCallback((key, value, defaultValue) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value === defaultValue || value === '' || value === undefined) {
+        next.delete(key); // Clean URL: omit default values
+      } else {
+        next.set(key, value);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Read filters from URL, fallback to defaults (initialStatusFilter for dashboard drill-down)
+  const searchQuery = searchParams.get('q') || '';
+  const setSearchQuery = useCallback((v) => setParam('q', v, ''), [setParam]);
+  const startMonth = searchParams.get('startMonth') || 'Jan';
+  const setStartMonth = useCallback((v) => setParam('startMonth', v, 'Jan'), [setParam]);
+  const endMonth = searchParams.get('endMonth') || 'Dec';
+  const setEndMonth = useCallback((v) => setParam('endMonth', v, 'Dec'), [setParam]);
+  const selectedStatus = searchParams.get('status') || initialStatusFilter || 'all';
+  const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
+  const selectedCategory = searchParams.get('category') || 'all';
+  const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
+
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
 
-  // Smart filter for pending unlock requests
-  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  // Smart filter for pending unlock requests (also URL-driven)
+  const showPendingOnly = searchParams.get('pending') === '1';
+  const setShowPendingOnly = useCallback((v) => setParam('pending', v ? '1' : '', ''), [setParam]);
 
   // Legacy: Keep selectedMonth for backward compatibility with submit/recall logic
   const selectedMonth = startMonth === endMonth ? startMonth : 'all';
@@ -100,12 +125,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const closeModal = () => setModalConfig(prev => ({ ...prev, isOpen: false }));
 
-  // Update status filter when navigating from dashboard KPI cards
-  useEffect(() => {
-    if (initialStatusFilter) {
-      setSelectedStatus(initialStatusFilter);
-    }
-  }, [initialStatusFilter]);
+
 
   // Delete confirmation modal state
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, planId: null, planTitle: '' });
@@ -499,36 +519,46 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || showPendingOnly;
 
   const clearAllFilters = () => {
-    setSearchQuery('');
-    setStartMonth('Jan');
-    setEndMonth('Dec');
-    setSelectedStatus('all');
-    setSelectedCategory('all');
-    setShowPendingOnly(false);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      ['q', 'startMonth', 'endMonth', 'status', 'category', 'pending'].forEach(k => next.delete(k));
+      return next;
+    }, { replace: true });
   };
 
   const clearMonthFilter = () => {
-    setStartMonth('Jan');
-    setEndMonth('Dec');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('startMonth');
+      next.delete('endMonth');
+      return next;
+    }, { replace: true });
   };
 
   // Jump to a specific month (used by LockedMonthsSummary)
   const jumpToMonth = (month) => {
-    setStartMonth(month);
-    setEndMonth(month);
-    // Clear other filters to show all items for that month
-    setSelectedStatus('all');
-    setSelectedCategory('all');
-    setShowPendingOnly(false);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('startMonth', month);
+      next.set('endMonth', month);
+      next.delete('status');
+      next.delete('category');
+      next.delete('pending');
+      return next;
+    }, { replace: true });
   };
 
   // Smart filter handler: Jump to month AND filter to show only pending unlock requests
   const handleViewPending = (month) => {
-    setStartMonth(month);
-    setEndMonth(month);
-    setSelectedStatus('all');
-    setSelectedCategory('all');
-    setShowPendingOnly(true); // Enable pending-only filter
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('startMonth', month);
+      next.set('endMonth', month);
+      next.delete('status');
+      next.delete('category');
+      next.set('pending', '1');
+      return next;
+    }, { replace: true });
   };
 
   // Handle unlock request from LockContextModal (called directly without filtering first)

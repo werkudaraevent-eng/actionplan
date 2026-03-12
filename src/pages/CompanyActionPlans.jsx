@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Building2, FileSpreadsheet, FileText, RotateCcw, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -45,13 +46,37 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   // Column visibility
   const { visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns } = useColumnVisibility();
 
-  // Filter states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [startMonth, setStartMonth] = useState('Jan');
-  const [endMonth, setEndMonth] = useState('Dec');
-  const [selectedStatus, setSelectedStatus] = useState(initialStatusFilter || 'all');
-  const [selectedDept, setSelectedDept] = useState(initialDeptFilter || 'all');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  // ─── URL-Driven Filter State ───
+  // All filters are synced to URL query params so state survives page refresh.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Helper: merge a single param into the URL without wiping unrelated ones
+  const setParam = useCallback((key, value, defaultValue) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value === defaultValue || value === '' || value === undefined) {
+        next.delete(key); // Clean URL: omit default values
+      } else {
+        next.set(key, value);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Read filters from URL, fallback to defaults
+  const searchQuery = searchParams.get('q') || '';
+  const setSearchQuery = useCallback((v) => setParam('q', v, ''), [setParam]);
+  const startMonth = searchParams.get('startMonth') || 'Jan';
+  const setStartMonth = useCallback((v) => setParam('startMonth', v, 'Jan'), [setParam]);
+  const endMonth = searchParams.get('endMonth') || 'Dec';
+  const setEndMonth = useCallback((v) => setParam('endMonth', v, 'Dec'), [setParam]);
+  const selectedStatus = searchParams.get('status') || initialStatusFilter || 'all';
+  const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
+  const selectedDept = searchParams.get('dept') || initialDeptFilter || 'all';
+  const setSelectedDept = useCallback((v) => setParam('dept', v, 'all'), [setParam]);
+  const selectedCategory = searchParams.get('category') || 'all';
+  const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
+
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
@@ -88,19 +113,6 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
 
   // Soft refresh state
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Update filters when props change (from dashboard drill-down)
-  useEffect(() => {
-    if (initialStatusFilter) {
-      setSelectedStatus(initialStatusFilter);
-    }
-  }, [initialStatusFilter]);
-
-  useEffect(() => {
-    if (initialDeptFilter) {
-      setSelectedDept(initialDeptFilter);
-    }
-  }, [initialDeptFilter]);
 
 
 
@@ -190,17 +202,20 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
-    setSearchQuery('');
-    setStartMonth('Jan');
-    setEndMonth('Dec');
-    setSelectedStatus('all');
-    setSelectedDept('all');
-    setSelectedCategory('all');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      ['q', 'startMonth', 'endMonth', 'status', 'dept', 'category'].forEach(k => next.delete(k));
+      return next;
+    }, { replace: true });
   };
 
   const clearMonthFilter = () => {
-    setStartMonth('Jan');
-    setEndMonth('Dec');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('startMonth');
+      next.delete('endMonth');
+      return next;
+    }, { replace: true });
   };
 
   // Soft refresh handler - re-fetches data without page reload

@@ -215,7 +215,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
             <User className="w-3.5 h-3.5" />
             <span className="font-medium text-gray-700">
-              {item.user_name || item.profiles?.full_name || 'Unknown User'}
+              {item.user_name || item.profiles?.full_name || (item.user_id ? 'Unknown User' : 'System Auto-Process')}
             </span>
             {item.user_department && (
               <>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare, LockKeyhole, ToggleLeft, ToggleRight, ShieldAlert, CheckCircle, CircleArrowRight, Hourglass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -306,7 +306,53 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
 
   // Attachments state (multi-file evidence)
   const [attachments, setAttachments] = useState([]);
+  // Tracks the initial attachment count when modal opens (for dirty-state link detection)
+  const initialAttachmentCountRef = useRef(0);
 
+  // ─── Staged File Tracking (Orphan Cleanup on Cancel) ───
+  // Tracks storage paths of files uploaded in this modal session but not yet saved.
+  // If the user cancels, these files are deleted from Supabase Storage to prevent orphans.
+  const [stagedPaths, setStagedPaths] = useState([]);
+  const stagedPathsRef = useRef([]);
+  // Keep ref in sync with state (ref is needed for cleanup in async contexts)
+  useEffect(() => { stagedPathsRef.current = stagedPaths; }, [stagedPaths]);
+
+  const handleFileStaged = useCallback((storagePath) => {
+    setStagedPaths(prev => [...prev, storagePath]);
+  }, []);
+
+  // Remove a path from staged tracking (called when user deletes a staged file before saving)
+  // EvidenceManager's handleDelete already physically deletes the file, so we just untrack it.
+  const handleFileUnstaged = useCallback((storagePath) => {
+    setStagedPaths(prev => prev.filter(p => p !== storagePath));
+  }, []);
+
+  // Cleanup: Delete all staged (uncommitted) files from Supabase Storage
+  const cleanupStagedFiles = useCallback(async () => {
+    const paths = stagedPathsRef.current;
+    if (paths.length === 0) return;
+
+    console.log('[ActionPlanModal] Cleaning up', paths.length, 'orphaned staged file(s):', paths);
+    try {
+      const { error } = await supabase.storage
+        .from('evidence-attachments')
+        .remove(paths);
+
+      if (error) {
+        console.warn('[ActionPlanModal] Staged file cleanup warning:', error.message);
+      } else {
+        console.log('[ActionPlanModal] Staged file cleanup complete');
+      }
+    } catch (err) {
+      console.warn('[ActionPlanModal] Staged file cleanup failed:', err);
+    } finally {
+      setStagedPaths([]);
+    }
+  }, []);
+
+  // Discard warning dialog state (dirty-state logic is placed further down
+  // after all dependent useState declarations to avoid Temporal Dead Zone)
+  const [showDiscardWarning, setShowDiscardWarning] = useState(false);
   // Use the new hook to fetch department users (includes primary + additional access)
   // MULTI-TENANT: scope to active company
   const { users: departmentUsers, loading: loadingStaff } = useDepartmentUsers(formData.department_code, activeCompanyId);
@@ -536,6 +582,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
 
       setRepeatEnabled(false);
       setSelectedMonths([]);
+      setStagedPaths([]); // Reset staged file tracking on modal open
+      // Capture initial attachment count for dirty-state detection of newly added links
+      initialAttachmentCountRef.current = Array.isArray(dbAttachments) ? dbAttachments.length
+        : (editData.outcome_link?.trim() ? 1 : 0);
       // Reset blocker fields first, then conditionally populate from editData
       setBlockerReason(editData.status === 'Blocked' && editData.blocker_reason ? editData.blocker_reason : '');
       setResolutionNote('');
@@ -699,6 +749,75 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       setFormData(prev => ({ ...prev, attention_level: 'Standard' }));
     }
   }, [profile?.role, formData.attention_level]);
+
+  // ─── Dirty State Detection (Unsaved Changes Warning) ───
+  // IMPORTANT: This block MUST be placed AFTER all useState declarations it references.
+  // Placing it earlier causes a Temporal Dead Zone ReferenceError.
+
+  // Detect newly added links/attachments by comparing current count to initial
+  const newAttachmentCount = attachments.length - initialAttachmentCountRef.current;
+  const hasNewAttachments = newAttachmentCount > 0;
+  const hasTextChanges = !!(progressUpdate?.trim() || resolutionNote?.trim());
+  const hasGapChanges = !!(gapAnalysis?.trim() && gapAnalysis !== (editData?.gap_analysis || ''));
+  const hasStatusChange = !!(editData && formData.status !== editData.status);
+  const hasRemarkChange = !!(editData && (formData.remark || '') !== (editData.remark || ''));
+  const hasNewPlanFields = !editData && !!(formData.action_plan?.trim() || formData.goal_strategy?.trim() || formData.indicator?.trim());
+
+  const isDirty = useMemo(() => {
+    // Staged physical files uploaded but not yet saved
+    if (stagedPaths.length > 0) return true;
+
+    // New attachments added (links or files) beyond what was loaded from DB
+    if (hasNewAttachments) return true;
+
+    // Text fields with content
+    if (hasTextChanges) return true;
+
+    // Gap analysis modified (Not Achieved flow)
+    if (hasGapChanges) return true;
+
+    // Status changed
+    if (hasStatusChange) return true;
+
+    // Remark changed
+    if (hasRemarkChange) return true;
+
+    // New plan: core fields filled in
+    if (hasNewPlanFields) return true;
+
+    return false;
+  }, [stagedPaths, hasNewAttachments, hasTextChanges, hasGapChanges, hasStatusChange, hasRemarkChange, hasNewPlanFields]);
+
+  // Single entry point for all modal close attempts (X button, Cancel button, ESC)
+  const handleModalClose = useCallback(() => {
+    if (isDirty) {
+      setShowDiscardWarning(true); // Show confirmation dialog
+    } else {
+      // Nothing to lose — close immediately
+      onClose();
+    }
+  }, [isDirty, onClose]);
+
+  // Confirmed discard: cleanup staged files and close
+  const confirmDiscard = useCallback(async () => {
+    setShowDiscardWarning(false);
+    await cleanupStagedFiles();
+    onClose();
+  }, [cleanupStagedFiles, onClose]);
+
+  // ESC key handler — intercepts browser default to prevent unguarded closure
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleModalClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleModalClose]);
 
   if (!isOpen) return null;
 
@@ -1004,6 +1123,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
           });
         }
       }
+      // Save succeeded — clear staged paths so cleanup won't delete committed files
+      setStagedPaths([]);
       onClose();
     } catch (error) {
       console.error('[ActionPlanModal.handleSubmit] Error saving:', error);
@@ -1035,7 +1156,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 ? (isSubmissionMode ? 'Update Status & Evidence' : 'Edit Action Plan')
                 : 'Add New Action Plan'}
             </h2>
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+            <button onClick={handleModalClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
               <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
@@ -2065,7 +2186,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                                 <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold">RESOLVED</span>
                               )}
                               <span className="font-medium text-gray-700">
-                                {log.profiles?.full_name || 'Unknown User'}
+                                {log.profiles?.full_name || (log.user_id ? 'Unknown User' : 'System Auto-Process')}
                               </span>
                               <span>•</span>
                               <span>
@@ -2109,6 +2230,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
               onChange={setAttachments}
               planId={editData?.id || 'new'}
               disabled={(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock}
+              onFileStaged={handleFileStaged}
+              onFileUnstaged={handleFileUnstaged}
             />
             {(formData.status === 'Achieved' || formData.status === 'Not Achieved') && attachments.length === 0 && (
               <p className="text-amber-600 text-xs mt-2">⚠️ At least one evidence attachment is required for {formData.status} status.</p>
@@ -2407,7 +2530,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => { setShowConfirm(false); onClose(); }}
+                onClick={() => { setShowConfirm(false); handleModalClose(); }}
                 className={`px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors ${((isLocked && !isAdminOverride) || shouldDisableForDateLock) ? 'flex-1' : 'flex-1'
                   }`}
               >
@@ -2469,6 +2592,82 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
           </form>
         </div>
       </div>
+
+      {/* ─── Unsaved Changes Confirmation Dialog ─── */}
+      {showDiscardWarning && (
+        <div className="fixed inset-0 z-[10003] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setShowDiscardWarning(false)} />
+
+          {/* Dialog */}
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md ring-1 ring-black/10 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 pb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Unsaved Changes</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">You have work that hasn't been saved yet.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Body — Dynamic warning items based on what’s dirty */}
+            <div className="px-6 py-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 space-y-1.5">
+                {stagedPaths.length > 0 && (
+                  <p className="flex items-center gap-2">
+                    <span className="font-medium">📎 {stagedPaths.length} uploaded file{stagedPaths.length !== 1 ? 's' : ''}</span>
+                    <span className="text-amber-600">will be permanently deleted</span>
+                  </p>
+                )}
+                {hasNewAttachments && stagedPaths.length === 0 && (
+                  <p>🔗 {newAttachmentCount} added link{newAttachmentCount !== 1 ? 's' : ''} will be discarded.</p>
+                )}
+                {hasNewAttachments && stagedPaths.length > 0 && newAttachmentCount > stagedPaths.length && (
+                  <p>🔗 {newAttachmentCount - stagedPaths.length} added link{(newAttachmentCount - stagedPaths.length) !== 1 ? 's' : ''} will also be discarded.</p>
+                )}
+                {(hasTextChanges || hasGapChanges) && (
+                  <p>📝 Your notes and text entries will be discarded.</p>
+                )}
+                {hasStatusChange && (
+                  <p>🔄 Status change from <strong>{editData.status}</strong> → <strong>{formData.status}</strong> will be reverted.</p>
+                )}
+                {hasRemarkChange && (
+                  <p>✏️ Your remark edits will be discarded.</p>
+                )}
+                {hasNewPlanFields && (
+                  <p>📄 Your filled-in plan details will be discarded.</p>
+                )}
+                {/* Fallback: safety net if isDirty is true but no specific condition renders */}
+                {!stagedPaths.length && !hasNewAttachments && !hasTextChanges && !hasGapChanges && !hasStatusChange && !hasRemarkChange && !hasNewPlanFields && (
+                  <p>Your unsaved inputs will be lost.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 pt-3 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDiscardWarning(false)}
+                className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                onClick={confirmDiscard}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm"
+              >
+                Discard Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

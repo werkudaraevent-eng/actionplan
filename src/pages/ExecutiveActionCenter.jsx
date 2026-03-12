@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     ShieldAlert, AlertTriangle, Loader2, PartyPopper, Building2,
     CheckCircle2, XCircle, Megaphone, Eye, User, Clock, ArrowRight,
@@ -13,6 +14,8 @@ import { useDepartments } from '../hooks/useDepartments';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useCompanyContext } from '../context/CompanyContext';
 import { supabase, withTimeout } from '../lib/supabase';
+import { usePicProfiles } from '../hooks/usePicProfiles';
+import { getPicDisplayName } from '../utils/picUtils';
 import { useToast } from '../components/common/Toast';
 import ViewDetailModal from '../components/action-plan/ViewDetailModal';
 import ResolutionModal from '../components/action-plan/ResolutionModal';
@@ -102,7 +105,45 @@ export default function ExecutiveActionCenter() {
 
     const canSeeSystemTasks = isAdmin || isHoldingAdmin;
 
-    const [activeTab, setActiveTab] = useState('needs_grading');
+    // ─── URL-Driven State ───
+    // All tabs and filters are synced to URL query params so state survives refresh.
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    // Helper: merge new params into existing URL without wiping unrelated ones
+    const setParam = useCallback((key, value, defaultValue) => {
+        setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            if (value === defaultValue || value === '' || value === undefined) {
+                next.delete(key); // Clean URL: omit defaults
+            } else {
+                next.set(key, value);
+            }
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
+    // ── Active Tab (read from URL, fallback to 'needs_grading') ──
+    const VALID_TABS = ['needs_grading', 'drop_requests', 'escalations', 'unlock_requests', 'active_unlocks'];
+    const activeTab = VALID_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'needs_grading';
+    const setActiveTab = useCallback((tab) => setParam('tab', tab, 'needs_grading'), [setParam]);
+
+    // ── Drop Request Filters ──
+    const searchQuery = searchParams.get('q') || '';
+    const setSearchQuery = useCallback((v) => setParam('q', v, ''), [setParam]);
+    const selectedDept = searchParams.get('dept') || 'All';
+    const setSelectedDept = useCallback((v) => setParam('dept', v, 'All'), [setParam]);
+    const selectedMonth = searchParams.get('month') || 'All';
+    const setSelectedMonth = useCallback((v) => setParam('month', v, 'All'), [setParam]);
+    const selectedPriority = searchParams.get('priority') || 'All';
+    const setSelectedPriority = useCallback((v) => setParam('priority', v, 'All'), [setParam]);
+
+    // ── Grading Department Filter ──
+    const gradingDeptFilter = searchParams.get('gradeDept') || 'all';
+    const setGradingDeptFilter = useCallback((v) => setParam('gradeDept', v, 'all'), [setParam]);
+
+    // ── Escalation Department Filter ──
+    const escalationDeptFilter = searchParams.get('escDept') || 'all';
+    const setEscalationDeptFilter = useCallback((v) => setParam('escDept', v, 'all'), [setParam]);
 
     // ─── Drop Requests State ───
     const [dropRequests, setDropRequests] = useState([]);
@@ -111,21 +152,17 @@ export default function ExecutiveActionCenter() {
     const [rejectModal, setRejectModal] = useState({ isOpen: false, requestId: null, planTitle: '' });
     const [rejectReason, setRejectReason] = useState('');
 
-    // ─── Drop Request Filters ───
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedDept, setSelectedDept] = useState('All');
-    const [selectedMonth, setSelectedMonth] = useState('All');
-    const [selectedPriority, setSelectedPriority] = useState('All');
-
-    // ─── Escalations State ───
-    const [escalationDeptFilter, setEscalationDeptFilter] = useState('all');
+    // ─── Escalations UI State ───
     const [escalationUpdating, setEscalationUpdating] = useState(null);
     const [resolutionModal, setResolutionModal] = useState({ isOpen: false, item: null });
     const [viewPlan, setViewPlan] = useState(null);
     const [instructedPlanIds, setInstructedPlanIds] = useState(new Set());
 
-    // ─── Grading State ───
-    const [gradingDeptFilter, setGradingDeptFilter] = useState('all');
+    // ─── PIC Name Resolution ───
+    // Batch-resolve UUID-based pic_ids from plans + drop requests into display names
+    const allDisplayPlans = useMemo(() => [...plans, ...dropRequests], [plans, dropRequests]);
+    const { profileMap } = usePicProfiles(allDisplayPlans);
+    // ─── Grading UI State ───
     const [gradeModal, setGradeModal] = useState({ isOpen: false, plan: null });
 
     // ═══ SYSTEM TASKS STATE (merged from ApprovalInbox) ═══
@@ -572,7 +609,7 @@ export default function ExecutiveActionCenter() {
             const q = searchQuery.toLowerCase();
             const matchesSearch = !q
                 || (plan.action_plan || '').toLowerCase().includes(q)
-                || (plan.legacy_pic_text || '').toLowerCase().includes(q)
+                || (getPicDisplayName(plan, profileMap) || '').toLowerCase().includes(q)
                 || (plan.gap_analysis || '').toLowerCase().includes(q)
                 || (plan.goal_strategy || '').toLowerCase().includes(q);
             const matchesDept = selectedDept === 'All' || plan.department_code === selectedDept;
@@ -754,70 +791,77 @@ export default function ExecutiveActionCenter() {
                                 </div>
                             </div>
                         ) : (
-                            <div className="grid gap-3">
+                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
                                 {needsGradingPlans.map((item) => {
                                     const priorityCode = getPriorityCode(item?.category);
                                     const pStyle = getPriorityStyle(priorityCode);
                                     const statusBadge = item.status || 'Open';
+                                    const picName = getPicDisplayName(item, profileMap);
 
                                     return (
                                         <div
                                             key={item.id}
-                                            className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                                            className="flex items-center gap-5 px-5 py-3.5 hover:bg-gray-50/60 transition-colors group"
                                         >
-                                            <div className="flex items-center gap-4 px-5 py-4">
-                                                {/* Left: Avatar + PIC */}
-                                                <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
-                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                                                        {(item.legacy_pic_text || 'U').charAt(0).toUpperCase()}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || 'Unknown'}</p>
-                                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                                            <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
-                                                            <span className="text-xs text-gray-400">{item.month} {item.year}</span>
-                                                        </div>
-                                                    </div>
+                                            {/* Primary: Plan Title + Metadata */}
+                                            <div className="flex-1 min-w-0">
+                                                {/* Row 1: Title */}
+                                                <p className="text-[13.5px] font-semibold text-gray-900 truncate leading-snug">
+                                                    {item.action_plan || 'Untitled Plan'}
+                                                </p>
+                                                {/* Row 2: Metadata badges */}
+                                                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide ${pStyle.bg} ${pStyle.text}`}>
+                                                        {priorityCode}
+                                                    </span>
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                                                        {item.department_code}
+                                                    </span>
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
+                                                        {item.month} {item.year}
+                                                    </span>
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusBadge === 'Achieved' ? 'bg-emerald-50 text-emerald-600'
+                                                        : statusBadge === 'Not Achieved' ? 'bg-red-50 text-red-600'
+                                                            : statusBadge === 'On Progress' ? 'bg-blue-50 text-blue-600'
+                                                                : 'bg-gray-100 text-gray-500'
+                                                        }`}>
+                                                        {statusBadge}
+                                                    </span>
+                                                    {item.goal_strategy && (
+                                                        <>
+                                                            <span className="text-gray-300 text-[10px]">·</span>
+                                                            <span className="text-[11px] text-gray-400 truncate max-w-[180px]" title={item.goal_strategy}>
+                                                                {item.goal_strategy}
+                                                            </span>
+                                                        </>
+                                                    )}
                                                 </div>
+                                            </div>
 
-                                                {/* Middle: Plan Name + Context */}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${pStyle.bg} ${pStyle.text} flex-shrink-0`}>
-                                                            {priorityCode}
-                                                        </span>
-                                                        <p className="text-sm font-semibold text-gray-900 truncate">{item.action_plan || 'Untitled Plan'}</p>
-                                                    </div>
-                                                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                                                        <span className="truncate max-w-[200px]" title={item.goal_strategy}>{item.goal_strategy || '—'}</span>
-                                                        <span className="text-gray-300">•</span>
-                                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge === 'Achieved' ? 'bg-green-100 text-green-700'
-                                                            : statusBadge === 'Not Achieved' ? 'bg-red-100 text-red-700'
-                                                                : statusBadge === 'On Progress' ? 'bg-blue-100 text-blue-700'
-                                                                    : 'bg-gray-100 text-gray-600'
-                                                            }`}>
-                                                            {statusBadge}
-                                                        </span>
-                                                    </div>
+                                            {/* Secondary: PIC (subdued) */}
+                                            <div className="flex items-center gap-2 flex-shrink-0 min-w-[130px]">
+                                                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
+                                                    {(picName || 'U').charAt(0).toUpperCase()}
                                                 </div>
+                                                <span className="text-xs text-gray-500 truncate">{picName}</span>
+                                            </div>
 
-                                                {/* Right: Actions */}
-                                                <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                    <button
-                                                        onClick={() => setViewPlan(item)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-                                                    >
-                                                        <Eye className="w-4 h-4" />
-                                                        View
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleOpenGradeModal(item)}
-                                                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors shadow-sm"
-                                                    >
-                                                        <Star className="w-4 h-4" />
-                                                        Grade Now
-                                                    </button>
-                                                </div>
+                                            {/* Actions */}
+                                            <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => setViewPlan(item)}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-200 rounded-md text-xs font-medium hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                                                >
+                                                    <Eye className="w-3.5 h-3.5" />
+                                                    View
+                                                </button>
+                                                <button
+                                                    onClick={() => handleOpenGradeModal(item)}
+                                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-700 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition-colors"
+                                                >
+                                                    <Star className="w-3.5 h-3.5" />
+                                                    Grade
+                                                </button>
                                             </div>
                                         </div>
                                     );
@@ -917,7 +961,7 @@ export default function ExecutiveActionCenter() {
                                                             <span className="text-gray-300">•</span>
                                                             <span className="font-medium text-gray-600">{plan.month} {plan.year}</span>
                                                             <span className="text-gray-300">•</span>
-                                                            <span>PIC: <span className="font-semibold text-gray-700">{plan.legacy_pic_text || 'Unknown'}</span></span>
+                                                            <span>PIC: <span className="font-semibold text-gray-700">{getPicDisplayName(plan, profileMap)}</span></span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1049,97 +1093,96 @@ export default function ExecutiveActionCenter() {
                                     </div>
                                 </div>
 
-                                <div className="grid gap-3">
+                                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
                                     {escalationPlans.map((item) => {
                                         const isInstructed = instructedPlanIds.has(item.id);
+                                        const picName = getPicDisplayName(item, profileMap);
                                         return (
                                             <div
                                                 key={item.id}
-                                                className={`rounded-xl shadow-sm border overflow-hidden hover:shadow-md transition-shadow ${isInstructed ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100'
-                                                    }`}
+                                                className={`flex items-center gap-5 px-5 py-3.5 transition-colors group ${isInstructed ? 'bg-gray-50/50' : 'hover:bg-gray-50/60'}`}
                                             >
-                                                <div className="flex items-center gap-4 px-5 py-4">
-                                                    {/* Left: Avatar + PIC */}
-                                                    <div className="flex items-center gap-3 flex-shrink-0 min-w-[180px]">
-                                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 ${isInstructed ? 'bg-gradient-to-br from-gray-400 to-gray-600' : 'bg-gradient-to-br from-slate-600 to-slate-800'
-                                                            }`}>
-                                                            {(item.legacy_pic_text || 'U').charAt(0).toUpperCase()}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-semibold text-gray-800 truncate">{item.legacy_pic_text || 'Unknown'}</p>
-                                                            <div className="flex items-center gap-1.5 mt-0.5">
-                                                                <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">{item.department_code}</span>
-                                                                <span className="text-xs text-gray-400">{item.month}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Middle: Name + Reason */}
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-sm font-semibold text-gray-900 truncate">{item.action_plan || 'Untitled Plan'}</p>
-                                                            {isInstructed ? (
-                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">
-                                                                    <CheckCircle className="w-3 h-3" />
-                                                                    Instruction Sent
-                                                                </span>
-                                                            ) : (
-                                                                <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Pending review" />
-                                                            )}
-                                                        </div>
-                                                        <p className="text-sm text-gray-500 mt-1 line-clamp-1">
-                                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 inline-block mr-1 -mt-0.5" />
-                                                            {item.blocker_reason || 'No reason provided'}
+                                                {/* Primary: Plan Title + Blocker */}
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-[13.5px] font-semibold text-gray-900 truncate leading-snug">
+                                                            {item.action_plan || 'Untitled Plan'}
                                                         </p>
-                                                    </div>
-
-                                                    {/* Right: Actions */}
-                                                    <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                        {isExecutive ? (
-                                                            isInstructed ? (
-                                                                <button
-                                                                    onClick={() => setViewPlan(item)}
-                                                                    className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 bg-white rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium"
-                                                                >
-                                                                    <Eye className="w-4 h-4" />
-                                                                    View Progress
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => setViewPlan(item)}
-                                                                    className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-medium shadow-sm"
-                                                                >
-                                                                    <Megaphone className="w-4 h-4" />
-                                                                    Review & Instruct
-                                                                </button>
-                                                            )
+                                                        {isInstructed ? (
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-600 flex-shrink-0">
+                                                                <CheckCircle className="w-2.5 h-2.5" />
+                                                                Instructed
+                                                            </span>
                                                         ) : (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => setViewPlan(item)}
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-2 text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-                                                                >
-                                                                    View
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleMarkResolved(item)}
-                                                                    disabled={escalationUpdating === item.id}
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                                                                >
-                                                                    {escalationUpdating === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-                                                                    Resolve
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleCloseAsFailed(item)}
-                                                                    disabled={escalationUpdating === item.id}
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
-                                                                >
-                                                                    {escalationUpdating === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-                                                                    Failed
-                                                                </button>
-                                                            </>
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" title="Pending review" />
                                                         )}
                                                     </div>
+                                                    {/* Row 2: Metadata + Blocker */}
+                                                    <div className="flex items-center gap-1.5 mt-1.5">
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">{item.department_code}</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">{item.month}</span>
+                                                        <span className="text-gray-300 text-[10px]">·</span>
+                                                        <span className="text-[11px] text-amber-600 truncate max-w-[250px]" title={item.blocker_reason}>
+                                                            <AlertTriangle className="w-3 h-3 inline-block mr-0.5 -mt-0.5" />
+                                                            {item.blocker_reason || 'No reason provided'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Secondary: PIC (subdued) */}
+                                                <div className="flex items-center gap-2 flex-shrink-0 min-w-[130px]">
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${isInstructed ? 'bg-gray-200 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>
+                                                        {(picName || 'U').charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <span className="text-xs text-gray-500 truncate">{picName}</span>
+                                                </div>
+
+                                                {/* Actions */}
+                                                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                    {isExecutive ? (
+                                                        isInstructed ? (
+                                                            <button
+                                                                onClick={() => setViewPlan(item)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-200 rounded-md text-xs font-medium hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                                                            >
+                                                                <Eye className="w-3.5 h-3.5" />
+                                                                View Progress
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => setViewPlan(item)}
+                                                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-700 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition-colors"
+                                                            >
+                                                                <Megaphone className="w-3.5 h-3.5" />
+                                                                Review & Instruct
+                                                            </button>
+                                                        )
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                onClick={() => setViewPlan(item)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-200 rounded-md text-xs font-medium hover:bg-gray-100 transition-colors"
+                                                            >
+                                                                View
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleMarkResolved(item)}
+                                                                disabled={escalationUpdating === item.id}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md text-xs font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                                            >
+                                                                {escalationUpdating === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                                                                Resolve
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleCloseAsFailed(item)}
+                                                                disabled={escalationUpdating === item.id}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-red-700 bg-red-50 border border-red-200 rounded-md text-xs font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
+                                                            >
+                                                                {escalationUpdating === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                                                                Failed
+                                                            </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
@@ -23,7 +24,21 @@ const TABS = [
 const YEARS_RANGE = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
 
 export default function AdminSettings({ onNavigateToUsers }) {
-  const [activeTab, setActiveTab] = useState('departments');
+  // URL-Driven Tab State — survives page refresh
+  const [searchParams, setSearchParams] = useSearchParams();
+  const VALID_TAB_IDS = TABS.map(t => t.id);
+  const activeTab = VALID_TAB_IDS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'departments';
+  const setActiveTab = useCallback((tabId) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tabId === 'departments') {
+        next.delete('tab'); // Clean URL: default tab doesn't need a param
+      } else {
+        next.set('tab', tabId);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   return (
     <div className="flex-1 bg-gray-50 min-h-screen">

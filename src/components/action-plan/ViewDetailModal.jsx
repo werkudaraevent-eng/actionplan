@@ -10,6 +10,37 @@ import { extractMentionIds, getPlainTextFromMentions } from '../../utils/mention
 import MentionInput from '../common/MentionInput';
 import SharedHistoryTimeline from './SharedHistoryTimeline';
 
+// Evidence bucket name — must match EvidenceManager.jsx
+const EVIDENCE_BUCKET = 'evidence-attachments';
+
+/**
+ * Derive download URL from the storage path at render time (3-tier resolution).
+ * Tier 1: item.storage_path (new uploads)
+ * Tier 2: item.path (legacy uploads)
+ * Tier 3: Parse relative path from Supabase public URL
+ */
+function getReliableFileUrl(item) {
+  // Tier 1 & 2
+  let storagePath = item.storage_path || item.path;
+
+  // Tier 3: Extract from public URL for legacy records
+  if (!storagePath && item.url) {
+    try {
+      const marker = `/object/public/${EVIDENCE_BUCKET}/`;
+      const idx = item.url.indexOf(marker);
+      if (idx !== -1) {
+        storagePath = decodeURIComponent(item.url.substring(idx + marker.length));
+      }
+    } catch { /* fall through to item.url */ }
+  }
+
+  if (item.type === 'file' && storagePath) {
+    const { data } = supabase.storage.from(EVIDENCE_BUCKET).getPublicUrl(storagePath);
+    return data.publicUrl;
+  }
+  return item.url;
+}
+
 // Priority badge colors
 const PRIORITY_COLORS = {
   'UH': 'bg-red-100 text-red-700 border-red-200',
@@ -237,7 +268,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
         new_value: { message: log.message },
         description: null,
         created_at: log.created_at,
-        user_name: log.profiles?.full_name || 'Unknown User',
+        user_name: log.profiles?.full_name || (log.user_id ? 'Unknown User' : 'System Auto-Process'),
         message: log.message
       }));
 
@@ -792,7 +823,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                         {plan.attachments.map((item, idx) => (
                           <a
                             key={idx}
-                            href={item.url}
+                            href={getReliableFileUrl(item)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 transition-colors group"

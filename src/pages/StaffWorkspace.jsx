@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ClipboardList } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -40,11 +40,31 @@ export default function StaffWorkspace() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [startMonth, setStartMonth] = useState('Jan');
-  const [endMonth, setEndMonth] = useState('Dec');
-  const [selectedStatus, setSelectedStatus] = useState('all');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  // ─── URL-Driven Filter State ───
+  // All filters are synced to URL query params so state survives page refresh.
+  const setParam = useCallback((key, value, defaultValue) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value === defaultValue || value === '' || value === undefined) {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const searchQuery = searchParams.get('q') || '';
+  const setSearchQuery = useCallback((v) => setParam('q', v, ''), [setParam]);
+  const startMonth = searchParams.get('startMonth') || 'Jan';
+  const setStartMonth = useCallback((v) => setParam('startMonth', v, 'Jan'), [setParam]);
+  const endMonth = searchParams.get('endMonth') || 'Dec';
+  const setEndMonth = useCallback((v) => setParam('endMonth', v, 'Dec'), [setParam]);
+  const selectedStatus = searchParams.get('status') || 'all';
+  const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
+  const selectedCategory = searchParams.get('category') || 'all';
+  const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
 
   // Smart modal navigation: counter to signal when edit modal closes
   const [editModalClosedCounter, setEditModalClosedCounter] = useState(0);
@@ -308,16 +328,20 @@ export default function StaffWorkspace() {
   const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
 
   const clearAllFilters = () => {
-    setSearchQuery('');
-    setStartMonth('Jan');
-    setEndMonth('Dec');
-    setSelectedStatus('all');
-    setSelectedCategory('all');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      ['q', 'startMonth', 'endMonth', 'status', 'category'].forEach(k => next.delete(k));
+      return next;
+    }, { replace: true });
   };
 
   const clearMonthFilter = () => {
-    setStartMonth('Jan');
-    setEndMonth('Dec');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('startMonth');
+      next.delete('endMonth');
+      return next;
+    }, { replace: true });
   };
 
   const handleEdit = (item) => {
@@ -468,7 +492,7 @@ export default function StaffWorkspace() {
       {/* Unified Page Header with Filters */}
       <UnifiedPageHeader
         title="My Action Plans"
-        subtitle={`Welcome back, ${userName} • ${currentDeptInfo?.name || activeDept}`}
+        subtitle={`Welcome back, ${userName} • ${currentDeptInfo?.name || activeDept} `}
         withFilters={true}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -492,7 +516,7 @@ export default function StaffWorkspace() {
           plans={filteredPlans}
           scope="personal"
           loading={loading}
-          dateContext={stats.isYTD ? 'YTD' : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
+          dateContext={stats.isYTD ? 'YTD' : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth} `)}
           periodLabel={stats.periodLabel}
           onCardClick={handleKPIClick}
         />

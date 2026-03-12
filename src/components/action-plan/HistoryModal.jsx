@@ -17,7 +17,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
   const fetchUnifiedHistory = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       // Fetch BOTH audit_logs AND progress_logs for a unified timeline
       const [auditResult, progressResult] = await Promise.all([
@@ -61,14 +61,14 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
         new_value: { message: log.message },
         description: null,
         created_at: log.created_at,
-        user_name: log.profiles?.full_name || 'Unknown User',
+        user_name: log.profiles?.full_name || (log.user_id ? 'Unknown User' : 'System Auto-Process'),
         // Keep original message for easy access
         message: log.message
       }));
 
       // Merge both arrays
       const allLogs = [...(auditResult.data || []), ...transformedProgressLogs];
-      
+
       // Sort by created_at descending (most recent first)
       allLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -126,7 +126,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
               </button>
             </div>
           ) : (
-            <SharedHistoryTimeline 
+            <SharedHistoryTimeline
               items={logs}
               accentColor="teal"
               emptyMessage="No change history yet"

@@ -221,17 +221,32 @@ export async function exportOptionsToExcel(category, options = {}) {
 /**
  * Sends parsed option items to the `upsert_master_options` RPC for bulk insert/update.
  *
- * @param {object[]} items - Array of option objects from parseExcelOptions
+ * IMPORTANT: `companyId` is REQUIRED to prevent cross-tenant data leakage.
+ * The RPC's fallback (get_auth_company_id) returns the user's *profile* company,
+ * which differs from the active subsidiary when a holding_admin switches context.
+ *
+ * @param {object[]} items     - Array of option objects from parseExcelOptions
+ * @param {string}   companyId - The active subsidiary's UUID (from CompanyContext)
  * @returns {Promise<{ success: boolean, inserted?: number, updated?: number, skipped?: number, error?: string }>}
  */
-export async function bulkUpsertOptions(items) {
+export async function bulkUpsertOptions(items, companyId) {
     try {
         if (!items || items.length === 0) {
             return { success: false, error: 'No items to upsert.' };
         }
 
+        if (!companyId) {
+            return { success: false, error: 'Company ID is required for import. Cannot determine target subsidiary.' };
+        }
+
+        // Stamp every item with the explicit company_id from the active context
+        const stampedItems = items.map(item => ({
+            ...item,
+            company_id: companyId,
+        }));
+
         const { data, error } = await supabase.rpc('upsert_master_options', {
-            p_items: items,
+            p_items: stampedItems,
         });
 
         if (error) {

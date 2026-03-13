@@ -468,7 +468,7 @@ export default function OptionManager({
         setImporting(true);
         try {
             if (source === 'master') {
-                const result = await bulkUpsertOptions(importPreview.data);
+                const result = await bulkUpsertOptions(importPreview.data, activeCompanyId);
                 if (result.success) {
                     toast({
                         title: 'Import Complete',

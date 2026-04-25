@@ -934,6 +934,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       finalFormData.attachments = attachments;
       if (attachments.length > 0) {
         finalFormData.outcome_link = attachments[0].url || '';
+      } else {
+        // All evidence removed — clear outcome_link in DB
+        finalFormData.outcome_link = '';
       }
 
       // DEBUG: Log attachments payload
@@ -1025,9 +1028,11 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       if (repeatEnabled && selectedMonths.length > 0 && !editData) {
         // Bulk create: main month + selected months
         const allMonths = [formData.month, ...selectedMonths];
+        const recurringGroupId = crypto.randomUUID();
         const payloads = allMonths.map(month => ({
           ...finalFormData,
           month,
+          recurring_group_id: recurringGroupId,
           // Reset status to Open for all copies
           status: 'Open',
           outcome_link: '',
@@ -1085,7 +1090,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
             console.log('✅ [ActionPlanModal] Carry-over success:', coResult);
             toast({
               title: '⏭️ Carried Over Successfully',
-              description: `Plan saved and carried over to ${coResult?.next_month || 'next month'} ${coResult?.next_year || ''} (max score: ${coResult?.max_possible_score ?? 80}%).`,
+              description: `Plan saved and carried over to ${coResult?.next_month || 'next month'} ${coResult?.next_year || ''} (max score: ${coResult?.max_possible_score ?? '—'}%).`,
               variant: 'success'
             });
             // Skip the regular success toast since we showed the carry-over one

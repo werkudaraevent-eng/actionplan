@@ -13,6 +13,7 @@ import {
   getCarryOverLabel,
   resolveAndSubmitReport,
 } from '../../utils/resolutionWizardUtils';
+import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 
 /**
  * Resolution Wizard Modal — forces leaders to decide the fate of every
@@ -60,6 +61,9 @@ export default function ResolutionWizardModal({
   const [decisions, setDecisions] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
+  const [duplicateWarnings, setDuplicateWarnings] = useState({}); // { [planId]: { hasDuplicate, duplicatePlan, matchType } }
+  const [checkingDuplicates, setCheckingDuplicates] = useState({}); // { [planId]: boolean }
+
   // Queued drop reasons for UH/H plans (stored locally, submitted on Confirm)
   const [dropReasons, setDropReasons] = useState({});
 
@@ -80,7 +84,11 @@ export default function ResolutionWizardModal({
 
   // Fetch penalty settings + drop policy on mount
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setDuplicateWarnings({});
+      setCheckingDuplicates({});
+      return;
+    }
     setLoadingSettings(true);
 
     Promise.all([
@@ -90,10 +98,10 @@ export default function ResolutionWizardModal({
       .then(([carryOverSettings, dropPolicySettings]) => {
         setSettings(carryOverSettings);
         setDropPolicy(dropPolicySettings);
-        // Auto-select "drop" for Late_Month_2 items (only if no approval required)
+        // Auto-select "drop" for items at max carry-over level (only if no approval required)
         const initial = {};
         items.forEach(item => {
-          if (!canCarryOver(item)) {
+          if (!canCarryOver(item, carryOverSettings)) {
             // Only auto-select drop if no approval required
             if (!isDropApprovalRequired(item, dropPolicySettings)) {
               initial[item.id] = 'drop';
@@ -104,7 +112,7 @@ export default function ResolutionWizardModal({
         setDropReasons({});
       })
       .catch(() => {
-        setSettings({ carry_over_penalty_1: 80, carry_over_penalty_2: 50 });
+        setSettings({ carry_over_penalties: [80, 50] });
         setDropPolicy({
           drop_approval_req_uh: false,
           drop_approval_req_h: false,
@@ -265,6 +273,43 @@ export default function ResolutionWizardModal({
     }
   };
 
+  const handleDecisionChange = async (itemId, decision) => {
+    // Set the decision immediately for responsive UI
+    setDecisions(prev => ({ ...prev, [itemId]: decision }));
+
+    // Clear any previous warning for this item when not carry_over
+    if (decision !== 'carry_over') {
+      setDuplicateWarnings(prev => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+      return;
+    }
+
+    // Check for duplicates when carry_over is selected
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Use cached result if available
+    if (duplicateWarnings[itemId]) return;
+
+    setCheckingDuplicates(prev => ({ ...prev, [itemId]: true }));
+    try {
+      const { nextMonth, nextYear } = getNextMonthYear(item.month, item.year);
+      if (nextMonth) {
+        const result = await checkCarryOverDuplicate(item, nextMonth, nextYear);
+        if (result.hasDuplicate) {
+          setDuplicateWarnings(prev => ({ ...prev, [itemId]: result }));
+        }
+      }
+    } catch (err) {
+      console.warn('[ResolutionWizard] Duplicate check failed:', err);
+    } finally {
+      setCheckingDuplicates(prev => ({ ...prev, [itemId]: false }));
+    }
+  };
+
   const setDecision = (planId, action) => {
     // If switching away from request_drop, clear the stored reason
     if (action !== 'request_drop' && dropReasons[planId]) {
@@ -369,8 +414,8 @@ export default function ResolutionWizardModal({
             ) : (
               <div className="space-y-3">
                 {visibleItems.map((item) => {
-                  const canCO = canCarryOver(item);
-                  const coLabel = getCarryOverLabel(item);
+                  const canCO = canCarryOver(item, settings);
+                  const coLabel = getCarryOverLabel(item, settings);
                   const nextScore = settings ? getNextCarryOverScore(item, settings) : null;
                   const decision = decisions[item.id];
                   const status = item.carry_over_status || 'Normal';
@@ -444,7 +489,7 @@ export default function ResolutionWizardModal({
                             </button>
                             {canCO && (
                               <button
-                                onClick={() => setDecision(item.id, 'carry_over')}
+                                onClick={() => handleDecisionChange(item.id, 'carry_over')}
                                 disabled={submitting}
                                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
                               >
@@ -460,7 +505,7 @@ export default function ResolutionWizardModal({
                           <div className="flex items-center gap-2">
                             {canCO ? (
                               <button
-                                onClick={() => setDecision(item.id, 'carry_over')}
+                                onClick={() => handleDecisionChange(item.id, 'carry_over')}
                                 disabled={submitting}
                                 className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${decision === 'carry_over'
                                   ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
@@ -469,7 +514,12 @@ export default function ResolutionWizardModal({
                               >
                                 <CornerDownRight className="w-4 h-4" />
                                 Carry Over
-                                {status === 'Late_Month_1' ? ' (Final)' : ''}
+                                {(() => {
+                                  const penalties = settings?.carry_over_penalties || [80, 50];
+                                  const match = status.match(/^Late_Month_(\d+)$/);
+                                  const level = match ? parseInt(match[1], 10) : 0;
+                                  return level + 1 >= penalties.length ? ' (Final)' : '';
+                                })()}
                                 <span className={`text-xs ${decision === 'carry_over' ? 'text-blue-200' : 'text-blue-400'}`}>
                                   Max {nextScore}%
                                 </span>
@@ -500,6 +550,25 @@ export default function ResolutionWizardModal({
                             <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-md">
                               <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
                               {priorityCode} priority — dropping requires Management Approval
+                            </div>
+                          )}
+                          {/* Duplicate warning */}
+                          {checkingDuplicates[item.id] && (
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1.5">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Memeriksa duplikat...</span>
+                            </div>
+                          )}
+                          {duplicateWarnings[item.id] && !checkingDuplicates[item.id] && (
+                            <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-md">
+                              <div className="flex items-start gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                                <div className="text-xs text-amber-800">
+                                  <span className="font-medium">Plan serupa sudah ada di bulan tujuan: </span>
+                                  <span>&quot;{duplicateWarnings[item.id].duplicatePlan.action_plan}&quot;</span>
+                                  <span className="text-amber-600"> ({duplicateWarnings[item.id].duplicatePlan.status})</span>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </>

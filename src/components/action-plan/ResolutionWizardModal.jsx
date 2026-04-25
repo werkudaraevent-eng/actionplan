@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, ArrowRight, X, Loader2, CornerDownRight, Ban, CheckCircle2, ShieldAlert, Send, Pencil, Undo2, Rocket } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -63,6 +63,8 @@ export default function ResolutionWizardModal({
 
   const [duplicateWarnings, setDuplicateWarnings] = useState({}); // { [planId]: { hasDuplicate, duplicatePlan, matchType } }
   const [checkingDuplicates, setCheckingDuplicates] = useState({}); // { [planId]: boolean }
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
+  const duplicateConfirmedRef = useRef(false);
 
   // Queued drop reasons for UH/H plans (stored locally, submitted on Confirm)
   const [dropReasons, setDropReasons] = useState({});
@@ -87,6 +89,8 @@ export default function ResolutionWizardModal({
     if (!isOpen) {
       setDuplicateWarnings({});
       setCheckingDuplicates({});
+      setShowDuplicateConfirm(false);
+      duplicateConfirmedRef.current = false;
       return;
     }
     setLoadingSettings(true);
@@ -184,6 +188,18 @@ export default function ResolutionWizardModal({
   // Main submit — executes ALL decisions at once
   const handleResolveSubmit = async () => {
     if (!allDecided) return;
+
+    // Check if any carry-over decisions have duplicate warnings
+    const carryOverWithDuplicates = Object.entries(decisions)
+      .filter(([id, decision]) => decision === 'carry_over' && duplicateWarnings[id])
+      .map(([id]) => duplicateWarnings[id]);
+
+    if (carryOverWithDuplicates.length > 0 && !duplicateConfirmedRef.current) {
+      setShowDuplicateConfirm(true);
+      return;
+    }
+    duplicateConfirmedRef.current = false;
+
     setSubmitting(true);
 
     try {
@@ -630,6 +646,65 @@ export default function ResolutionWizardModal({
           </div>
         </div>
       </div>
+
+      {/* Carry-over duplicate confirmation modal */}
+      {showDuplicateConfirm && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-100 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Duplikat Terdeteksi
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  Beberapa plan yang akan di-carry over sudah memiliki plan serupa di bulan tujuan:
+                </p>
+                <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+                  {Object.entries(decisions)
+                    .filter(([id, d]) => d === 'carry_over' && duplicateWarnings[id])
+                    .map(([id]) => (
+                      <div key={id} className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-sm font-medium text-amber-900">
+                          &quot;{duplicateWarnings[id].duplicatePlan.action_plan}&quot;
+                        </p>
+                        <p className="text-xs text-amber-700 mt-0.5">
+                          Status: {duplicateWarnings[id].duplicatePlan.status}
+                        </p>
+                      </div>
+                    ))
+                  }
+                </div>
+                <p className="mt-3 text-sm text-gray-600">
+                  Melanjutkan akan membuat duplikat. Apakah Anda yakin?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => setShowDuplicateConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Batalkan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateConfirm(false);
+                  duplicateConfirmedRef.current = true;
+                  handleResolveSubmit();
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700"
+              >
+                Tetap Carry Over
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Drop Reason Sub-Modal — queues the reason locally */}
       {dropRequestModal.isOpen && (

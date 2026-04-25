@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Save, Loader2, Repeat, AlertCircle, Users, Lock, Unlock, List, Clock, MessageSquare, LockKeyhole, ToggleLeft, ToggleRight, ShieldAlert, CheckCircle, CircleArrowRight, Hourglass } from 'lucide-react';
+import { X, Save, Loader2, Repeat, AlertCircle, AlertTriangle, Users, Lock, Unlock, List, Clock, MessageSquare, LockKeyhole, ToggleLeft, ToggleRight, ShieldAlert, CheckCircle, CircleArrowRight, Hourglass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { usePermission } from '../../hooks/usePermission';
@@ -11,6 +11,7 @@ import { getPicDisplayName, batchResolveProfiles, isUserPicOfPlan } from '../../
 import { useToast } from '../common/Toast';
 import { getLockStatus, getLockStatusMessage } from '../../utils/lockUtils';
 import { validateBlockerReason, getMinReasonLength, buildBlockerResetFields, getFilteredAttentionLevels } from '../../utils/escalationUtils';
+import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 import { fetchDropPolicySettings, isDropApprovalRequired } from '../../utils/resolutionWizardUtils';
 import EvidenceManager from './EvidenceManager';
 import SubsidiaryBanner from '../common/SubsidiaryBanner';
@@ -375,6 +376,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
 
   // Follow-up Action state (for "Not Achieved" status)
   const [followUpAction, setFollowUpAction] = useState('carry_over'); // 'drop' or 'carry_over'
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   // Drop approval policy state — fetched from Admin Settings
   const [dropPolicy, setDropPolicy] = useState(null);
@@ -711,6 +714,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       setGapCategory('');
       setGapAnalysis('');
       setFollowUpAction('carry_over');
+      setDuplicateWarning(null);
+      setCheckingDuplicate(false);
       setIsCustomGoal(false);
       setIsCustomAction(false);
       setBlockerPrefillActive(false);
@@ -719,6 +724,29 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
     }
     setShowConfirm(false);
   }, [editData, isOpen, departmentCode, failureReasons, goalOptions, actionPlanOptions]);
+
+  // Check for duplicate when user selects carry-over
+  const handleFollowUpChange = async (action) => {
+    setFollowUpAction(action);
+    setDuplicateWarning(null);
+
+    if (action === 'carry_over' && editData) {
+      setCheckingDuplicate(true);
+      try {
+        const { nextMonth, nextYear } = getNextMonthYear(editData.month, editData.year);
+        if (nextMonth) {
+          const result = await checkCarryOverDuplicate(editData, nextMonth, nextYear);
+          if (result.hasDuplicate) {
+            setDuplicateWarning(result);
+          }
+        }
+      } catch (err) {
+        console.warn('[ActionPlanModal] Duplicate check failed:', err);
+      } finally {
+        setCheckingDuplicate(false);
+      }
+    }
+  };
 
   // Clear PIC when department changes (only for new plans)
   const handleDepartmentChange = (newDeptCode) => {
@@ -2389,7 +2417,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     name="followUpAction"
                     value="carry_over"
                     checked={followUpAction === 'carry_over'}
-                    onChange={(e) => setFollowUpAction(e.target.value)}
+                    onChange={() => handleFollowUpChange('carry_over')}
                     className="mt-1 w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300"
                   />
                   <div>
@@ -2406,7 +2434,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     name="followUpAction"
                     value="drop"
                     checked={followUpAction === 'drop'}
-                    onChange={(e) => setFollowUpAction(e.target.value)}
+                    onChange={() => handleFollowUpChange('drop')}
                     className="mt-1 w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300"
                   />
                   <div>
@@ -2424,6 +2452,33 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   </div>
                 </label>
               </div>
+
+              {/* Carry-over duplicate warning */}
+              {checkingDuplicate && (
+                <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Memeriksa duplikat di bulan tujuan...</span>
+                </div>
+              )}
+              {duplicateWarning && !checkingDuplicate && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div className="text-sm text-amber-800">
+                      <p className="font-medium">Plan serupa sudah ada di bulan tujuan</p>
+                      <p className="mt-1">
+                        &quot;{duplicateWarning.duplicatePlan.action_plan}&quot;
+                        <span className="ml-1 text-amber-600">
+                          (Status: {duplicateWarning.duplicatePlan.status})
+                        </span>
+                      </p>
+                      <p className="mt-1 text-amber-600">
+                        Melanjutkan carry over akan membuat duplikat di bulan tersebut.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

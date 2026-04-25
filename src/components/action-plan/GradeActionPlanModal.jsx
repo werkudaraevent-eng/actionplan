@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -47,6 +47,8 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [showError, setShowError] = useState(false);
   const [showConfirmReject, setShowConfirmReject] = useState(false);
   const [showConfirmVerdict, setShowConfirmVerdict] = useState(false);
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
+  const duplicateConfirmedRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   // Dynamic grading settings from system_settings (granular per-priority thresholds)
@@ -94,6 +96,8 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       setShowError(false);
       setShowConfirmReject(false);
       setShowConfirmVerdict(false);
+      setShowDuplicateConfirm(false);
+      duplicateConfirmedRef.current = false;
       setLoading(false);
       setDuplicateWarning(null);
       setCheckingDuplicate(false);
@@ -196,6 +200,14 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
   // Execute the verdict after admin confirms
   const handleConfirmVerdict = async () => {
+    // Intercept: if carry_over with duplicate warning, show duplicate confirmation first
+    if (verdict === 'carry_over' && duplicateWarning && !duplicateConfirmedRef.current) {
+      setShowConfirmVerdict(false);
+      setShowDuplicateConfirm(true);
+      return;
+    }
+    duplicateConfirmedRef.current = false;
+
     setShowConfirmVerdict(false);
     setLoading(true);
     setErrorMessage('');
@@ -859,6 +871,57 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                   <RotateCcw className="w-4 h-4" />
                 )}
                 Confirm & Return
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Carry-over duplicate confirmation modal */}
+      {showDuplicateConfirm && duplicateWarning && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-100 rounded-full shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Duplikat Terdeteksi
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  Plan serupa sudah ada di bulan tujuan:
+                </p>
+                <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-medium text-amber-900">
+                    &quot;{duplicateWarning.duplicatePlan.action_plan}&quot;
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Status: {duplicateWarning.duplicatePlan.status}
+                  </p>
+                </div>
+                <p className="mt-3 text-sm text-gray-600">
+                  Carry over akan membuat duplikat di bulan tersebut. Apakah Anda yakin?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => setShowDuplicateConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Batalkan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateConfirm(false);
+                  duplicateConfirmedRef.current = true;
+                  handleConfirmVerdict();
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700"
+              >
+                Tetap Carry Over
               </button>
             </div>
           </div>

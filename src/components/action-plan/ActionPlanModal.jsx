@@ -746,10 +746,36 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         setCheckingDuplicate(false);
       }
     }
-  };
+   };
 
-  // Clear PIC when department changes (only for new plans)
-  const handleDepartmentChange = (newDeptCode) => {
+  // Auto-check for duplicates when follow-up section becomes visible with carry_over pre-selected
+  useEffect(() => {
+    if (formData.status === 'Not Achieved' && followUpAction === 'carry_over' && editData) {
+      const runCheck = async () => {
+        setCheckingDuplicate(true);
+        setDuplicateWarning(null);
+        try {
+          const { nextMonth, nextYear } = getNextMonthYear(editData.month, editData.year);
+          if (nextMonth) {
+            const result = await checkCarryOverDuplicate(editData, nextMonth, nextYear);
+            if (result.hasDuplicate) {
+              setDuplicateWarning(result);
+            }
+          }
+        } catch (err) {
+          console.warn('[ActionPlanModal] Auto duplicate check failed:', err);
+        } finally {
+          setCheckingDuplicate(false);
+        }
+      };
+      runCheck();
+    } else {
+      setDuplicateWarning(null);
+    }
+  }, [formData.status, followUpAction, editData]);
+
+   // Clear PIC when department changes (only for new plans)
+   const handleDepartmentChange = (newDeptCode) => {
     setFormData(prev => ({
       ...prev,
       department_code: newDeptCode,

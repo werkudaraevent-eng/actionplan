@@ -73,6 +73,7 @@ export async function checkCarryOverDuplicate(plan, targetMonth, targetYear) {
           .neq('id', plan.id)
           .ilike('goal_strategy', plan.goal_strategy.trim())
           .ilike('action_plan', plan.action_plan.trim())
+          .ilike('indicator', (plan.indicator || '').trim())
           .limit(1),
         5000
       );

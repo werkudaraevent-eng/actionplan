@@ -5,7 +5,8 @@ import { useCompanyContext } from '../../context/CompanyContext';
 import { supabase } from '../../lib/supabase';
 import { getPicDisplayName } from '../../utils/picUtils';
 import { usePicProfiles } from '../../hooks/usePicProfiles';
-import { getCarryOverVisual } from '../../utils/resolutionWizardUtils';
+import CarryOverHistorySection from './CarryOverHistorySection';
+import { fetchCarryOverSettings } from '../../utils/resolutionWizardUtils';
 import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 
 // Helper function for priority badge styling
@@ -42,6 +43,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [revisionDays, setRevisionDays] = useState(3); // Configurable grace period (days)
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [carryOverSettings, setCarryOverSettings] = useState(null);
 
   // Validation & Confirmation states
   const [showError, setShowError] = useState(false);
@@ -101,6 +103,11 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       setLoading(false);
       setDuplicateWarning(null);
       setCheckingDuplicate(false);
+
+      // Fetch carry-over settings for isFinal detection
+      fetchCarryOverSettings()
+        .then(setCarryOverSettings)
+        .catch(() => setCarryOverSettings(null));
     }
   }, [isOpen, plan?.id]);
 
@@ -342,25 +349,10 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
               {/* SECTION 2: SCROLLABLE BODY - Content */}
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-                {/* CARRY-OVER PENALTY BANNER */}
-                {isCapped && (() => {
-                  const coVisual = getCarryOverVisual(plan);
-                  return (
-                    <div className={`rounded-lg p-4 flex items-start gap-3 border ${coVisual ? coVisual.bannerBg : 'bg-amber-50 border-amber-200'}`}>
-                      <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${coVisual ? coVisual.bannerIcon : 'text-amber-600'}`} />
-                      <div>
-                        <h4 className={`font-bold text-sm ${coVisual ? coVisual.textColor : 'text-amber-800'}`}>
-                          {coVisual ? coVisual.icon : ''} Score Capped at {scoreLimit}%
-                        </h4>
-                        <p className={`text-sm mt-0.5 ${coVisual ? coVisual.subtextColor : 'text-amber-700'}`}>
-                          This is a carried-over item{coVisual ? ` (${coVisual.ordinal} carry-over)` : ''}.
-                          The maximum possible score is limited to {scoreLimit} due to late submission penalty.
-                          {coVisual?.isFinal && ' This is the final carry-over — no further extensions allowed.'}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {/* CARRY-OVER HISTORY SECTION (replaces old penalty banner) */}
+                {isCapped && (
+                  <CarryOverHistorySection plan={plan} settings={carryOverSettings} />
+                )}
 
                 {/* UPDATE MODE SAFETY BANNER */}
                 {isUpdateMode && (

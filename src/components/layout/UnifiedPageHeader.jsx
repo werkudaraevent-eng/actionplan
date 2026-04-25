@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Calendar, Building2, CheckCircle, Flag, X, ChevronDown, Check, ArrowLeft } from 'lucide-react';
+import { Search, Calendar, Building2, CheckCircle, Flag, X, ChevronDown, Check, ArrowLeft, CornerDownRight } from 'lucide-react';
 import { STATUS_OPTIONS } from '../../lib/supabase';
 import { ColumnToggle } from '../action-plan/DataTable';
 import NotificationCenter from '../common/NotificationCenter';
@@ -15,6 +15,16 @@ const CATEGORY_OPTIONS = [
   { value: 'H', label: 'H (High)' },
   { value: 'M', label: 'M (Medium)' },
   { value: 'L', label: 'L (Low)' },
+];
+
+// Carry Over options
+const CARRY_OVER_OPTIONS = [
+  { value: 'all', label: 'All Plans' },
+  { value: 'co', label: 'Carry Over Only' },
+  { value: '1', label: 'Late Month 1' },
+  { value: '2', label: 'Late Month 2' },
+  { value: '3+', label: 'Late Month 3+' },
+  { value: 'normal', label: 'Non Carry Over' },
 ];
 
 /**
@@ -78,6 +88,8 @@ export default function UnifiedPageHeader({
   setSelectedStatus,
   selectedCategory = 'all',
   setSelectedCategory,
+  selectedCarryOver = 'all',
+  onCarryOverChange,
   columnVisibility,
   onClear,
   withDeptFilter = false,
@@ -95,6 +107,7 @@ export default function UnifiedPageHeader({
   const [isEndMonthOpen, setIsEndMonthOpen] = useState(false);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+  const [isCarryOverOpen, setIsCarryOverOpen] = useState(false);
   const [isDeptOpen, setIsDeptOpen] = useState(false);
 
   // Check if any filters are active
@@ -104,6 +117,7 @@ export default function UnifiedPageHeader({
     endMonth !== 'Dec' ||
     selectedStatus !== 'all' ||
     selectedCategory !== 'all' ||
+    selectedCarryOver !== 'all' ||
     (withDeptFilter && selectedDept !== 'all');
 
   // Clear month filter only
@@ -118,6 +132,7 @@ export default function UnifiedPageHeader({
     setIsEndMonthOpen(false);
     setIsStatusOpen(false);
     setIsCategoryOpen(false);
+    setIsCarryOverOpen(false);
     setIsDeptOpen(false);
   };
 
@@ -460,6 +475,51 @@ export default function UnifiedPageHeader({
                   </>
                 )}
               </div>
+
+              {/* Carry Over Filter */}
+              {onCarryOverChange && (
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => { closeAllDropdowns(); setIsCarryOverOpen(!isCarryOverOpen); }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      selectedCarryOver !== 'all'
+                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <CornerDownRight className="w-4 h-4" />
+                    <span>{selectedCarryOver === 'all' ? 'Carry Over' : CARRY_OVER_OPTIONS.find(o => o.value === selectedCarryOver)?.label}</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isCarryOverOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isCarryOverOpen && (
+                    <>
+                      <div className="fixed inset-0 z-[55]" onClick={() => setIsCarryOverOpen(false)} />
+                      <div className="absolute top-full left-0 mt-2 w-[180px] bg-white border border-gray-100 rounded-xl shadow-xl z-[60] overflow-hidden">
+                        <div className="p-1">
+                          {CARRY_OVER_OPTIONS.map(option => (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                onCarryOverChange(option.value);
+                                setIsCarryOverOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${
+                                selectedCarryOver === option.value
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <span>{option.label}</span>
+                              {selectedCarryOver === option.value && <Check className="w-4 h-4" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Clear All Filters Button */}
               {hasActiveFilters && (

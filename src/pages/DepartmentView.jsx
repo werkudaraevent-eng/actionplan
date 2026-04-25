@@ -23,6 +23,7 @@ import ReportStatusMenu from '../components/action-plan/ReportStatusMenu';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
 import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../utils/lockUtils';
+import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 
 // NOTE: Manual audit logging REMOVED - DB trigger handles all audit logging automatically
 // See migration: enhanced_audit_trigger_super_detailed
@@ -86,6 +87,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
   const selectedCategory = searchParams.get('category') || 'all';
   const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
+  const selectedCarryOver = searchParams.get('carryOver') || 'all';
 
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -488,13 +490,28 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       });
     }
 
+    // Carry-over filter
+    if (selectedCarryOver !== 'all') {
+      filtered = filtered.filter(plan => {
+        const level = getCarryOverLevel(plan);
+        switch (selectedCarryOver) {
+          case 'co': return level > 0;           // All carry-overs
+          case '1': return level === 1;           // Late Month 1
+          case '2': return level === 2;           // Late Month 2
+          case '3+': return level >= 3;           // Late Month 3+
+          case 'normal': return level === 0;      // Non carry-over
+          default: return true;
+        }
+      });
+    }
+
     // Sort by month chronologically (Jan -> Dec), then by ID descending (newest first within same month)
     return [...filtered].sort((a, b) => {
       const monthDiff = (MONTH_INDEX[a.month] ?? 99) - (MONTH_INDEX[b.month] ?? 99);
       if (monthDiff !== 0) return monthDiff;
       return (b.id || 0) - (a.id || 0); // Newest first within same month
     });
-  }, [basePlans, selectedStatus, selectedCategory]);
+  }, [basePlans, selectedStatus, selectedCategory, selectedCarryOver]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation
@@ -516,12 +533,12 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   }, [tablePlans]);
 
   // Check if any filters are active
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || showPendingOnly;
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || selectedCarryOver !== 'all' || searchQuery.trim() || showPendingOnly;
 
   const clearAllFilters = () => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      ['q', 'startMonth', 'endMonth', 'status', 'category', 'pending'].forEach(k => next.delete(k));
+      ['q', 'startMonth', 'endMonth', 'status', 'category', 'carryOver', 'pending'].forEach(k => next.delete(k));
       return next;
     }, { replace: true });
   };
@@ -1823,6 +1840,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         setSelectedStatus={setSelectedStatus}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
+        selectedCarryOver={selectedCarryOver}
+        onCarryOverChange={(val) => setParam('carryOver', val === 'all' ? '' : val)}
         columnVisibility={{ visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns }}
         onClear={clearAllFilters}
         searchPlaceholder="Search goals, PIC, or strategy..."

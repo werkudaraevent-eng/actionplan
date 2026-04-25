@@ -18,6 +18,7 @@ import ConfirmationModal from '../components/common/ConfirmationModal';
 import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal';
 import ExportConfigModal from '../components/action-plan/ExportConfigModal';
 import { useToast } from '../components/common/Toast';
+import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -76,6 +77,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const setSelectedDept = useCallback((v) => setParam('dept', v, 'all'), [setParam]);
   const selectedCategory = searchParams.get('category') || 'all';
   const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
+  const selectedCarryOver = searchParams.get('carryOver') || 'all';
 
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -173,11 +175,24 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         if (!matchesSearch) return false;
       }
 
+      // Carry-over filter
+      if (selectedCarryOver !== 'all') {
+        const level = getCarryOverLevel(plan);
+        switch (selectedCarryOver) {
+          case 'co': if (level <= 0) return false; break;
+          case '1': if (level !== 1) return false; break;
+          case '2': if (level !== 2) return false; break;
+          case '3+': if (level < 3) return false; break;
+          case 'normal': if (level !== 0) return false; break;
+          default: break;
+        }
+      }
+
       return true;
     });
 
     return filtered;
-  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, selectedCarryOver]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation
@@ -199,12 +214,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     return grouped.size;
   }, [filteredPlans]);
 
-  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim();
+  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || selectedCarryOver !== 'all';
 
   const clearAllFilters = () => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      ['q', 'startMonth', 'endMonth', 'status', 'dept', 'category'].forEach(k => next.delete(k));
+      ['q', 'startMonth', 'endMonth', 'status', 'dept', 'category', 'carryOver'].forEach(k => next.delete(k));
       return next;
     }, { replace: true });
   };
@@ -840,6 +855,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         selectedDept={selectedDept}
         setSelectedDept={setSelectedDept}
         departments={departments}
+        selectedCarryOver={selectedCarryOver}
+        onCarryOverChange={(val) => setParam('carryOver', val === 'all' ? '' : val)}
         searchPlaceholder="Search across all departments..."
         headerActions={
           <>

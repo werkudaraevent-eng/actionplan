@@ -5,6 +5,8 @@ import { useCompanyContext } from '../../context/CompanyContext';
 import { supabase } from '../../lib/supabase';
 import { getPicDisplayName } from '../../utils/picUtils';
 import { usePicProfiles } from '../../hooks/usePicProfiles';
+import { getCarryOverVisual } from '../../utils/resolutionWizardUtils';
+import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 
 // Helper function for priority badge styling
 const getPriorityStyle = (priority) => {
@@ -38,6 +40,8 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   // Verdict state for failed plans
   const [verdict, setVerdict] = useState(null); // null | 'revision' | 'carry_over' | 'failed'
   const [revisionDays, setRevisionDays] = useState(3); // Configurable grace period (days)
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   // Validation & Confirmation states
   const [showError, setShowError] = useState(false);
@@ -91,6 +95,8 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       setShowConfirmReject(false);
       setShowConfirmVerdict(false);
       setLoading(false);
+      setDuplicateWarning(null);
+      setCheckingDuplicate(false);
     }
   }, [isOpen, plan?.id]);
 
@@ -325,23 +331,24 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
                 {/* CARRY-OVER PENALTY BANNER */}
-                {isCapped && (
-                  <div className={`rounded-lg p-4 flex items-start gap-3 ${scoreLimit <= 50
-                    ? 'bg-rose-50 border border-rose-200'
-                    : 'bg-amber-50 border border-amber-200'
-                    }`}>
-                    <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${scoreLimit <= 50 ? 'text-rose-600' : 'text-amber-600'}`} />
-                    <div>
-                      <h4 className={`font-bold text-sm ${scoreLimit <= 50 ? 'text-rose-800' : 'text-amber-800'}`}>
-                        Score Capped at {scoreLimit}%
-                      </h4>
-                      <p className={`text-sm mt-0.5 ${scoreLimit <= 50 ? 'text-rose-700' : 'text-amber-700'}`}>
-                        This is a carried-over item{plan.carry_over_status === 'Late_Month_2' ? ' (2nd carry-over)' : ''}.
-                        The maximum possible score is limited to {scoreLimit} due to late submission penalty.
-                      </p>
+                {isCapped && (() => {
+                  const coVisual = getCarryOverVisual(plan);
+                  return (
+                    <div className={`rounded-lg p-4 flex items-start gap-3 border ${coVisual ? coVisual.bannerBg : 'bg-amber-50 border-amber-200'}`}>
+                      <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${coVisual ? coVisual.bannerIcon : 'text-amber-600'}`} />
+                      <div>
+                        <h4 className={`font-bold text-sm ${coVisual ? coVisual.textColor : 'text-amber-800'}`}>
+                          {coVisual ? coVisual.icon : ''} Score Capped at {scoreLimit}%
+                        </h4>
+                        <p className={`text-sm mt-0.5 ${coVisual ? coVisual.subtextColor : 'text-amber-700'}`}>
+                          This is a carried-over item{coVisual ? ` (${coVisual.ordinal} carry-over)` : ''}.
+                          The maximum possible score is limited to {scoreLimit} due to late submission penalty.
+                          {coVisual?.isFinal && ' This is the final carry-over — no further extensions allowed.'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* UPDATE MODE SAFETY BANNER */}
                 {isUpdateMode && (
@@ -579,7 +586,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                             name="verdict"
                             value="revision"
                             checked={verdict === 'revision'}
-                            onChange={() => setVerdict('revision')}
+                            onChange={() => { setVerdict('revision'); setDuplicateWarning(null); }}
                             className="mt-1 accent-amber-500"
                           />
                           <div className="flex-1">
@@ -618,7 +625,26 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                             name="verdict"
                             value="carry_over"
                             checked={verdict === 'carry_over'}
-                            onChange={() => setVerdict('carry_over')}
+                            onChange={async () => {
+                              setVerdict('carry_over');
+                              setDuplicateWarning(null);
+                              if (plan) {
+                                setCheckingDuplicate(true);
+                                try {
+                                  const { nextMonth, nextYear } = getNextMonthYear(plan.month, plan.year);
+                                  if (nextMonth) {
+                                    const result = await checkCarryOverDuplicate(plan, nextMonth, nextYear);
+                                    if (result.hasDuplicate) {
+                                      setDuplicateWarning(result);
+                                    }
+                                  }
+                                } catch (err) {
+                                  console.warn('[GradeModal] Duplicate check failed:', err);
+                                } finally {
+                                  setCheckingDuplicate(false);
+                                }
+                              }
+                            }}
                             className="mt-1 accent-blue-500"
                           />
                           <div className="flex-1">
@@ -629,6 +655,32 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                             <p className="text-xs text-gray-500 mt-0.5">Fail this plan and auto-create a penalized copy for next month.</p>
                           </div>
                         </label>
+                {/* Carry-over duplicate warning */}
+                {verdict === 'carry_over' && checkingDuplicate && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 ml-6 mt-1">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memeriksa duplikat...</span>
+                  </div>
+                )}
+                {verdict === 'carry_over' && duplicateWarning && !checkingDuplicate && (
+                  <div className="ml-6 mt-1 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-sm text-amber-800">
+                        <p className="font-medium">Plan serupa sudah ada di bulan tujuan</p>
+                        <p className="mt-0.5">
+                          &quot;{duplicateWarning.duplicatePlan.action_plan}&quot;
+                          <span className="ml-1 text-amber-600">
+                            ({duplicateWarning.duplicatePlan.status})
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-amber-600 text-xs">
+                          Carry over akan membuat duplikat di bulan tersebut.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                         {/* Option 3: Mark as Failed */}
                         <label
                           className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${verdict === 'failed'
@@ -641,7 +693,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                             name="verdict"
                             value="failed"
                             checked={verdict === 'failed'}
-                            onChange={() => setVerdict('failed')}
+                            onChange={() => { setVerdict('failed'); setDuplicateWarning(null); }}
                             className="mt-1 accent-rose-500"
                           />
                           <div className="flex-1">

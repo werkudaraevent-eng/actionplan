@@ -318,6 +318,9 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
             const picRaw = mappedRow['PIC']?.toString().trim() || '';
             const { picIds, legacyPicText } = resolvePicNames(picRaw, profileLookup);
 
+            // Generate a recurring group ID if this row spans multiple months
+            const recurringGroupId = parsedMonths.length > 1 ? crypto.randomUUID() : null;
+
             // Create one record per parsed month (handles ranges like "Jan - Mar")
             for (const month of parsedMonths) {
               // NOTE: Score is NOT imported - it is graded later on the web by Management
@@ -337,6 +340,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
                 remark: mappedRow['Remarks']?.toString().trim() || null,
                 company_id: activeCompanyId, // MULTI-TENANT: stamp company_id on imported rows
+                recurring_group_id: recurringGroupId,
               };
 
               const { error } = await supabase.from('action_plans').insert(insertData);

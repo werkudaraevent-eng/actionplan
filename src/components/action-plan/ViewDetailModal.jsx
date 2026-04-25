@@ -809,6 +809,16 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                     </div>
                   )}
 
+                  {/* Evidence Target Output */}
+                  {plan.evidence && (
+                    <div>
+                      <span className="text-xs text-gray-500 block mb-1">Evidence (Target Output)</span>
+                      <p className="text-sm text-gray-800 bg-white rounded-lg p-2.5 border border-gray-100">
+                        {plan.evidence}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Multi-Attachment Evidence List */}
                   {Array.isArray(plan.attachments) && plan.attachments.length > 0 ? (
                     <div>

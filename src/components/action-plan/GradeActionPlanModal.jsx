@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel, Link2, Image, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { supabase } from '../../lib/supabase';
@@ -25,6 +25,57 @@ const getPriorityStyle = (priority) => {
     return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200', icon: false };
   }
   return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200', icon: false };
+};
+
+// Evidence bucket name — must match EvidenceManager.jsx
+const EVIDENCE_BUCKET = 'evidence-attachments';
+
+// Derive download URL from the storage path at render time (3-tier resolution)
+function getReliableFileUrl(item) {
+  let storagePath = item.storage_path || item.path;
+  if (!storagePath && item.url) {
+    try {
+      const marker = `/object/public/${EVIDENCE_BUCKET}/`;
+      const idx = item.url.indexOf(marker);
+      if (idx !== -1) {
+        storagePath = decodeURIComponent(item.url.substring(idx + marker.length));
+      }
+    } catch { /* fall through to item.url */ }
+  }
+  if (item.type === 'file' && storagePath) {
+    const { data } = supabase.storage.from(EVIDENCE_BUCKET).getPublicUrl(storagePath);
+    return data.publicUrl;
+  }
+  return item.url;
+}
+
+// Helper to detect if a string is a valid URL
+const isUrl = (string) => {
+  if (!string) return false;
+  try {
+    new URL(string);
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+
+// Helper: file type icon for attachments
+const getAttachmentIcon = (item) => {
+  if (item.type === 'link') return <Link2 className="w-4 h-4 text-indigo-500" />;
+  const mime = item.mime || '';
+  if (mime.startsWith('image/')) return <Image className="w-4 h-4 text-blue-500" />;
+  if (mime === 'application/pdf') return <FileText className="w-4 h-4 text-red-500" />;
+  if (mime.includes('spreadsheet') || mime.includes('csv')) return <FileSpreadsheet className="w-4 h-4 text-green-600" />;
+  return <FileText className="w-4 h-4 text-orange-500" />;
+};
+
+// Helper: format file size
+const formatFileSize = (bytes) => {
+  if (!bytes || typeof bytes !== 'number') return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
@@ -443,10 +494,42 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                     Submission Evidence
                   </h3>
 
-                  {plan.outcome_link ? (
+                  {/* Multi-Attachment Evidence List */}
+                  {Array.isArray(plan.attachments) && plan.attachments.length > 0 ? (
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                      <p className="text-xs text-gray-600 mb-2 font-medium">
+                        Evidence Attachments ({plan.attachments.length})
+                      </p>
+                      <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 bg-white overflow-hidden">
+                        {plan.attachments.map((item, idx) => (
+                          <a
+                            key={idx}
+                            href={getReliableFileUrl(item)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 transition-colors group"
+                          >
+                            {getAttachmentIcon(item)}
+                            <span className="flex-1 min-w-0 text-sm text-gray-800 font-medium truncate group-hover:text-blue-600 transition-colors">
+                              {item.name || item.title || item.url}
+                            </span>
+                            {item.type === 'file' && item.size && (
+                              <span className="text-xs text-gray-400 flex-shrink-0">{formatFileSize(item.size)}</span>
+                            )}
+                            <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${item.type === 'file' ? 'bg-gray-100 text-gray-500' : 'bg-indigo-50 text-indigo-500'
+                              }`}>
+                              {item.type}
+                            </span>
+                            <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 flex-shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : plan.outcome_link ? (
+                    /* Legacy Fallback: Single outcome_link */
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
                       <p className="text-xs text-gray-600 mb-2 font-medium">Proof of Evidence:</p>
-                      {plan.outcome_link.startsWith('http') ? (
+                      {isUrl(plan.outcome_link) ? (
                         <a
                           href={plan.outcome_link}
                           target="_blank"

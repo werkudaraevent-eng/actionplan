@@ -378,6 +378,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
   const [followUpAction, setFollowUpAction] = useState('carry_over'); // 'drop' or 'carry_over'
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
+  const duplicateConfirmedRef = useRef(false);
+  const formRef = useRef(null);
 
   // Drop approval policy state — fetched from Admin Settings
   const [dropPolicy, setDropPolicy] = useState(null);
@@ -586,6 +589,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       setRepeatEnabled(false);
       setSelectedMonths([]);
       setStagedPaths([]); // Reset staged file tracking on modal open
+      setShowDuplicateConfirm(false);
+      duplicateConfirmedRef.current = false;
       // Capture initial attachment count for dirty-state detection of newly added links
       initialAttachmentCountRef.current = Array.isArray(dbAttachments) ? dbAttachments.length
         : (editData.outcome_link?.trim() ? 1 : 0);
@@ -716,6 +721,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       setFollowUpAction('carry_over');
       setDuplicateWarning(null);
       setCheckingDuplicate(false);
+      setShowDuplicateConfirm(false);
+      duplicateConfirmedRef.current = false;
       setIsCustomGoal(false);
       setIsCustomAction(false);
       setBlockerPrefillActive(false);
@@ -747,6 +754,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
       }
     }
    };
+
+  // Confirm carry-over despite duplicate warning
+  const handleConfirmDuplicateSave = () => {
+    setShowDuplicateConfirm(false);
+    duplicateConfirmedRef.current = true;
+    // Re-trigger form submission programmatically
+    formRef.current?.requestSubmit();
+  };
 
   // Auto-check for duplicates when follow-up section becomes visible with carry_over pre-selected
   useEffect(() => {
@@ -960,6 +975,14 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         return;
       }
     }
+
+    // Intercept save if carry-over duplicate warning is active and not yet confirmed
+    if (duplicateWarning && followUpAction === 'carry_over' && !duplicateConfirmedRef.current) {
+      setShowDuplicateConfirm(true);
+      return;
+    }
+    // Reset the confirmed flag after passing the check
+    duplicateConfirmedRef.current = false;
 
     // Show confirmation if creating multiple plans
     if (repeatEnabled && selectedMonths.length > 0 && !showConfirm) {
@@ -2612,7 +2635,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
 
         {/* STICKY FOOTER */}
         <div className="p-6 border-t border-gray-100 bg-gray-50/50 shrink-0 rounded-b-2xl">
-          <form onSubmit={handleSubmit}>
+          <form ref={formRef} onSubmit={handleSubmit}>
             <div className="flex gap-3">
               <button
                 type="button"
@@ -2678,6 +2701,59 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
           </form>
         </div>
       </div>
+
+      {/* ─── Carry-Over Duplicate Confirmation Modal ─── */}
+      {showDuplicateConfirm && duplicateWarning && (
+        <div className="fixed inset-0 z-[10003] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setShowDuplicateConfirm(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md ring-1 ring-black/10 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 pb-2">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Duplikat Terdeteksi
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    Plan serupa sudah ada di bulan tujuan:
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm font-medium text-amber-900">
+                  &quot;{duplicateWarning.duplicatePlan.action_plan}&quot;
+                </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Status: {duplicateWarning.duplicatePlan.status}
+                </p>
+              </div>
+              <p className="mt-3 text-sm text-gray-600">
+                Melanjutkan carry over akan membuat duplikat di bulan tersebut. Apakah Anda yakin?
+              </p>
+            </div>
+            <div className="p-6 pt-3 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDuplicateConfirm(false)}
+                className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+              >
+                Batalkan
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDuplicateSave}
+                className="flex-1 px-4 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium text-sm"
+              >
+                Tetap Carry Over
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Unsaved Changes Confirmation Dialog ─── */}
       {showDiscardWarning && (

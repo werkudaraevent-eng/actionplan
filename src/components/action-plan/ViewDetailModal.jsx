@@ -5,6 +5,8 @@ import { supabase, withTimeout } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../common/Toast';
 import { getBlockedDays, getBlockedSeverity } from '../../utils/escalationUtils';
+import { fetchCarryOverSettings } from '../../utils/resolutionWizardUtils';
+import CarryOverHistorySection from './CarryOverHistorySection';
 import { isUserPicOfPlan, getPicDisplayName, batchResolveProfiles } from '../../utils/picUtils';
 import { extractMentionIds, getPlainTextFromMentions } from '../../utils/mentionUtils';
 import MentionInput from '../common/MentionInput';
@@ -127,6 +129,7 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
   // Resolve PIC display name (async, cached)
   const [picDisplayName, setPicDisplayName] = useState(plan?.pic || plan?.legacy_pic_text || '—');
   const [supportPicDisplayName, setSupportPicDisplayName] = useState(null);
+  const [carryOverSettings, setCarryOverSettings] = useState(null);
 
   // Stabilize dependency to avoid infinite re-renders (same fix as usePicProfiles)
   const picIdsKey = Array.isArray(plan?.pic_ids) ? [...plan.pic_ids].sort().join(',') : '';
@@ -219,6 +222,13 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
     },
   };
   const blockerTheme = plan ? (BLOCKER_THEMES[plan.attention_level] || BLOCKER_THEMES.Standard) : BLOCKER_THEMES.Standard;
+
+  // Fetch carry-over settings for isFinal detection
+  useEffect(() => {
+    fetchCarryOverSettings()
+      .then(setCarryOverSettings)
+      .catch(() => setCarryOverSettings(null));
+  }, []);
 
   // Fetch unified timeline (progress logs + audit logs)
   // Re-fetch when plan.updated_at changes (e.g., after ActionPlanModal saves and refreshes the plan)
@@ -746,26 +756,10 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
             </div>
           </div>
 
-          {/* Carry-Over Warning Banner */}
-          {
-            plan.carry_over_status && plan.carry_over_status !== 'Normal' && (
-              <div className={`rounded-xl p-4 border mb-4 flex items-center gap-3 ${plan.carry_over_status === 'Late_Month_2'
-                ? 'bg-rose-50 border-rose-200'
-                : 'bg-amber-50 border-amber-200'
-                }`}>
-                <span className="text-lg flex-shrink-0">{plan.carry_over_status === 'Late_Month_2' ? '🔥' : '↩️'}</span>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-800' : 'text-amber-800'}`}>
-                    {plan.carry_over_status === 'Late_Month_2' ? 'CRITICAL LATE — 2nd Carry Over' : 'LATE — 1st Carry Over'}
-                  </p>
-                  <p className={`text-xs mt-0.5 ${plan.carry_over_status === 'Late_Month_2' ? 'text-rose-600' : 'text-amber-600'}`}>
-                    Max achievable score capped at {plan.max_possible_score ?? (plan.carry_over_status === 'Late_Month_2' ? 50 : 80)}%.
-                    {plan.carry_over_status === 'Late_Month_2' && ' Must be resolved this month — no further carry-over allowed.'}
-                  </p>
-                </div>
-              </div>
-            )
-          }
+          {/* CARRY-OVER HISTORY SECTION (replaces old banner) */}
+          <div className="mb-4">
+            <CarryOverHistorySection plan={plan} settings={carryOverSettings} />
+          </div>
 
           {/* Action Plan */}
           <div className="bg-teal-50 rounded-xl p-5 border border-teal-100 mb-4">

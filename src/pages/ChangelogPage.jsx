@@ -29,14 +29,15 @@ export default function ChangelogPage() {
   }, []);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-8">
+    <div className="h-full flex flex-col">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4 shrink-0">
         <h1 className="text-2xl font-bold text-gray-900">Changelog</h1>
         <p className="text-sm text-gray-500 mt-1">Riwayat pembaruan dan perbaikan platform</p>
       </div>
 
-      {/* Timeline */}
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
       <div className="space-y-8">
         {CHANGELOG.map((release, idx) => (
           <div key={release.version} className="relative">
@@ -89,6 +90,7 @@ export default function ChangelogPage() {
       {/* Footer */}
       <div className="mt-12 text-center text-sm text-gray-400">
         Werkudara Group Action Plan Tracker
+      </div>
       </div>
     </div>
   );

@@ -446,11 +446,19 @@ export default function AdminDashboard({ onNavigate }) {
       return { reasons: [], topBlocker: null, totalFailed: 0 };
     }
 
-    // Parse reasons from remark field: [Cause: ...]
+    // Read failure reason from gap_category (primary) with legacy remark fallback
     const reasonCounts = {};
     failedPlans.forEach((plan) => {
-      const match = plan.remark?.match(/\[Cause: (.*?)\]/);
-      const reason = match?.[1]?.trim() || 'Unspecified';
+      let reason = 'Unspecified';
+      if (plan.gap_category) {
+        reason = plan.gap_category === 'Other' && plan.specify_reason
+          ? plan.specify_reason
+          : plan.gap_category;
+      } else {
+        // Legacy fallback: parse [Cause: ...] from remark field
+        const match = plan.remark?.match(/\[Cause: (.*?)\]/);
+        if (match?.[1]) reason = match[1].trim();
+      }
       reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
 

@@ -13,6 +13,22 @@
 
 export const CHANGELOG = [
   {
+    version: '1.6.1',
+    date: '2026-04-26',
+    title: 'PDF Export, Sorting & Security Fixes',
+    changes: [
+      { type: 'improvement', description: 'PDF Export — tabel sekarang memenuhi seluruh lebar halaman secara proporsional, tidak ada lagi ruang kosong di sisi kanan' },
+      { type: 'improvement', description: 'PDF Export — kolom PIC sekarang menampilkan nama lengkap (sebelumnya hanya "-")' },
+      { type: 'improvement', description: 'PDF Export — kolom Proof of Evidence sekarang berupa link biru yang bisa diklik langsung di PDF viewer' },
+      { type: 'fix', description: 'Sorting kolom PIC di tabel action plan sekarang berfungsi dengan benar' },
+      { type: 'fix', description: 'Maintenance banner sekarang muncul langsung di halaman login sebelum user mencoba login' },
+      { type: 'fix', description: 'Banner maintenance dan sandbox tidak lagi menyebabkan celah atau memotong konten sidebar' },
+      { type: 'security', description: 'Clone company attributes sekarang hanya bisa diakses oleh Holding Admin' },
+      { type: 'security', description: 'Login saat maintenance mode sekarang diverifikasi server-side — hanya admin yang bisa masuk' },
+      { type: 'security', description: 'Perbaikan isolasi data cross-company pada fitur carry-over duplicate check dan history chain' },
+    ],
+  },
+  {
     version: '1.6.0',
     date: '2026-04-25',
     title: 'Corporate Branding & Personalisasi',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { CompanyProvider } from './context/CompanyContext';
+import { CompanyProvider, useCompanyContext } from './context/CompanyContext';
 import { DepartmentProvider } from './context/DepartmentContext';
 import { ToastProvider } from './components/common/Toast';
 import LoginPage from './pages/LoginPage';
@@ -23,7 +23,7 @@ import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
 import HoldingManagement from './pages/HoldingManagement';
 import { supabase } from './lib/supabase';
-import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock } from 'lucide-react';
+import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical } from 'lucide-react';
 
 // Error screen for missing profile
 function ProfileErrorScreen({ error, onSignOut }) {
@@ -246,6 +246,7 @@ function DefaultRedirect() {
 // Main App Content with Routes
 function AppRoutes() {
   const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
+  const { isSandbox } = useCompanyContext();
   const location = useLocation();
 
   // ── MAINTENANCE MODE GATE (hooks must be before any returns) ──
@@ -317,8 +318,17 @@ function AppRoutes() {
           <Lock className="w-4 h-4 animate-pulse" />
         </div>
       )}
+      {/* SANDBOX MODE BANNER */}
+      {isSandbox && (
+        <div className="fixed top-0 left-0 right-0 z-[9998] bg-gradient-to-r from-amber-500 to-orange-500 text-white text-center py-1.5 text-sm font-medium shadow-md">
+          <span className="inline-flex items-center gap-1.5">
+            <FlaskConical className="w-4 h-4" />
+            SANDBOX MODE — Data di sini tidak mempengaruhi production
+          </span>
+        </div>
+      )}
       <Sidebar />
-      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${isMaintenanceMode && isAdmin ? 'pt-10' : ''}`}>
+      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${isMaintenanceMode && isAdmin ? 'pt-10' : isSandbox ? 'pt-8' : ''}`}>
         <Routes>
           {/* Default redirect based on role */}
           <Route path="/" element={<DefaultRedirect />} />

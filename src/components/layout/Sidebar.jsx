@@ -15,7 +15,7 @@ export default function Sidebar() {
   const { profile, isAdmin, isHoldingAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
   const { currentDept, accessibleDepts, switchDept, hasMultipleDepts } = useDepartmentContext();
   const { can } = usePermission();
-  const { companies, activeCompanyId, activeCompany, setActiveCompanyId, canSwitchCompany, isHoldingContext } = useCompanyContext();
+  const { companies, activeCompanyId, activeCompany, setActiveCompanyId, canSwitchCompany, isHoldingContext, isSandbox } = useCompanyContext();
 
   // MULTI-TENANT: Use company-scoped departments for the sidebar list
   // This is the same hook used by DepartmentContext, scoped to activeCompanyId
@@ -192,9 +192,9 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-64 min-w-64 flex-shrink-0 bg-teal-800 h-screen flex flex-col relative z-40">
+    <div className={`w-64 min-w-64 flex-shrink-0 ${isSandbox ? 'bg-amber-800' : 'bg-teal-800'} h-screen flex flex-col relative z-40`}>
       {/* Header — Dynamic Tenant Branding */}
-      <div className="p-4 border-b border-teal-700 flex-shrink-0">
+      <div className={`p-4 border-b ${isSandbox ? 'border-amber-700' : 'border-teal-700'} flex-shrink-0`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 flex-shrink-0 rounded-lg overflow-hidden shadow-sm">
             {activeCompany?.logo_url ? (
@@ -219,7 +219,9 @@ export default function Sidebar() {
             <h1 className="text-white font-bold text-sm truncate" title={activeCompany?.name || 'Werkudara Group'}>
               {activeCompany?.name || 'Werkudara Group'}
             </h1>
-            <p className="text-teal-300 text-xs">Action Plan Tracker</p>
+            <p className={`${isSandbox ? 'text-amber-300' : 'text-teal-300'} text-xs`}>
+              {isSandbox ? 'Sandbox Environment' : 'Action Plan Tracker'}
+            </p>
           </div>
         </div>
       </div>

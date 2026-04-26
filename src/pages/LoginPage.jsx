@@ -182,7 +182,7 @@ export default function LoginPage() {
           <div className="space-y-8">
             <div>
               <h2 className="text-white text-3xl font-bold leading-tight">
-                Track, Measure,<br />Achieve.
+                Track, Measure, Achieve.
               </h2>
               <p className="text-blue-200 mt-4 text-lg leading-relaxed max-w-md">
                 Platform terpadu untuk mengelola dan memantau action plan departemen dengan tracking, reporting, dan real-time analytics.

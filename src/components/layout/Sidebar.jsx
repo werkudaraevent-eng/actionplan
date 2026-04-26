@@ -231,13 +231,13 @@ export default function Sidebar() {
             <div
               className={`w-full h-full bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo} rounded-lg flex items-center justify-center ${activeCompany?.logo_url ? 'hidden' : ''}`}
             >
-              <span className="text-white font-bold text-sm">
+              <span className={`${theme.textPrimary} font-bold text-sm`}>
                 {(activeCompany?.name || 'W').charAt(0).toUpperCase()}
               </span>
             </div>
           </div>
           <div className="min-w-0">
-            <h1 className="text-white font-bold text-sm truncate" title={activeCompany?.name || 'Werkudara Group'}>
+            <h1 className={`${theme.textPrimary} font-bold text-sm truncate`} title={activeCompany?.name || 'Werkudara Group'}>
               {activeCompany?.name || 'Werkudara Group'}
             </h1>
             <p className={`${theme.textSecondary} text-xs`}>
@@ -270,7 +270,7 @@ export default function Sidebar() {
             </span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-white font-medium text-sm truncate leading-tight">{profile?.full_name}</p>
+            <p className={`${theme.textPrimary} font-medium text-sm truncate leading-tight`}>{profile?.full_name}</p>
             <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
               {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff · ${departmentCode}` : `Leader · ${departmentCode}`}
             </p>
@@ -306,7 +306,7 @@ export default function Sidebar() {
                 value={activeCompanyId || ''}
                 onChange={(e) => handleWorkspaceSwitch(e.target.value)}
                 disabled={isSwitching}
-                className={`w-full max-w-full ${theme.selectBg} text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
+                className={`w-full max-w-full ${theme.selectBg} ${theme.selectText} text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
                 style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
               >
                 {/* Holding entity at the top */}
@@ -490,10 +490,10 @@ export default function Sidebar() {
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, '/workspace')}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg text-white text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
-                      <option key={dept.code} value={dept.code} className={theme.container}>
+                      <option key={dept.code} value={dept.code}>
                         {dept.code} - {dept.name}
                       </option>
                     ))}
@@ -546,10 +546,10 @@ export default function Sidebar() {
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, `/dept/${e.target.value}/dashboard`)}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg text-white text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
-                      <option key={dept.code} value={dept.code} className={theme.container}>
+                      <option key={dept.code} value={dept.code}>
                         {dept.code} - {dept.name}
                       </option>
                     ))}

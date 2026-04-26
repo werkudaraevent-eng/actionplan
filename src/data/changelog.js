@@ -13,6 +13,14 @@
 
 export const CHANGELOG = [
   {
+    version: '1.7.1',
+    date: '2026-04-26',
+    title: 'Data Security & Stability',
+    changes: [
+      { type: 'security', description: 'Perbaikan kebocoran data saat refresh halaman — data subsidiary lain tidak lagi muncul sesaat sebelum halaman selesai dimuat' },
+    ],
+  },
+  {
     version: '1.7.0',
     date: '2026-04-26',
     title: 'Dashboard Export & Analisa AI',

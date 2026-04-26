@@ -309,10 +309,10 @@ function AppRoutes() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* Admin maintenance awareness banner */}
       {isMaintenanceMode && isAdmin && (
-        <div className="fixed top-0 left-0 right-0 z-[9999] bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg">
+        <div className="shrink-0 bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 flex items-center justify-center gap-2 text-sm font-semibold shadow-lg z-50">
           <Lock className="w-4 h-4 animate-pulse" />
           <span>MAINTENANCE MODE IS ACTIVE</span>
           <span className="hidden sm:inline text-red-200 font-normal">— Regular users are currently locked out.</span>
@@ -320,16 +320,17 @@ function AppRoutes() {
         </div>
       )}
       {/* SANDBOX MODE BANNER */}
-      {isSandbox && (
-        <div className="fixed top-0 left-0 right-0 z-[9998] bg-gradient-to-r from-amber-500 to-orange-500 text-white text-center py-1.5 text-sm font-medium shadow-md">
+      {isSandbox && !isMaintenanceMode && (
+        <div className="shrink-0 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-center py-1.5 text-sm font-medium shadow-md z-50">
           <span className="inline-flex items-center gap-1.5">
             <FlaskConical className="w-4 h-4" />
             SANDBOX MODE — Data di sini tidak mempengaruhi production
           </span>
         </div>
       )}
+      <div className="flex flex-1 overflow-hidden">
       <Sidebar />
-      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${isMaintenanceMode && isAdmin ? 'pt-10' : isSandbox ? 'pt-8' : ''}`}>
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <Routes>
           {/* Default redirect based on role */}
           <Route path="/" element={<DefaultRedirect />} />
@@ -418,6 +419,7 @@ function AppRoutes() {
           <Route path="*" element={<DefaultRedirect />} />
         </Routes>
       </main>
+      </div>
     </div>
   );
 }

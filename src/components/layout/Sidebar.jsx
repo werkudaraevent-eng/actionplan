@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Palette } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -9,6 +9,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { getLatestVersion } from '../../data/changelog';
+import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme } from '../../data/sidebarThemes';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -21,6 +22,17 @@ export default function Sidebar() {
   // MULTI-TENANT: Use company-scoped departments for the sidebar list
   // This is the same hook used by DepartmentContext, scoped to activeCompanyId
   const { departments, loading: deptLoading } = useDepartments(activeCompanyId);
+
+  // Sidebar theme state
+  const [themeId, setThemeId] = useState(getSavedTheme);
+
+  // Resolve active theme: sandbox overrides user preference
+  const theme = isSandbox ? SANDBOX_THEME : (SIDEBAR_THEMES[themeId] || SIDEBAR_THEMES.teal);
+
+  const handleThemeChange = (newThemeId) => {
+    setThemeId(newThemeId);
+    saveTheme(newThemeId);
+  };
 
   // Check if user has unread changelog entries
   const hasNewChangelog = useMemo(() => {
@@ -201,13 +213,13 @@ export default function Sidebar() {
   };
 
   return (
-    <div className={`w-64 min-w-64 flex-shrink-0 ${isSandbox ? 'bg-amber-800' : 'bg-teal-800'} h-screen flex flex-col relative z-40`}>
+    <div className={`w-64 min-w-64 flex-shrink-0 ${theme.container} h-screen flex flex-col relative z-40`}>
       {/* Header — Dynamic Tenant Branding */}
-      <div className={`p-4 border-b ${isSandbox ? 'border-amber-700' : 'border-teal-700'} flex-shrink-0`}>
+      <div className={`p-4 border-b ${theme.headerBorder} flex-shrink-0`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 flex-shrink-0 rounded-lg overflow-hidden shadow-sm">
             {activeCompany?.logo_url ? (
-              <div className="w-full h-full bg-white rounded-lg border border-teal-600/30 p-1 flex items-center justify-center">
+              <div className="w-full h-full bg-white rounded-lg border border-white/20 p-1 flex items-center justify-center">
                 <img
                   src={activeCompany.logo_url}
                   alt={activeCompany.name}
@@ -217,7 +229,7 @@ export default function Sidebar() {
               </div>
             ) : null}
             <div
-              className={`w-full h-full bg-gradient-to-br from-teal-500 to-teal-700 rounded-lg flex items-center justify-center ${activeCompany?.logo_url ? 'hidden' : ''}`}
+              className={`w-full h-full bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo} rounded-lg flex items-center justify-center ${activeCompany?.logo_url ? 'hidden' : ''}`}
             >
               <span className="text-white font-bold text-sm">
                 {(activeCompany?.name || 'W').charAt(0).toUpperCase()}
@@ -228,7 +240,7 @@ export default function Sidebar() {
             <h1 className="text-white font-bold text-sm truncate" title={activeCompany?.name || 'Werkudara Group'}>
               {activeCompany?.name || 'Werkudara Group'}
             </h1>
-            <p className={`${isSandbox ? 'text-amber-300' : 'text-teal-300'} text-xs`}>
+            <p className={`${theme.textSecondary} text-xs`}>
               {isSandbox ? 'Sandbox Environment' : 'Action Plan Tracker'}
             </p>
           </div>
@@ -237,8 +249,8 @@ export default function Sidebar() {
 
       {/* User Info — Compact */}
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <div className="flex items-center gap-2.5 bg-teal-700/40 rounded-lg px-2.5 py-2 mb-2">
-          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-teal-600'}`}>
+        <div className={`flex items-center gap-2.5 ${theme.userCard} rounded-lg px-2.5 py-2 mb-2`}>
+          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : `bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo}`}`}>
             {/* Priority 1: Uploaded avatar (always wins) */}
             {profile?.avatar_url ? (
               <img
@@ -259,7 +271,7 @@ export default function Sidebar() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-white font-medium text-sm truncate leading-tight">{profile?.full_name}</p>
-            <p className="text-teal-400 text-[10px] truncate leading-tight">
+            <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
               {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff · ${departmentCode}` : `Leader · ${departmentCode}`}
             </p>
           </div>
@@ -294,7 +306,7 @@ export default function Sidebar() {
                 value={activeCompanyId || ''}
                 onChange={(e) => handleWorkspaceSwitch(e.target.value)}
                 disabled={isSwitching}
-                className={`w-full max-w-full bg-teal-900/80 text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:bg-teal-900 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
+                className={`w-full max-w-full ${theme.selectBg} text-white text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
                 style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
               >
                 {/* Holding entity at the top */}
@@ -324,10 +336,10 @@ export default function Sidebar() {
         {isAdmin || isExecutive ? (
           <>
             {/* ADMIN/EXECUTIVE VIEW: Full menu (read-only for Executive) */}
-            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Overview</p>
+            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Overview</p>
             <button
               onClick={() => navigate('/dashboard')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/dashboard') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/dashboard') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -336,7 +348,7 @@ export default function Sidebar() {
 
             <button
               onClick={() => navigate('/plans')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/plans') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/plans') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <ListChecks className="w-4 h-4" />
@@ -345,7 +357,7 @@ export default function Sidebar() {
 
             <button
               onClick={() => navigate('/action-center')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/action-center') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/action-center') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Gavel className="w-4 h-4" />
@@ -357,17 +369,17 @@ export default function Sidebar() {
               )}
             </button>
 
-            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">Departments</p>
+            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Departments</p>
             <div className="space-y-1">
               {isHoldingContext ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-teal-400/80 text-[11px]">
+                <div className={`flex items-center gap-2 px-3 py-2 ${theme.textSecondary} opacity-80 text-[11px]`}>
                   <Globe className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
                   <span>Select a subsidiary to view departments</span>
                 </div>
               ) : deptLoading ? (
-                <div className="px-3 py-2 text-teal-300 text-sm">Loading departments...</div>
+                <div className={`px-3 py-2 ${theme.textMuted} text-sm`}>Loading departments...</div>
               ) : departments.length === 0 ? (
-                <div className="px-3 py-2 text-teal-300 text-sm">No departments found</div>
+                <div className={`px-3 py-2 ${theme.textMuted} text-sm`}>No departments found</div>
               ) : (
                 <div className={`space-y-1 transition-opacity ${isActivatingDeptCode ? 'pointer-events-none' : ''}`}>
                   {departments.map((dept) => {
@@ -378,11 +390,11 @@ export default function Sidebar() {
                         key={dept.code}
                         onClick={() => handleDeptSwitch(dept)}
                         className={`w-full min-w-0 text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
-                          ? 'bg-teal-600/70 text-white'
-                          : isDeptActive ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                          ? `${theme.navActive} opacity-70`
+                          : isDeptActive ? theme.navActive : `${theme.navText} ${theme.navHover}`
                           }`}
                       >
-                        <span className="flex-shrink-0 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5 whitespace-nowrap">
+                        <span className={`flex-shrink-0 text-center font-mono text-sm ${theme.badgeBg} rounded px-1.5 py-0.5 whitespace-nowrap`}>
                           {isDeptLoading ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
                           ) : dept.code}
@@ -398,10 +410,10 @@ export default function Sidebar() {
             {/* System menu - Admin always sees full menu, others see based on permissions */}
             {isAdmin && (
               <>
-                <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
+                <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>
                 <button
                   onClick={() => navigate('/users')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Users className="w-4 h-4" />
@@ -409,7 +421,7 @@ export default function Sidebar() {
                 </button>
                 <button
                   onClick={() => navigate('/audit-log')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/audit-log') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/audit-log') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <History className="w-4 h-4" />
@@ -417,7 +429,7 @@ export default function Sidebar() {
                 </button>
                 <button
                   onClick={() => navigate('/permissions')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/permissions') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/permissions') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Shield className="w-4 h-4" />
@@ -425,7 +437,7 @@ export default function Sidebar() {
                 </button>
                 <button
                   onClick={() => navigate('/settings')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/settings') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/settings') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Settings className="w-4 h-4" />
@@ -452,10 +464,10 @@ export default function Sidebar() {
             {/* Team Management for non-admin users with permission */}
             {!isAdmin && can('user', 'view') && (
               <>
-                <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">System</p>
+                <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>
                 <button
                   onClick={() => navigate('/users')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Users className="w-4 h-4" />
@@ -467,29 +479,29 @@ export default function Sidebar() {
         ) : isStaff ? (
           <>
             {/* STAFF VIEW: My Tasks + Department Overview */}
-            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
+            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>
 
             {/* Department Switcher - Show if staff has multiple departments */}
             {hasMultipleDepts && (
               <div className="mb-3 px-2">
-                <label className="block text-teal-400 text-xs mb-1">Department</label>
+                <label className={`block ${theme.textSecondary} text-xs mb-1`}>Department</label>
                 <div className="relative">
                   <select
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, '/workspace')}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg text-white text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
-                      <option key={dept.code} value={dept.code} className="bg-teal-800">
+                      <option key={dept.code} value={dept.code} className={theme.container}>
                         {dept.code} - {dept.name}
                       </option>
                     ))}
                   </select>
                   {isSwitchingDept ? (
-                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 animate-spin" />
+                    <Loader2 className={`absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 ${theme.textMuted} animate-spin`} />
                   ) : (
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                    <ChevronDown className={`absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 ${theme.textMuted} pointer-events-none`} />
                   )}
                 </div>
               </div>
@@ -497,7 +509,7 @@ export default function Sidebar() {
 
             <button
               onClick={() => navigate('/workspace')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/workspace') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/workspace') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <ClipboardList className="w-4 h-4" />
@@ -507,7 +519,7 @@ export default function Sidebar() {
             {/* Allow staff to view department dashboard */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/dashboard`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -515,7 +527,7 @@ export default function Sidebar() {
             </button>
 
             {!hasMultipleDepts && (
-              <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
+              <p className={`${theme.textSecondary} opacity-60 text-xs mt-3 px-2 truncate`} title={getUserDeptName()}>
                 {getUserDeptName()}
               </p>
             )}
@@ -523,29 +535,29 @@ export default function Sidebar() {
         ) : (
           <>
             {/* LEADER VIEW: Dashboard + Manage */}
-            <p className="text-teal-400 text-xs uppercase tracking-wider mb-2 px-2">My Workspace</p>
+            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>
 
             {/* Department Switcher - Show if leader has multiple departments */}
             {hasMultipleDepts && (
               <div className="mb-3 px-2">
-                <label className="block text-teal-400 text-xs mb-1">Department</label>
+                <label className={`block ${theme.textSecondary} text-xs mb-1`}>Department</label>
                 <div className="relative">
                   <select
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, `/dept/${e.target.value}/dashboard`)}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 bg-teal-700/50 border border-teal-600 rounded-lg text-white text-sm appearance-none cursor-pointer hover:bg-teal-700 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg text-white text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
-                      <option key={dept.code} value={dept.code} className="bg-teal-800">
+                      <option key={dept.code} value={dept.code} className={theme.container}>
                         {dept.code} - {dept.name}
                       </option>
                     ))}
                   </select>
                   {isSwitchingDept ? (
-                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 animate-spin" />
+                    <Loader2 className={`absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 ${theme.textMuted} animate-spin`} />
                   ) : (
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-300 pointer-events-none" />
+                    <ChevronDown className={`absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 ${theme.textMuted} pointer-events-none`} />
                   )}
                 </div>
               </div>
@@ -554,7 +566,7 @@ export default function Sidebar() {
             {/* Dashboard Link */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive(`/dept/${currentDept}/dashboard`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive(`/dept/${currentDept}/dashboard`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -564,7 +576,7 @@ export default function Sidebar() {
             {/* Manage Action Plans Link */}
             <button
               onClick={() => navigate(`/dept/${currentDept}/plans`)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/plans`) ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/plans`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Table className="w-4 h-4" />
@@ -572,7 +584,7 @@ export default function Sidebar() {
             </button>
 
             {!hasMultipleDepts && (
-              <p className="text-teal-400/60 text-xs mt-3 px-2 truncate" title={getUserDeptName()}>
+              <p className={`${theme.textSecondary} opacity-60 text-xs mt-3 px-2 truncate`} title={getUserDeptName()}>
                 {getUserDeptName()}
               </p>
             )}
@@ -581,10 +593,28 @@ export default function Sidebar() {
       </nav>
 
       {/* My Profile & Sign Out */}
-      <div className="p-3 border-t border-teal-700 flex-shrink-0 space-y-1">
+      <div className={`p-3 border-t ${theme.divider} flex-shrink-0 space-y-1`}>
+        {/* Theme Switcher */}
+        {!isSandbox && (
+          <div className="flex items-center gap-1.5 px-3 py-2">
+            <Palette className={`w-4 h-4 ${theme.textSecondary}`} />
+            <div className="flex gap-1">
+              {Object.values(SIDEBAR_THEMES).map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => handleThemeChange(t.id)}
+                  title={t.label}
+                  className={`w-5 h-5 rounded-full ${t.preview} border-2 transition-transform ${
+                    themeId === t.id ? 'border-white scale-110' : 'border-transparent opacity-60 hover:opacity-100'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         <button
           onClick={() => navigate('/changelog')}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/changelog') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/changelog') ? theme.navActive : `${theme.navText} ${theme.navHover}`
             }`}
         >
           <ScrollText className="w-4 h-4" />
@@ -597,7 +627,7 @@ export default function Sidebar() {
         </button>
         <button
           onClick={() => navigate('/profile')}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/profile') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/profile') ? theme.navActive : `${theme.navText} ${theme.navHover}`
             }`}
         >
           <UserCircle className="w-4 h-4" />
@@ -605,7 +635,7 @@ export default function Sidebar() {
         </button>
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-2 px-3 py-2.5 text-teal-200 hover:bg-teal-700/50 rounded-lg transition-all"
+          className={`w-full flex items-center gap-2 px-3 py-2.5 ${theme.navText} ${theme.navHover} rounded-lg transition-all`}
         >
           <LogOut className="w-4 h-4" />
           <span className="text-sm">Sign Out</span>

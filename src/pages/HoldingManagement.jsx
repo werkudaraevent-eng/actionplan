@@ -32,6 +32,11 @@ export default function HoldingManagement() {
     const logoInputRef = useRef(null);
     const [saving, setSaving] = useState(false);
 
+    // Clone from existing company state
+    const [cloneFromId, setCloneFromId] = useState('');
+    const [cloneIncludePlans, setCloneIncludePlans] = useState(false);
+    const [isCloning, setIsCloning] = useState(false);
+
     // Delete confirmation
     const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -176,6 +181,9 @@ export default function HoldingManagement() {
         setFormDescription('');
         setFormLogoUrl('');
         setFormIsSandbox(false);
+        setCloneFromId('');
+        setCloneIncludePlans(false);
+        setIsCloning(false);
     };
 
     // Save (create or update)
@@ -210,15 +218,52 @@ export default function HoldingManagement() {
 
                 if (error) throw error;
 
+                const newCompanyId = data?.id;
+
                 toast({
                     title: 'Subsidiary Created',
                     description: `"${name}" has been added to the Werkudara Group.`,
                     variant: 'success'
                 });
 
+                // Clone attributes from source company if requested
+                if (cloneFromId && newCompanyId) {
+                    setIsCloning(true);
+                    try {
+                        // Generate dept prefix from company name (first 3 chars uppercase)
+                        const deptPrefix = name.substring(0, 3).toUpperCase();
+
+                        const { data: cloneResult, error: cloneError } = await supabase.rpc('clone_company_attributes', {
+                            p_source_company_id: cloneFromId,
+                            p_target_company_id: newCompanyId,
+                            p_dept_prefix: deptPrefix,
+                            p_include_plans: cloneIncludePlans,
+                        });
+
+                        if (cloneError) {
+                            console.warn('Clone failed:', cloneError);
+                            toast({
+                                title: 'Company created, but cloning failed',
+                                description: cloneError.message,
+                                variant: 'warning',
+                            });
+                        } else if (cloneResult?.success) {
+                            toast({
+                                title: 'Attributes Cloned',
+                                description: `${cloneResult.departments_cloned} departments, ${cloneResult.options_cloned} options${cloneResult.plans_cloned > 0 ? `, ${cloneResult.plans_cloned} sample plans` : ''} copied.`,
+                                variant: 'success',
+                            });
+                        }
+                    } catch (err) {
+                        console.warn('Clone error:', err);
+                    } finally {
+                        setIsCloning(false);
+                    }
+                }
+
                 // Auto-switch to the new company so the admin can start configuring it
-                if (data?.id) {
-                    setActiveCompanyId(data.id);
+                if (newCompanyId) {
+                    setActiveCompanyId(newCompanyId);
                 }
             } else {
                 const payload = { name, is_sandbox: formIsSandbox };
@@ -837,6 +882,42 @@ export default function HoldingManagement() {
                               </button>
                             </div>
 
+                            {/* Copy Attributes from Existing Company -- only in create mode */}
+                            {modalMode === 'add' && companies.length > 0 && (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Copy Attributes From (Optional)
+                                        </label>
+                                        <select
+                                            value={cloneFromId}
+                                            onChange={(e) => setCloneFromId(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        >
+                                            <option value="">— Don't copy, start fresh —</option>
+                                            {companies.filter(c => !c.is_sandbox).map(c => (
+                                                <option key={c.id} value={c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Copy departments, settings, and dropdown options from an existing subsidiary
+                                        </p>
+                                    </div>
+
+                                    {cloneFromId && (
+                                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={cloneIncludePlans}
+                                                onChange={(e) => setCloneIncludePlans(e.target.checked)}
+                                                className="w-4 h-4 text-teal-600 rounded"
+                                            />
+                                            Include sample action plans (max 100)
+                                        </label>
+                                    )}
+                                </div>
+                            )}
+
                             {modalMode === 'add' && (
                                 <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
                                     After creating the subsidiary, switch to it using the sidebar company switcher to start adding departments and users.
@@ -854,18 +935,18 @@ export default function HoldingManagement() {
                             </button>
                             <button
                                 onClick={handleSave}
-                                disabled={saving || !formName.trim()}
+                                disabled={saving || isCloning || !formName.trim()}
                                 className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-lg transition-all disabled:opacity-50 ${modalMode === 'add'
                                     ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700'
                                     : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700'
                                     }`}
                             >
-                                {saving ? (
+                                {saving || isCloning ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                     <Save className="w-4 h-4" />
                                 )}
-                                {saving ? 'Saving...' : modalMode === 'add' ? 'Create Subsidiary' : 'Save Changes'}
+                                {isCloning ? 'Cloning attributes...' : saving ? 'Saving...' : modalMode === 'add' ? 'Create Subsidiary' : 'Save Changes'}
                             </button>
                         </div>
                     </div>

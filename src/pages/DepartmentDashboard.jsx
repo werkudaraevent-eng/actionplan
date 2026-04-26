@@ -11,6 +11,7 @@ import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import PriorityFocusWidget from '../components/dashboard/PriorityFocusWidget';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import DashboardExportButton from '../components/dashboard/DashboardExportButton';
 import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -1000,15 +1001,38 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
               </div>
             </div>
 
-            {/* REFRESH BUTTON (Prominent & Clear) */}
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              <RotateCcw size={16} className={isRefreshing ? "animate-spin text-emerald-600" : "text-gray-500"} />
-              <span className="font-medium text-sm">{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
-            </button>
+            {/* REFRESH & EXPORT BUTTONS */}
+            <div className="flex items-center gap-2">
+              <DashboardExportButton
+                dashboardElementId="dept-dashboard-content"
+                title={`${activeDepartmentCode} Dashboard — ${dateRangeLabel}`}
+                dashboardData={{
+                  title: `${activeDepartmentCode} Dashboard`,
+                  period: dateRangeLabel,
+                  stats: {
+                    total: stats.total,
+                    achieved: stats.achieved,
+                    inProgress: stats.inProgress,
+                    pending: stats.pending || 0,
+                    notAchieved: stats.notAchieved,
+                    completionRate: stats.completionRate,
+                    qualityScore: stats.qualityScore,
+                  },
+                  failureAnalysis,
+                  departmentStats: null,
+                  categoryStats: null,
+                  plans: yearFilteredPlans,
+                }}
+              />
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing || loading}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                <RotateCcw size={16} className={isRefreshing ? "animate-spin text-emerald-600" : "text-gray-500"} />
+                <span className="font-medium text-sm">{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+              </button>
+            </div>
           </div>
 
           {/* BOTTOM ROW: FILTERS & CONTROLS (The Control Bar) */}
@@ -1170,7 +1194,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         </div>
       </header >
 
-      <main className="p-6">
+      <main id="dept-dashboard-content" className="p-6">
         {/* Stats Grid - Unified Component */}
         <GlobalStatsGrid
           plans={yearFilteredPlans.filter(p => {

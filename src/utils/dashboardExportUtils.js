@@ -192,11 +192,47 @@ export async function exportDashboardPDF(elementId, title) {
   // Dynamic import to avoid loading html2canvas on every page
   const html2canvas = (await import('html2canvas')).default;
 
+  // Workaround: html2canvas doesn't support oklch() colors (Tailwind v4).
+  // Convert all computed oklch colors to rgb before capture, then restore.
+  const elements = element.querySelectorAll('*');
+  const originalStyles = [];
+
+  elements.forEach((el) => {
+    const computed = getComputedStyle(el);
+    const fixes = {};
+
+    ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor', 'outlineColor'].forEach((prop) => {
+      const val = computed[prop];
+      if (val && val.includes('oklch')) {
+        // Create a temp element to resolve oklch to rgb
+        const temp = document.createElement('div');
+        temp.style[prop] = val;
+        document.body.appendChild(temp);
+        const resolved = getComputedStyle(temp)[prop];
+        document.body.removeChild(temp);
+
+        fixes[prop] = { original: el.style[prop], resolved };
+        el.style[prop] = resolved;
+      }
+    });
+
+    if (Object.keys(fixes).length > 0) {
+      originalStyles.push({ el, fixes });
+    }
+  });
+
   const canvas = await html2canvas(element, {
     scale: 2,
     useCORS: true,
     logging: false,
     backgroundColor: '#f9fafb',
+  });
+
+  // Restore original styles
+  originalStyles.forEach(({ el, fixes }) => {
+    Object.entries(fixes).forEach(([prop, { original }]) => {
+      el.style[prop] = original;
+    });
   });
 
   const imgData = canvas.toDataURL('image/png');

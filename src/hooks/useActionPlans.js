@@ -12,6 +12,10 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Stabilize excludeCompanyIds to prevent infinite re-render loops
+  // (arrays create new references on every render)
+  const excludeKey = excludeCompanyIds.join(',');
+
   const fetchPlans = useCallback(async () => {
     // HYDRATION GUARD: Do NOT fire the query until companyId has resolved.
     // companyId=null is valid ONLY for holding context (consolidated view),
@@ -70,7 +74,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
     } finally {
       setLoading(false);
     }
-  }, [departmentCode, companyId, excludeCompanyIds]);
+  }, [departmentCode, companyId, excludeKey]);
 
   useEffect(() => {
     fetchPlans();

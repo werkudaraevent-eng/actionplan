@@ -219,6 +219,12 @@ export default function LoginPage() {
                 <p className="text-amber-700 text-xs mt-1 leading-relaxed">
                   {maintenanceText || 'The system is currently undergoing scheduled maintenance. Login is temporarily disabled. Please try again later.'}
                 </p>
+                <button
+                  onClick={() => { window.location.href = window.location.pathname + '?admin_bypass=true'; }}
+                  className="mt-2 text-xs font-medium text-amber-800 underline underline-offset-2 hover:text-amber-950 transition-colors"
+                >
+                  Admin Login
+                </button>
               </div>
             </div>
           )}

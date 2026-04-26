@@ -737,7 +737,7 @@ export default function HoldingManagement() {
             {/* Add/Edit Modal */}
             {modalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
                         {/* Modal Header */}
                         <div className="flex items-center justify-between p-5 border-b border-gray-100">
                             <div className="flex items-center gap-3">
@@ -764,7 +764,7 @@ export default function HoldingManagement() {
                         </div>
 
                         {/* Modal Body */}
-                        <div className="p-5 space-y-5">
+                        <div className="p-5 space-y-5 overflow-y-auto flex-1">
                             {/* Logo Uploader */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">

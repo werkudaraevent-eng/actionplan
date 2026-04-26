@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.7.0',
+    date: '2026-04-26',
+    title: 'Dashboard Export & Analisa AI',
+    changes: [
+      { type: 'feature', description: 'Dashboard Export — export dashboard dalam 4 format: PDF (visual screenshot), Excel (data terstruktur), JSON (data mentah), dan Copy for AI (markdown untuk paste ke ChatGPT/Claude)' },
+      { type: 'feature', description: 'Copy for AI — satu klik copy ringkasan dashboard dalam format markdown table, langsung paste ke platform AI untuk analisa' },
+      { type: 'improvement', description: 'PDF Dashboard — smart page-breaking per widget, tidak ada lagi widget yang terpotong di antara halaman' },
+      { type: 'improvement', description: 'PDF Dashboard — widget yang scrollable sekarang tampil lengkap di PDF (konten di-expand otomatis saat export)' },
+      { type: 'fix', description: 'Risk & Bottleneck chart sekarang menampilkan alasan kegagalan yang benar dari gap_category (sebelumnya selalu "Unspecified")' },
+    ],
+  },
+  {
     version: '1.6.1',
     date: '2026-04-26',
     title: 'PDF Export, Sorting & Security Fixes',

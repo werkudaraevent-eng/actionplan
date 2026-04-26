@@ -7,7 +7,7 @@ import { checkLockStatusServerSide } from '../utils/lockUtils';
 // This ensures consistent, detailed logging without duplicates.
 // See migration: enhanced_audit_trigger_super_detailed
 
-export function useActionPlans(departmentCode = null, companyId = null) {
+export function useActionPlans(departmentCode = null, companyId = null, excludeCompanyIds = []) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -47,9 +47,13 @@ export function useActionPlans(departmentCode = null, companyId = null) {
       }
 
       // MULTI-TENANT FILTER: When companyId is provided, scope to that tenant.
-      // When companyId is null (holding consolidated view), fetch ALL companies.
+      // When companyId is null (holding consolidated view), fetch ALL companies
+      // but exclude sandbox companies from aggregated data.
       if (companyId) {
         query = query.eq('company_id', companyId);
+      } else if (excludeCompanyIds.length > 0) {
+        // Holding context: exclude sandbox companies from consolidated view
+        query = query.not('company_id', 'in', `(${excludeCompanyIds.join(',')})`);
       }
 
       const { data, error: fetchError } = await withTimeout(query, 10000);
@@ -66,7 +70,7 @@ export function useActionPlans(departmentCode = null, companyId = null) {
     } finally {
       setLoading(false);
     }
-  }, [departmentCode, companyId]);
+  }, [departmentCode, companyId, excludeCompanyIds]);
 
   useEffect(() => {
     fetchPlans();
@@ -415,6 +419,9 @@ export function useActionPlans(departmentCode = null, companyId = null) {
     // MULTI-TENANT FILTER
     if (companyId) {
       query = query.eq('company_id', companyId);
+    } else if (excludeCompanyIds.length > 0) {
+      // Holding context: exclude sandbox companies from consolidated view
+      query = query.not('company_id', 'in', `(${excludeCompanyIds.join(',')})`);
     }
 
     const { data, error } = await query;
@@ -470,7 +477,12 @@ export function useActionPlans(departmentCode = null, companyId = null) {
           // Notes (clear auto-generated "[Cause: ...]" text)
           remark: null,
           // Evidence (clear since task is open again)
-          outcome_link: null
+          outcome_link: null,
+          // Carry-over flags
+          resolution_type: null,
+          is_carry_over: false,
+          carried_to_month: null,
+          is_drop_pending: false,
         }),
         // AUTO-RESOLVE: Clear blocker on completion
         ...(shouldClearBlocker && {
@@ -497,8 +509,13 @@ export function useActionPlans(departmentCode = null, companyId = null) {
         updatePayload.remark = null;
         // Evidence (clear since task is open again)
         updatePayload.outcome_link = null;
+        // Carry-over flags: clear to trigger DB reversal (auto-delete child plans)
+        updatePayload.resolution_type = null;
+        updatePayload.is_carry_over = false;
+        updatePayload.carried_to_month = null;
+        updatePayload.is_drop_pending = false;
 
-        console.log('[updateStatus] AUTO-WIPE: Clearing failure data, remark, and outcome_link (status changed from Not Achieved to', status, ')');
+        console.log('[updateStatus] AUTO-WIPE: Clearing failure data, carry-over flags, remark, and outcome_link (status changed from Not Achieved to', status, ')');
       }
 
       // AUTO-RESOLVE BLOCKER: Clear blocker fields in DB when completing task
@@ -517,6 +534,13 @@ export function useActionPlans(departmentCode = null, companyId = null) {
       if (error) {
         await fetchPlans();
         throw error;
+      }
+
+      // If carry-over was reverted, DB trigger auto-deletes child plans.
+      // Full refetch needed to sync the deletion from the UI.
+      if (shouldClearFailureData && previousPlan?.resolution_type === 'carried_over') {
+        console.log('[updateStatus] Carry-over revert detected — refetching to sync child plan deletion');
+        await fetchPlans();
       }
 
       // NOTE: Audit logging handled by DB trigger (STATUS_UPDATE with detailed field changes)

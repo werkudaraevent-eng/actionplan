@@ -80,6 +80,12 @@ export function CompanyProvider({ children }) {
         return companies.find(c => c.id === activeCompanyId) || null;
     }, [companies, activeCompanyId]);
 
+    // Computed list of sandbox company IDs (used to exclude from holding aggregated views)
+    const sandboxCompanyIds = useMemo(() =>
+        companies.filter(c => c.is_sandbox).map(c => c.id),
+        [companies]
+    );
+
     // Whether the active context is the holding parent entity (not an operational subsidiary)
     const isHoldingContext = activeCompany?.name === 'Werkudara Group';
 
@@ -89,6 +95,7 @@ export function CompanyProvider({ children }) {
         activeCompany,
         isHoldingContext,
         isSandbox: activeCompany?.is_sandbox === true,
+        sandboxCompanyIds,
         setActiveCompanyId,
         loading,
         // Convenience: whether the user can switch tenants

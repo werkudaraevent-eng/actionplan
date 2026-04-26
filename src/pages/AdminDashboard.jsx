@@ -101,10 +101,10 @@ function SortDropdown({ value, onChange }) {
 
 
 export default function AdminDashboard({ onNavigate }) {
-  const { activeCompanyId, isHoldingContext } = useCompanyContext();
+  const { activeCompanyId, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   // When in holding context, pass null to get consolidated data from ALL companies
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
-  const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId);
+  const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
   const { departments } = useDepartments(effectiveCompanyId);
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
@@ -166,6 +166,9 @@ export default function AdminDashboard({ onNavigate }) {
 
       if (effectiveCompanyId) {
         targetQuery = targetQuery.eq('company_id', effectiveCompanyId);
+      } else if (sandboxCompanyIds.length > 0) {
+        // Holding context: exclude sandbox companies from aggregated targets
+        targetQuery = targetQuery.not('company_id', 'in', `(${sandboxCompanyIds.join(',')})`);
       }
 
       const { data: targetData } = await targetQuery.single();
@@ -179,6 +182,9 @@ export default function AdminDashboard({ onNavigate }) {
 
       if (effectiveCompanyId) {
         histQuery = histQuery.eq('company_id', effectiveCompanyId);
+      } else if (sandboxCompanyIds.length > 0) {
+        // Holding context: exclude sandbox companies from aggregated stats
+        histQuery = histQuery.not('company_id', 'in', `(${sandboxCompanyIds.join(',')})`);
       }
 
       const { data: histData } = await histQuery;
@@ -186,7 +192,7 @@ export default function AdminDashboard({ onNavigate }) {
     };
 
     fetchTargetAndHistory();
-  }, [selectedYear, effectiveCompanyId, isHoldingContext]);
+  }, [selectedYear, effectiveCompanyId, isHoldingContext, sandboxCompanyIds]);
 
   // Batch-resolve PIC profile names when plans change
   useEffect(() => {
@@ -227,6 +233,9 @@ export default function AdminDashboard({ onNavigate }) {
 
       if (effectiveCompanyId) {
         query = query.eq('company_id', effectiveCompanyId);
+      } else if (sandboxCompanyIds.length > 0) {
+        // Holding context: exclude sandbox companies from comparison stats
+        query = query.not('company_id', 'in', `(${sandboxCompanyIds.join(',')})`);
       }
 
       const { data } = await query;
@@ -234,7 +243,7 @@ export default function AdminDashboard({ onNavigate }) {
     };
 
     fetchComparisonHistory();
-  }, [comparisonYearValue, effectiveCompanyId, isHoldingContext]);
+  }, [comparisonYearValue, effectiveCompanyId, isHoldingContext, sandboxCompanyIds]);
 
   // 1. DEFINISI FUNGSI: Buat ini berdiri sendiri (Global dalam component)
   const fetchAuditLogs = async () => {
@@ -267,11 +276,17 @@ export default function AdminDashboard({ onNavigate }) {
       return;
     }
 
-    // MULTI-TENANT: client-side filter for company_id (skip when in holding context for consolidated view)
+    // MULTI-TENANT: client-side filter for company_id
     let filteredData = data || [];
     if (effectiveCompanyId) {
       filteredData = filteredData.filter(log =>
         log.action_plan?.company_id === effectiveCompanyId
+      );
+    } else if (sandboxCompanyIds.length > 0) {
+      // Holding context: exclude sandbox companies from consolidated audit logs
+      const sandboxSet = new Set(sandboxCompanyIds);
+      filteredData = filteredData.filter(log =>
+        !sandboxSet.has(log.action_plan?.company_id)
       );
     }
 

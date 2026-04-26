@@ -182,9 +182,9 @@ export function exportDashboardJSON({ title, period, stats, failureAnalysis, dep
 }
 
 /**
- * Export dashboard as PDF screenshot.
- * Uses html-to-image (SVG foreignObject approach) instead of html2canvas
- * to avoid oklch() color parsing issues with Tailwind CSS v4.
+ * Export dashboard as PDF with smart page-breaking per widget section.
+ * Captures each top-level section separately and places them on pages
+ * without cutting through widgets.
  */
 export async function exportDashboardPDF(elementId, title) {
   const element = document.getElementById(elementId);
@@ -192,65 +192,110 @@ export async function exportDashboardPDF(elementId, title) {
 
   const { toPng } = await import('html-to-image');
 
-  const imgData = await toPng(element, {
-    quality: 0.95,
-    pixelRatio: 2,
-    backgroundColor: '#f9fafb',
-    filter: (node) => {
-      // Skip hidden elements and script tags
-      if (node.tagName === 'SCRIPT' || node.tagName === 'NOSCRIPT') return false;
-      return true;
-    },
-  });
-
-  // Get image dimensions
-  const img = new Image();
-  await new Promise((resolve) => {
-    img.onload = resolve;
-    img.src = imgData;
-  });
-
-  const imgWidth = img.naturalWidth;
-  const imgHeight = img.naturalHeight;
-
-  // A4 landscape
+  // A4 landscape dimensions
   const pdf = new jsPDF('l', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 10;
   const usableWidth = pageWidth - 2 * margin;
-  const usableHeight = pageHeight - 2 * margin;
+  const usableHeight = pageHeight - 2 * margin - 8; // Reserve 8mm for footer
 
-  // Scale to fit page width
-  const scale = usableWidth / imgWidth;
-  const scaledHeight = imgHeight * scale;
+  // Get all direct child sections (each is a widget row/group)
+  const sections = Array.from(element.children).filter(
+    (el) => el.offsetHeight > 0 && el.tagName !== 'SCRIPT'
+  );
 
-  // Multi-page support
-  const pagesNeeded = Math.ceil(scaledHeight / usableHeight);
+  if (sections.length === 0) return;
 
-  for (let i = 0; i < pagesNeeded; i++) {
-    if (i > 0) pdf.addPage();
+  // Capture each section as a separate image
+  const capturedSections = [];
+  for (const section of sections) {
+    try {
+      const imgData = await toPng(section, {
+        quality: 0.95,
+        pixelRatio: 2,
+        backgroundColor: '#f9fafb',
+        filter: (node) => node.tagName !== 'SCRIPT' && node.tagName !== 'NOSCRIPT',
+      });
 
-    // Calculate source crop for this page
-    const sourceY = (i * usableHeight) / scale;
-    const sourceH = Math.min(imgHeight - sourceY, usableHeight / scale);
-    const destH = sourceH * scale;
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imgData;
+      });
 
-    // Crop via canvas
-    const pageCanvas = document.createElement('canvas');
-    pageCanvas.width = imgWidth;
-    pageCanvas.height = sourceH;
-    const ctx = pageCanvas.getContext('2d');
-    ctx.drawImage(img, 0, sourceY, imgWidth, sourceH, 0, 0, imgWidth, sourceH);
+      // Scale to fit page width
+      const scale = usableWidth / img.naturalWidth;
+      const scaledHeight = img.naturalHeight * scale;
 
-    const pageImgData = pageCanvas.toDataURL('image/png');
-    pdf.addImage(pageImgData, 'PNG', margin, margin, usableWidth, destH);
+      capturedSections.push({ imgData, img, scaledHeight });
+    } catch (err) {
+      console.warn('[PDF Export] Failed to capture section:', err);
+    }
+  }
 
-    // Footer on first page
-    if (i === 0) {
-      pdf.setFontSize(8);
-      pdf.setTextColor(150);
-      pdf.text(`${title} — Exported ${new Date().toLocaleDateString('id-ID')}`, margin, pageHeight - 5);
+  // Place sections on pages with smart page-breaking
+  let currentY = margin;
+  let isFirstPage = true;
+
+  for (let i = 0; i < capturedSections.length; i++) {
+    const { img, scaledHeight } = capturedSections[i];
+    const sectionHeight = scaledHeight;
+
+    // Check if this section fits on the current page
+    if (!isFirstPage || i > 0) {
+      if (currentY + sectionHeight > margin + usableHeight) {
+        // Doesn't fit — start a new page
+        pdf.addPage();
+        currentY = margin;
+      }
+    }
+
+    // If a single section is taller than a full page, split it
+    if (sectionHeight > usableHeight) {
+      const scale = usableWidth / img.naturalWidth;
+      let remainingHeight = img.naturalHeight;
+      let sourceY = 0;
+
+      while (remainingHeight > 0) {
+        if (sourceY > 0) {
+          pdf.addPage();
+          currentY = margin;
+        }
+
+        const sliceH = Math.min(remainingHeight, usableHeight / scale);
+        const destH = sliceH * scale;
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = img.naturalWidth;
+        pageCanvas.height = sliceH;
+        const ctx = pageCanvas.getContext('2d');
+        ctx.drawImage(img, 0, sourceY, img.naturalWidth, sliceH, 0, 0, img.naturalWidth, sliceH);
+
+        const sliceData = pageCanvas.toDataURL('image/png');
+        pdf.addImage(sliceData, 'PNG', margin, currentY, usableWidth, destH);
+
+        currentY += destH + 3;
+        sourceY += sliceH;
+        remainingHeight -= sliceH;
+      }
+    } else {
+      // Section fits — draw it
+      pdf.addImage(img.src, 'PNG', margin, currentY, usableWidth, sectionHeight);
+      currentY += sectionHeight + 3; // 3mm gap between sections
+    }
+
+    // Add footer on first page
+    if (isFirstPage && i === 0) {
+      pdf.setFontSize(7);
+      pdf.setTextColor(170);
+      pdf.text(
+        `${title} — Exported ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+        margin,
+        pageHeight - 5
+      );
+      isFirstPage = false;
     }
   }
 

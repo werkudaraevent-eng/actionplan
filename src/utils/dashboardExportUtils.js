@@ -207,6 +207,31 @@ export async function exportDashboardPDF(elementId, title) {
 
   if (sections.length === 0) return;
 
+  // Temporarily expand all scrollable/clipped widgets to show full content
+  const overflowResets = [];
+  element.querySelectorAll('*').forEach((el) => {
+    const style = getComputedStyle(el);
+    const hasOverflow = style.overflow !== 'visible' && style.overflow !== '' &&
+      (style.overflow === 'hidden' || style.overflow === 'auto' || style.overflow === 'scroll' ||
+       style.overflowY === 'hidden' || style.overflowY === 'auto' || style.overflowY === 'scroll');
+    const hasFixedHeight = el.style.height || el.style.maxHeight ||
+      el.className?.includes?.('h-[') || el.className?.includes?.('max-h-');
+
+    if (hasOverflow || hasFixedHeight) {
+      overflowResets.push({
+        el,
+        overflow: el.style.overflow,
+        overflowY: el.style.overflowY,
+        height: el.style.height,
+        maxHeight: el.style.maxHeight,
+      });
+      el.style.overflow = 'visible';
+      el.style.overflowY = 'visible';
+      el.style.height = 'auto';
+      el.style.maxHeight = 'none';
+    }
+  });
+
   // Capture each section as a separate image
   const capturedSections = [];
   for (const section of sections) {
@@ -234,6 +259,14 @@ export async function exportDashboardPDF(elementId, title) {
       console.warn('[PDF Export] Failed to capture section:', err);
     }
   }
+
+  // Restore original overflow/height styles
+  overflowResets.forEach(({ el, overflow, overflowY, height, maxHeight }) => {
+    el.style.overflow = overflow;
+    el.style.overflowY = overflowY;
+    el.style.height = height;
+    el.style.maxHeight = maxHeight;
+  });
 
   // Place sections on pages with smart page-breaking
   let currentY = margin;

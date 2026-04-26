@@ -368,17 +368,17 @@ export default function Sidebar() {
                       <button
                         key={dept.code}
                         onClick={() => handleDeptSwitch(dept)}
-                        className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
+                        className={`w-full min-w-0 text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
                           ? 'bg-teal-600/70 text-white'
                           : isDeptActive ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
                           }`}
                       >
-                        <span className="w-10 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5">
+                        <span className="flex-shrink-0 text-center font-mono text-sm bg-teal-900/30 rounded px-1.5 py-0.5 whitespace-nowrap">
                           {isDeptLoading ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
                           ) : dept.code}
                         </span>
-                        <span className="text-sm truncate flex-1" title={dept.name}>{dept.name}</span>
+                        <span className="text-sm truncate min-w-0" title={dept.name}>{dept.name}</span>
                       </button>
                     );
                   })}

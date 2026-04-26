@@ -193,47 +193,68 @@ export async function exportDashboardPDF(elementId, title) {
   const html2canvas = (await import('html2canvas')).default;
 
   // Workaround: html2canvas doesn't support oklch() colors (Tailwind v4).
-  // Convert all computed oklch colors to rgb before capture, then restore.
-  const elements = element.querySelectorAll('*');
-  const originalStyles = [];
+  // Inject a global CSS override that forces all oklch to fallback rgb values,
+  // then remove it after capture.
+  const style = document.createElement('style');
+  style.id = 'html2canvas-oklch-fix';
+  style.textContent = `
+    *, *::before, *::after {
+      color: inherit !important;
+      background-color: inherit !important;
+      border-color: inherit !important;
+    }
+  `;
 
-  elements.forEach((el) => {
-    const computed = getComputedStyle(el);
-    const fixes = {};
+  // Clone the element into an offscreen container with inline computed styles
+  // This avoids the oklch parsing entirely by using resolved rgb values
+  const clone = element.cloneNode(true);
+  clone.style.position = 'absolute';
+  clone.style.left = '-99999px';
+  clone.style.top = '0';
+  clone.style.width = element.offsetWidth + 'px';
+  document.body.appendChild(clone);
 
-    ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor', 'outlineColor'].forEach((prop) => {
-      const val = computed[prop];
-      if (val && val.includes('oklch')) {
-        // Create a temp element to resolve oklch to rgb
-        const temp = document.createElement('div');
-        temp.style[prop] = val;
-        document.body.appendChild(temp);
-        const resolved = getComputedStyle(temp)[prop];
-        document.body.removeChild(temp);
-
-        fixes[prop] = { original: el.style[prop], resolved };
-        el.style[prop] = resolved;
+  // Recursively apply computed styles as inline styles (resolved to rgb)
+  function inlineComputedStyles(source, target) {
+    const computed = getComputedStyle(source);
+    const props = ['color', 'background-color', 'border-color', 'border-top-color',
+      'border-right-color', 'border-bottom-color', 'border-left-color',
+      'outline-color', 'background-image', 'box-shadow', 'text-shadow'];
+    props.forEach(prop => {
+      const val = computed.getPropertyValue(prop);
+      if (val && val !== 'none' && val !== 'initial') {
+        target.style.setProperty(prop, val);
       }
     });
+    const sourceChildren = source.children;
+    const targetChildren = target.children;
+    for (let i = 0; i < sourceChildren.length && i < targetChildren.length; i++) {
+      inlineComputedStyles(sourceChildren[i], targetChildren[i]);
+    }
+  }
+  inlineComputedStyles(element, clone);
 
-    if (Object.keys(fixes).length > 0) {
-      originalStyles.push({ el, fixes });
+  // Also handle SVG elements (charts) - copy their computed fills/strokes
+  clone.querySelectorAll('svg *').forEach((svgEl, idx) => {
+    const sourceEls = element.querySelectorAll('svg *');
+    if (sourceEls[idx]) {
+      const computed = getComputedStyle(sourceEls[idx]);
+      ['fill', 'stroke'].forEach(prop => {
+        const val = computed.getPropertyValue(prop);
+        if (val && val !== 'none') svgEl.style.setProperty(prop, val);
+      });
     }
   });
 
-  const canvas = await html2canvas(element, {
+  const canvas = await html2canvas(clone, {
     scale: 2,
     useCORS: true,
     logging: false,
     backgroundColor: '#f9fafb',
   });
 
-  // Restore original styles
-  originalStyles.forEach(({ el, fixes }) => {
-    Object.entries(fixes).forEach(([prop, { original }]) => {
-      el.style[prop] = original;
-    });
-  });
+  // Cleanup
+  document.body.removeChild(clone);
 
   const imgData = canvas.toDataURL('image/png');
   const imgWidth = canvas.width;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Palette } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -596,29 +596,18 @@ export default function Sidebar() {
       <div className={`p-3 border-t ${theme.divider} flex-shrink-0 space-y-1`}>
         {/* Theme Switcher */}
         {!isSandbox && (
-          <div className={`mx-2 mb-2 p-2 rounded-lg ${theme.userCard}`}>
-            <div className="flex items-center justify-between">
+          <div className="px-3 py-1.5">
+            <select
+              value={themeId}
+              onChange={(e) => handleThemeChange(e.target.value)}
+              className={`w-full px-2.5 py-1.5 rounded-lg text-sm ${theme.selectBg} ${theme.selectBorder} ${theme.textMuted} border appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/30`}
+            >
               {Object.values(SIDEBAR_THEMES).map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => handleThemeChange(t.id)}
-                  className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-md transition-all ${
-                    themeId === t.id
-                      ? 'bg-white/15'
-                      : 'hover:bg-white/5'
-                  }`}
-                >
-                  <div className={`w-4 h-4 rounded-full ${t.preview} ${
-                    themeId === t.id ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent' : ''
-                  }`} />
-                  <span className={`text-[10px] font-medium ${
-                    themeId === t.id ? 'text-white' : theme.textSecondary
-                  }`}>
-                    {t.label}
-                  </span>
-                </button>
+                <option key={t.id} value={t.id}>
+                  {t.label} Theme
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         )}
         <button

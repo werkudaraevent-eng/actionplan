@@ -33,8 +33,9 @@ export default function StaffWorkspace() {
   // Use currentDept if available, fallback to departmentCode (primary department)
   const activeDept = currentDept || departmentCode;
 
-  const { activeCompanyId } = useCompanyContext();
-  const { plans, loading, updatePlan, updateStatus, carryOverPlan, refetch } = useActionPlans(activeDept, activeCompanyId);
+  const { activeCompanyId, loading: companyLoading } = useCompanyContext();
+  const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
+  const { plans, loading, updatePlan, updateStatus, carryOverPlan, refetch } = useActionPlans(activeDept, safeCompanyId);
   const { departments } = useDepartments(activeCompanyId);
   const { toast } = useToast();
 

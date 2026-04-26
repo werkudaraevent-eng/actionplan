@@ -37,7 +37,7 @@ const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '', highlightPlanId = '' }) {
   const { isAdmin, isExecutive, isLeader } = useAuth();
-  const { activeCompanyId } = useCompanyContext();
+  const { activeCompanyId, loading: companyLoading } = useCompanyContext();
   const { toast } = useToast();
   const { departments } = useDepartments(activeCompanyId);
   const { can } = usePermission();
@@ -49,7 +49,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
   const canManagePlans = (isAdmin || isLeader) && !isExecutive && canCreatePlan; // Executives cannot manage plans
   const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
-  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, carryOverPlan, refetch } = useActionPlans(departmentCode, activeCompanyId);
+  const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
+  const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, carryOverPlan, refetch } = useActionPlans(departmentCode, safeCompanyId);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);

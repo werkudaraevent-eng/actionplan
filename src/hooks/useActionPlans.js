@@ -17,18 +17,16 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
   const excludeKey = excludeCompanyIds.join(',');
 
   const fetchPlans = useCallback(async () => {
-    // HYDRATION GUARD: Do NOT fire the query until companyId has resolved.
-    // companyId=null is valid ONLY for holding context (consolidated view),
-    // but during initial hydration, companyId is null because CompanyContext
-    // hasn't loaded yet. The caller (AdminDashboard) explicitly sets null via
-    // effectiveCompanyId for holding — so we guard by checking if companyId
-    // was literally never passed (=== null from default param).
-    // However, since both hydration-null and holding-null look the same here,
-    // we accept null and rely on RLS + the caller's intent.
-    // The real fix is in the callers that should not call us until ready.
     if (!supabase) {
       setError('Supabase not configured');
       setLoading(false);
+      return;
+    }
+
+    // HYDRATION GUARD: companyId '__pending__' means CompanyContext hasn't loaded yet.
+    // Skip the fetch to prevent loading ALL companies' data during hydration.
+    if (companyId === '__pending__') {
+      setLoading(true);
       return;
     }
 

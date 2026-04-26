@@ -33,10 +33,11 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const canEdit = !isExecutive; // Executives have read-only access
   const canExport = can('report', 'export');
   const { toast } = useToast();
-  const { activeCompanyId } = useCompanyContext();
+  const { activeCompanyId, loading: companyLoading } = useCompanyContext();
+  const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
   const { departments } = useDepartments(activeCompanyId);
   // Fetch ALL plans (no department filter) scoped to active company
-  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(null, activeCompanyId);
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(null, safeCompanyId);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);

@@ -114,8 +114,9 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Use currentDept from context (falls back to prop for compatibility)
   const activeDepartmentCode = currentDept || departmentCode;
 
-  const { activeCompanyId } = useCompanyContext();
-  const { plans, loading, refetch } = useActionPlans(activeDepartmentCode, activeCompanyId);
+  const { activeCompanyId, loading: companyLoading } = useCompanyContext();
+  const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
+  const { plans, loading, refetch } = useActionPlans(activeDepartmentCode, safeCompanyId);
   const { departments } = useDepartments(activeCompanyId);
 
   // Staff users should not navigate from KPI cards - they can only view

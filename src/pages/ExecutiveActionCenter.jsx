@@ -98,9 +98,10 @@ function formatTimeRemaining(expiryDate) {
 
 export default function ExecutiveActionCenter() {
     const { isAdmin, isExecutive, isHoldingAdmin, profile } = useAuth();
-    const { activeCompanyId } = useCompanyContext();
+    const { activeCompanyId, loading: companyLoading } = useCompanyContext();
+    const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
     const { departments } = useDepartments(activeCompanyId);
-    const { plans, loading: plansLoading, updatePlan, updateStatus, gradePlan, refetch } = useActionPlans(null, activeCompanyId);
+    const { plans, loading: plansLoading, updatePlan, updateStatus, gradePlan, refetch } = useActionPlans(null, safeCompanyId);
     const { toast } = useToast();
 
     const canSeeSystemTasks = isAdmin || isHoldingAdmin;

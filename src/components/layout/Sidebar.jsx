@@ -302,7 +302,7 @@ export default function Sidebar() {
       )}
 
       {/* Navigation - Scrollable with thin scrollbar on hover */}
-      <nav className="flex-1 p-3 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb]:rounded-full">
+      <nav className="flex-1 p-3 overflow-y-auto scrollbar-hover">
         {isAdmin || isExecutive ? (
           <>
             {/* ADMIN/EXECUTIVE VIEW: Full menu (read-only for Executive) */}

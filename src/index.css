@@ -60,6 +60,38 @@ html, body {
   scrollbar-width: none;
 }
 
+/* Thin scrollbar that only appears on hover (for sidebar nav) */
+.scrollbar-hover::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.scrollbar-hover {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.scrollbar-hover:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
 /* Hide scrollbar completely (for horizontal tab bars, etc.) */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

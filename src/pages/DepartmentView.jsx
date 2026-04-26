@@ -24,6 +24,7 @@ import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
 import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../utils/lockUtils';
 import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
+import { getPicDisplayName, collectAllPicUuids, batchResolveProfiles } from '../utils/picUtils';
 
 // NOTE: Manual audit logging REMOVED - DB trigger handles all audit logging automatically
 // See migration: enhanced_audit_trigger_super_detailed
@@ -1099,7 +1100,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             row.action_plan,  // Most important field
             row.indicator,
             row.evidence,
-            row.pic
+            (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic || ''
           ].map(val => String(val || '').trim().toLowerCase()).join('|');
 
           if (!grouped[fingerprint]) {
@@ -1150,6 +1151,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       // Apply consolidation if enabled
       const dataToExport = isConsolidated ? consolidateData(sortedData) : sortedData;
 
+      // Resolve PIC UUIDs to display names for PDF
+      const allPicUuids = collectAllPicUuids(dataToExport);
+      const profileMap = await batchResolveProfiles(allPicUuids);
+
       if (dataToExport.length === 0) {
         toast({ title: 'No Data', description: 'No action plans to export.', variant: 'warning' });
         setExportingPdf(false);
@@ -1188,7 +1193,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         goal_strategy: { label: 'Goal/Strategy', fixedWidth: 38, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
         action_plan: { label: 'Action Plan', fixedWidth: 44, align: 'left', getValue: (p) => String(p.action_plan || '-') },
         indicator: { label: 'Indicator', fixedWidth: 34, align: 'left', getValue: (p) => String(p.indicator || '-') },
-        pic: { label: 'PIC', fixedWidth: 22, align: 'left', getValue: (p) => String(p.pic || '-') },
+        pic: { label: 'PIC', fixedWidth: 22, align: 'left', getValue: (p) => getPicDisplayName(p, profileMap) },
         evidence: { label: 'Evidence', fixedWidth: 28, align: 'left', getValue: (p) => String(p.evidence || '-') },
         status: { label: 'Status', fixedWidth: 20, align: 'center', getValue: (p) => String(p.status || '-') },
         score: { label: 'Score', fixedWidth: 12, align: 'center', getValue: (p) => p.quality_score != null ? `${p.quality_score}%` : '-' },
@@ -1203,6 +1208,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       const tableHead = [finalCols.map(c => COLUMN_DEFS[c]?.label || c)];
       const buildRow = (p) => finalCols.map(c => COLUMN_DEFS[c]?.getValue(p) || '-');
       const statusColIdx = finalCols.indexOf('status');
+      const outcomeColIdx = finalCols.indexOf('outcome');
 
       // Build column styles — proportional widths to fill the full page
       const colStyles = {};
@@ -1300,8 +1306,25 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             else if (status === 'On Progress') doc.setTextColor(37, 99, 235);
             else doc.setTextColor(107, 114, 128);
           }
+          // Blue text for proof links
+          if (outcomeColIdx >= 0 && data.section === 'body' && data.column.index === outcomeColIdx) {
+            const plan = dataToExport[data.row.index];
+            if (plan?.outcome_link && plan.outcome_link !== '-') {
+              doc.setTextColor(2, 55, 141); // Corporate blue #02378D
+            }
+          }
         },
-        didDrawCell: () => { doc.setTextColor(0, 0, 0); }
+        didDrawCell: (data) => {
+          doc.setTextColor(0, 0, 0);
+          // Add clickable link for Proof column
+          if (outcomeColIdx >= 0 && data.section === 'body' && data.column.index === outcomeColIdx) {
+            const plan = dataToExport[data.row.index];
+            const url = plan?.outcome_link;
+            if (url && url.startsWith('http')) {
+              doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url });
+            }
+          }
+        },
       });
 
       // Add Summary Page (optional)

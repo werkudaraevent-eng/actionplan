@@ -36,19 +36,21 @@ export default function LoginPage() {
 
     const checkMaintenance = async () => {
       try {
+        // Check ALL company settings -- if any has maintenance mode on, show banner
         const { data, error: fetchErr } = await supabase
           .from('system_settings')
           .select('is_maintenance_mode, announcement_text')
+          .eq('is_maintenance_mode', true)
           .limit(1)
           .maybeSingle()
           .abortSignal(AbortSignal.timeout(8000));
 
         if (!cancelled && !fetchErr && data) {
-          setIsMaintenance(!!data.is_maintenance_mode);
+          setIsMaintenance(true);
           setMaintenanceText(data.announcement_text || '');
         }
       } catch {
-        // Silently ignore
+        // Silently ignore — don't block login if the check fails
       } finally {
         if (!cancelled) setMaintenanceChecked(true);
       }
@@ -206,6 +208,21 @@ export default function LoginPage() {
             <p className="text-gray-500 text-sm">Action Plan Tracker</p>
           </div>
 
+          {/* Maintenance Banner — above form card for maximum visibility */}
+          {isLocked && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3 shadow-sm">
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-amber-900 text-sm font-bold">System Under Maintenance</p>
+                <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+                  {maintenanceText || 'The system is currently undergoing scheduled maintenance. Login is temporarily disabled. Please try again later.'}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Form Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
             <div className="mb-6">
@@ -218,19 +235,6 @@ export default function LoginPage() {
                   : 'Sign in to your account to continue'}
               </p>
             </div>
-
-            {/* Maintenance Banner */}
-            {isLocked && (
-              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-amber-800 text-sm font-semibold">System Under Maintenance</p>
-                  <p className="text-amber-700 text-xs mt-1 leading-relaxed">
-                    {maintenanceText || 'Login is temporarily disabled. Please try again later.'}
-                  </p>
-                </div>
-              </div>
-            )}
 
             {/* Error */}
             {error && (

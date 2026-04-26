@@ -25,7 +25,7 @@ export function CompanyProvider({ children }) {
         try {
             const { data, error } = await supabase
                 .from('companies')
-                .select('id, name, logo_url, description')
+                .select('id, name, logo_url, description, is_sandbox')
                 .order('name', { ascending: true });
 
             if (error) {
@@ -88,6 +88,7 @@ export function CompanyProvider({ children }) {
         activeCompanyId,
         activeCompany,
         isHoldingContext,
+        isSandbox: activeCompany?.is_sandbox === true,
         setActiveCompanyId,
         loading,
         // Convenience: whether the user can switch tenants

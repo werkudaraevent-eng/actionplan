@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.6.0',
+    date: '2026-04-25',
+    title: 'Corporate Branding & Personalisasi',
+    changes: [
+      { type: 'feature', description: 'Sidebar Theme Switcher — pilih antara 3 tema sidebar: Corporate (biru perusahaan), Dark (gelap), dan Light (terang)' },
+      { type: 'feature', description: 'Halaman Changelog — riwayat pembaruan platform yang bisa diakses semua user, dengan badge "New" di sidebar saat ada update baru' },
+      { type: 'improvement', description: 'Seluruh warna aksen platform diganti dari teal ke corporate blue (#02378D) — button, focus ring, loading, toast, badge, dan link' },
+      { type: 'improvement', description: 'Login page didesain ulang dengan layout split-panel modern, branding perusahaan, dan responsive design' },
+      { type: 'fix', description: 'Perbaikan kontras teks di light theme — company switcher, holding admin section, dan dropdown sekarang terbaca dengan jelas' },
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-04-25',
     title: 'Carry-Over Improvements & Sandbox Mode',

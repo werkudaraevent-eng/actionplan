@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, KeyRound, Eye, EyeOff, ShieldAlert, BarChart3, Target, TrendingUp } from 'lucide-react';
+import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, KeyRound, Eye, EyeOff, ShieldAlert, BarChart3, ClipboardList, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
@@ -164,25 +164,25 @@ export default function LoginPage() {
                 Track, Measure,<br />Achieve.
               </h2>
               <p className="text-blue-200 mt-4 text-lg leading-relaxed max-w-md">
-                Platform terpadu untuk mengelola action plan departemen dengan grading, carry-over tracking, dan real-time analytics.
+                Platform terpadu untuk mengelola dan memantau action plan departemen dengan tracking, reporting, dan real-time analytics.
               </p>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-                <BarChart3 className="w-6 h-6 text-blue-200 mb-2" />
-                <p className="text-white text-sm font-semibold">Analytics</p>
-                <p className="text-blue-300 text-xs mt-1">Real-time KPI dashboard</p>
+                <ClipboardList className="w-6 h-6 text-blue-200 mb-2" />
+                <p className="text-white text-sm font-semibold">Tracking</p>
+                <p className="text-blue-300 text-xs mt-1">Monitor progress action plan</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-                <Target className="w-6 h-6 text-blue-200 mb-2" />
-                <p className="text-white text-sm font-semibold">Grading</p>
-                <p className="text-blue-300 text-xs mt-1">Strict & flexible scoring</p>
+                <BarChart3 className="w-6 h-6 text-blue-200 mb-2" />
+                <p className="text-white text-sm font-semibold">Reporting</p>
+                <p className="text-blue-300 text-xs mt-1">Laporan bulanan otomatis</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
                 <TrendingUp className="w-6 h-6 text-blue-200 mb-2" />
-                <p className="text-white text-sm font-semibold">Tracking</p>
-                <p className="text-blue-300 text-xs mt-1">Carry-over & resolution</p>
+                <p className="text-white text-sm font-semibold">Analytics</p>
+                <p className="text-blue-300 text-xs mt-1">Real-time KPI dashboard</p>
               </div>
             </div>
           </div>

@@ -6,6 +6,7 @@ export const SIDEBAR_THEMES = {
   teal: {
     id: 'teal',
     label: 'Teal',
+    icon: 'Sun',
     preview: 'bg-teal-700',
     container: 'bg-teal-800',
     headerBorder: 'border-teal-700',
@@ -29,6 +30,7 @@ export const SIDEBAR_THEMES = {
   dark: {
     id: 'dark',
     label: 'Dark',
+    icon: 'Moon',
     preview: 'bg-slate-700',
     container: 'bg-slate-900',
     headerBorder: 'border-slate-700',
@@ -52,6 +54,7 @@ export const SIDEBAR_THEMES = {
   navy: {
     id: 'navy',
     label: 'Navy',
+    icon: 'Monitor',
     preview: 'bg-indigo-700',
     container: 'bg-indigo-950',
     headerBorder: 'border-indigo-800',

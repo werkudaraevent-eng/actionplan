@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Monitor } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -594,22 +594,6 @@ export default function Sidebar() {
 
       {/* My Profile & Sign Out */}
       <div className={`p-3 border-t ${theme.divider} flex-shrink-0 space-y-1`}>
-        {/* Theme Switcher */}
-        {!isSandbox && (
-          <div className="px-3 py-1.5">
-            <select
-              value={themeId}
-              onChange={(e) => handleThemeChange(e.target.value)}
-              className={`w-full px-2.5 py-1.5 rounded-lg text-sm ${theme.selectBg} ${theme.selectBorder} ${theme.textMuted} border appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/30`}
-            >
-              {Object.values(SIDEBAR_THEMES).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label} Theme
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
         <button
           onClick={() => navigate('/changelog')}
           className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/changelog') ? theme.navActive : `${theme.navText} ${theme.navHover}`
@@ -631,6 +615,25 @@ export default function Sidebar() {
           <UserCircle className="w-4 h-4" />
           <span className="text-sm">My Profile</span>
         </button>
+        {/* Theme Switcher — cycles through themes on click */}
+        {!isSandbox && (() => {
+          const themeKeys = Object.keys(SIDEBAR_THEMES);
+          const currentIdx = themeKeys.indexOf(themeId);
+          const nextIdx = (currentIdx + 1) % themeKeys.length;
+          const nextTheme = SIDEBAR_THEMES[themeKeys[nextIdx]];
+          const ThemeIcon = theme.icon === 'Moon' ? Moon : theme.icon === 'Monitor' ? Monitor : Sun;
+          return (
+            <button
+              onClick={() => handleThemeChange(themeKeys[nextIdx])}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 ${theme.navText} ${theme.navHover} rounded-lg transition-all`}
+              title={`Switch to ${nextTheme.label} theme`}
+            >
+              <ThemeIcon className="w-4 h-4" />
+              <span className="text-sm flex-1 text-left">{theme.label} Theme</span>
+              <span className={`w-2 h-2 rounded-full ${theme.preview}`} />
+            </button>
+          );
+        })()}
         <button
           onClick={handleSignOut}
           className={`w-full flex items-center gap-2 px-3 py-2.5 ${theme.navText} ${theme.navHover} rounded-lg transition-all`}

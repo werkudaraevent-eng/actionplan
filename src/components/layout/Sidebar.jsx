@@ -281,8 +281,8 @@ export default function Sidebar() {
       {/* Company Switcher — visible only to holding_admin with multiple companies */}
       {canSwitchCompany && (
         <div className="px-3 pb-3 flex-shrink-0">
-          <div className="bg-gradient-to-r from-amber-600/20 to-amber-500/10 border border-amber-500/30 rounded-lg p-2.5">
-            <label className="text-amber-300 text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1.5">
+          <div className={`${theme.id === 'light' ? 'bg-[#02378D]/10 border-[#02378D]/20' : 'bg-gradient-to-r from-amber-600/20 to-amber-500/10 border-amber-500/30'} border rounded-lg p-2.5`}>
+            <label className={`${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-300'} text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1.5`}>
               {isHoldingContext ? (
                 <>
                   <Globe className="w-3 h-3" />
@@ -298,7 +298,7 @@ export default function Sidebar() {
             <div className="relative">
               {isSwitching && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10">
-                  <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                  <Loader2 className={`w-4 h-4 ${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-400'} animate-spin`} />
                 </div>
               )}
               <select
@@ -306,8 +306,8 @@ export default function Sidebar() {
                 value={activeCompanyId || ''}
                 onChange={(e) => handleWorkspaceSwitch(e.target.value)}
                 disabled={isSwitching}
-                className={`w-full max-w-full ${theme.selectBg} ${theme.selectText} text-sm rounded-md px-2.5 py-1.5 border border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
-                style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23fbbf24' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
+                className={`w-full max-w-full ${theme.selectBg} ${theme.selectText} text-sm rounded-md px-2.5 py-1.5 border ${theme.id === 'light' ? 'border-[#02378D]/30 focus:border-[#02378D] focus:ring-1 focus:ring-[#02378D]/30' : 'border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50'} outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
+                style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='${theme.id === 'light' ? '%2302378D' : '%23fbbf24'}' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
               >
                 {/* Holding entity at the top */}
                 {companies.filter(c => c.name === 'Werkudara Group').map(c => (
@@ -449,10 +449,10 @@ export default function Sidebar() {
             {/* Holding Admin — only for holding_admin users */}
             {isHoldingAdmin && (
               <>
-                <p className="text-amber-400 text-xs uppercase tracking-wider mb-2 mt-4 px-2">Holding Admin</p>
+                <p className={`${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-400'} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>Holding Admin</p>
                 <button
                   onClick={() => navigate('/holding')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/holding') ? 'bg-amber-600/80 text-white' : 'text-amber-200 hover:bg-amber-700/30'
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/holding') ? (theme.id === 'light' ? 'bg-[#02378D] text-white' : 'bg-amber-600/80 text-white') : (theme.id === 'light' ? 'text-gray-700 hover:bg-black/5' : 'text-amber-200 hover:bg-amber-700/30')
                     }`}
                 >
                   <Crown className="w-4 h-4" />

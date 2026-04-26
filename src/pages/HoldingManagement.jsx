@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Building2, Plus, Pencil, Trash2, Save, X, Loader2, Search,
     Shield, Crown, Globe2, ArrowRight, MoreVertical, Users, FileText, CheckCircle2,
-    Camera, ImageIcon
+    Camera, ImageIcon, FlaskConical
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,7 @@ export default function HoldingManagement() {
     const [formDescription, setFormDescription] = useState('');
     const [formLogoUrl, setFormLogoUrl] = useState('');
     const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+    const [formIsSandbox, setFormIsSandbox] = useState(false);
     const logoInputRef = useRef(null);
     const [saving, setSaving] = useState(false);
 
@@ -152,6 +153,7 @@ export default function HoldingManagement() {
         setFormName('');
         setFormDescription('');
         setFormLogoUrl('');
+        setFormIsSandbox(false);
         setModalOpen(true);
     };
 
@@ -162,6 +164,7 @@ export default function HoldingManagement() {
         setFormName(company.name);
         setFormDescription(company.description || '');
         setFormLogoUrl(company.logo_url || '');
+        setFormIsSandbox(company.is_sandbox || false);
         setModalOpen(true);
     };
 
@@ -172,6 +175,7 @@ export default function HoldingManagement() {
         setFormName('');
         setFormDescription('');
         setFormLogoUrl('');
+        setFormIsSandbox(false);
     };
 
     // Save (create or update)
@@ -194,7 +198,7 @@ export default function HoldingManagement() {
         setSaving(true);
         try {
             if (modalMode === 'add') {
-                const payload = { name };
+                const payload = { name, is_sandbox: formIsSandbox };
                 if (formDescription.trim()) payload.description = formDescription.trim();
                 if (formLogoUrl) payload.logo_url = formLogoUrl;
 
@@ -217,7 +221,7 @@ export default function HoldingManagement() {
                     setActiveCompanyId(data.id);
                 }
             } else {
-                const payload = { name };
+                const payload = { name, is_sandbox: formIsSandbox };
                 payload.description = formDescription.trim() || null;
                 payload.logo_url = formLogoUrl || null;
 
@@ -579,7 +583,14 @@ export default function HoldingManagement() {
 
                                         {/* MIDDLE: Name + Description */}
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-semibold text-gray-900 truncate">{company.name}</p>
+                                            <div className="flex items-center gap-1.5">
+                                              <p className="text-sm font-semibold text-gray-900 truncate">{company.name}</p>
+                                              {company.is_sandbox && (
+                                                <span className="px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded">
+                                                  Sandbox
+                                                </span>
+                                              )}
+                                            </div>
                                             <p className="text-xs text-gray-400 font-mono mt-0.5 truncate" title={company.id}>
                                                 {company.id.substring(0, 8)}…
                                             </p>
@@ -802,6 +813,28 @@ export default function HoldingManagement() {
                                     className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all resize-none"
                                 />
                                 <p className="text-xs text-gray-400 mt-1">{formDescription.length}/200</p>
+                            </div>
+
+                            {/* Sandbox Mode Toggle */}
+                            <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                <FlaskConical className="w-4 h-4 text-amber-600" />
+                                <div>
+                                  <p className="text-sm font-medium text-amber-900">Sandbox Mode</p>
+                                  <p className="text-xs text-amber-600">Data di company ini terpisah dari production</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setFormIsSandbox(!formIsSandbox)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                  formIsSandbox ? 'bg-amber-500' : 'bg-gray-300'
+                                }`}
+                              >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  formIsSandbox ? 'translate-x-6' : 'translate-x-1'
+                                }`} />
+                              </button>
                             </div>
 
                             {modalMode === 'add' && (

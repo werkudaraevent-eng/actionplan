@@ -27,7 +27,7 @@ export default function Sidebar() {
   const [themeId, setThemeId] = useState(getSavedTheme);
 
   // Resolve active theme: sandbox overrides user preference
-  const theme = isSandbox ? SANDBOX_THEME : (SIDEBAR_THEMES[themeId] || SIDEBAR_THEMES.teal);
+  const theme = isSandbox ? SANDBOX_THEME : (SIDEBAR_THEMES[themeId] || SIDEBAR_THEMES.corporate);
 
   const handleThemeChange = (newThemeId) => {
     setThemeId(newThemeId);

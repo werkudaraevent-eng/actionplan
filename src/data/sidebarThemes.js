@@ -110,7 +110,10 @@ export const SANDBOX_THEME = {
 export const DEFAULT_THEME = 'corporate';
 
 export function getSavedTheme() {
-  return localStorage.getItem('sidebar_theme') || DEFAULT_THEME;
+  const saved = localStorage.getItem('sidebar_theme');
+  // Validate saved theme still exists (handles renamed/removed themes)
+  if (saved && SIDEBAR_THEMES[saved]) return saved;
+  return DEFAULT_THEME;
 }
 
 export function saveTheme(themeId) {

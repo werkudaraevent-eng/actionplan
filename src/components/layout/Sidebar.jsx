@@ -49,6 +49,7 @@ export default function Sidebar() {
 
   // Workspace switch transition
   const [isSwitching, setIsSwitching] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const { toast } = useToast();
 
   const handleWorkspaceSwitch = (newCompanyId) => {
@@ -242,37 +243,6 @@ export default function Sidebar() {
             </h1>
             <p className={`${theme.textSecondary} text-xs`}>
               {isSandbox ? 'Sandbox Environment' : 'Action Plan Tracker'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* User Info — Compact */}
-      <div className="px-3 pt-3 pb-2 flex-shrink-0">
-        <div className={`flex items-center gap-2.5 ${theme.userCard} rounded-lg px-2.5 py-2 mb-2`}>
-          <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : `bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo}`}`}>
-            {/* Priority 1: Uploaded avatar (always wins) */}
-            {profile?.avatar_url ? (
-              <img
-                src={profile.avatar_url}
-                alt={profile.full_name || 'Avatar'}
-                className="w-full h-full object-cover"
-                onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-              />
-            ) : null}
-            {/* Priority 2: Role icon or initials fallback */}
-            <span className={`flex items-center justify-center w-full h-full ${profile?.avatar_url ? 'hidden' : ''}`}>
-              {isHoldingAdmin ? (
-                <Crown className="w-4 h-4" />
-              ) : (
-                profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?'
-              )}
-            </span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className={`${theme.textPrimary} font-medium text-sm truncate leading-tight`}>{profile?.full_name}</p>
-            <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
-              {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff · ${departmentCode}` : `Leader · ${departmentCode}`}
             </p>
           </div>
         </div>
@@ -592,55 +562,83 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* My Profile & Sign Out */}
-      <div className={`p-3 border-t ${theme.divider} flex-shrink-0 space-y-1`}>
+      {/* Footer — User menu with dropdown */}
+      <div className={`p-3 border-t ${theme.divider} flex-shrink-0 relative`}>
         <button
-          onClick={() => navigate('/changelog')}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/changelog') ? theme.navActive : `${theme.navText} ${theme.navHover}`
-            }`}
+          onClick={() => setShowUserMenu(!showUserMenu)}
+          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all ${theme.navText} ${theme.navHover}`}
         >
-          <ScrollText className="w-4 h-4" />
-          <span className="text-sm flex-1 text-left">Changelog</span>
+          <div className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : `bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo}`}`}>
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <span>{isHoldingAdmin ? <Crown className="w-3.5 h-3.5" /> : (profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?')}</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <p className={`${theme.textPrimary} font-medium text-sm truncate leading-tight`}>{profile?.full_name}</p>
+            <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
+              {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff` : `Leader`}
+            </p>
+          </div>
+          <ChevronDown className={`w-3.5 h-3.5 ${theme.textSecondary} transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
           {hasNewChangelog && (
-            <span className="px-1.5 py-0.5 text-xs font-bold bg-emerald-400 text-emerald-900 rounded-full">
-              New
-            </span>
+            <span className="absolute top-2 right-3 w-2 h-2 bg-emerald-400 rounded-full" />
           )}
         </button>
-        <button
-          onClick={() => navigate('/profile')}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/profile') ? theme.navActive : `${theme.navText} ${theme.navHover}`
-            }`}
-        >
-          <UserCircle className="w-4 h-4" />
-          <span className="text-sm">My Profile</span>
-        </button>
-        {/* Theme Switcher — cycles through themes on click */}
-        {!isSandbox && (() => {
-          const themeKeys = Object.keys(SIDEBAR_THEMES);
-          const currentIdx = themeKeys.indexOf(themeId);
-          const nextIdx = (currentIdx + 1) % themeKeys.length;
-          const nextTheme = SIDEBAR_THEMES[themeKeys[nextIdx]];
-          const ThemeIcon = theme.icon === 'Moon' ? Moon : theme.icon === 'Building2' ? Building2 : Sun;
-          return (
-            <button
-              onClick={() => handleThemeChange(themeKeys[nextIdx])}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 ${theme.navText} ${theme.navHover} rounded-lg transition-all`}
-              title={`Switch to ${nextTheme.label} theme`}
-            >
-              <ThemeIcon className="w-4 h-4" />
-              <span className="text-sm flex-1 text-left">{theme.label} Theme</span>
-              <span className={`w-2 h-2 rounded-full ${theme.preview}`} />
-            </button>
-          );
-        })()}
-        <button
-          onClick={handleSignOut}
-          className={`w-full flex items-center gap-2 px-3 py-2.5 ${theme.navText} ${theme.navHover} rounded-lg transition-all`}
-        >
-          <LogOut className="w-4 h-4" />
-          <span className="text-sm">Sign Out</span>
-        </button>
+
+        {/* Dropdown menu */}
+        {showUserMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+            <div className={`absolute bottom-full left-3 right-3 mb-2 ${theme.id === 'light' ? 'bg-white border-gray-200' : 'bg-gray-900 border-gray-700'} border rounded-xl shadow-xl z-50 overflow-hidden`}>
+              <div className="p-1">
+                <button
+                  onClick={() => { navigate('/profile'); setShowUserMenu(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-800'}`}
+                >
+                  <UserCircle className="w-4 h-4" />
+                  My Profile
+                </button>
+                <button
+                  onClick={() => { navigate('/changelog'); setShowUserMenu(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-800'}`}
+                >
+                  <ScrollText className="w-4 h-4" />
+                  <span className="flex-1 text-left">Changelog</span>
+                  {hasNewChangelog && (
+                    <span className="px-1.5 py-0.5 text-xs font-bold bg-emerald-400 text-emerald-900 rounded-full">New</span>
+                  )}
+                </button>
+                {!isSandbox && (() => {
+                  const themeKeys = Object.keys(SIDEBAR_THEMES);
+                  const currentIdx = themeKeys.indexOf(themeId);
+                  const nextIdx = (currentIdx + 1) % themeKeys.length;
+                  const nextTheme = SIDEBAR_THEMES[themeKeys[nextIdx]];
+                  const ThemeIcon = theme.icon === 'Moon' ? Moon : theme.icon === 'Building2' ? Building2 : Sun;
+                  return (
+                    <button
+                      onClick={() => { handleThemeChange(themeKeys[nextIdx]); setShowUserMenu(false); }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-800'}`}
+                    >
+                      <ThemeIcon className="w-4 h-4" />
+                      <span className="flex-1 text-left">{theme.label} Theme</span>
+                      <span className={`w-2.5 h-2.5 rounded-full ${theme.preview}`} />
+                    </button>
+                  );
+                })()}
+                <div className={`my-1 border-t ${theme.id === 'light' ? 'border-gray-200' : 'border-gray-700'}`} />
+                <button
+                  onClick={() => { handleSignOut(); setShowUserMenu(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-red-600 hover:bg-red-50' : 'text-red-400 hover:bg-red-900/20'}`}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

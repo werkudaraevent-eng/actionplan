@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Monitor } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -621,7 +621,7 @@ export default function Sidebar() {
           const currentIdx = themeKeys.indexOf(themeId);
           const nextIdx = (currentIdx + 1) % themeKeys.length;
           const nextTheme = SIDEBAR_THEMES[themeKeys[nextIdx]];
-          const ThemeIcon = theme.icon === 'Moon' ? Moon : theme.icon === 'Monitor' ? Monitor : Sun;
+          const ThemeIcon = theme.icon === 'Moon' ? Moon : theme.icon === 'Building2' ? Building2 : Sun;
           return (
             <button
               onClick={() => handleThemeChange(themeKeys[nextIdx])}

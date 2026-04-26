@@ -1,8 +1,14 @@
 import { supabase, withTimeout } from '../lib/supabase';
 
 /**
+ * Default carry-over penalties (backward compatible with old 2-level system).
+ */
+export const DEFAULT_CARRY_OVER_PENALTIES = [80, 50];
+
+/**
  * Fetch carry-over penalty settings from the database.
- * Returns { carry_over_penalty_1: number, carry_over_penalty_2: number }
+ * Returns { carry_over_penalties: number[] }
+ * Backward compatible: if DB returns old format (penalty_1/penalty_2), converts to array.
  */
 export async function fetchCarryOverSettings() {
   const { data, error } = await withTimeout(
@@ -10,7 +16,31 @@ export async function fetchCarryOverSettings() {
     5000
   );
   if (error) throw error;
-  return data || { carry_over_penalty_1: 80, carry_over_penalty_2: 50 };
+  return normalizeCarryOverSettings(data);
+}
+
+/**
+ * Normalize carry-over settings from DB to the new array format.
+ * Handles both old format { carry_over_penalty_1, carry_over_penalty_2 }
+ * and new format { carry_over_penalties: [...] }.
+ */
+export function normalizeCarryOverSettings(data) {
+  if (!data) return { carry_over_penalties: DEFAULT_CARRY_OVER_PENALTIES };
+
+  // New format: JSONB array
+  if (Array.isArray(data.carry_over_penalties) && data.carry_over_penalties.length > 0) {
+    return { carry_over_penalties: data.carry_over_penalties };
+  }
+
+  // Old format: convert penalty_1/penalty_2 to array
+  if (data.carry_over_penalty_1 != null || data.carry_over_penalty_2 != null) {
+    const penalties = [];
+    if (data.carry_over_penalty_1 != null) penalties.push(data.carry_over_penalty_1);
+    if (data.carry_over_penalty_2 != null) penalties.push(data.carry_over_penalty_2);
+    return { carry_over_penalties: penalties.length > 0 ? penalties : DEFAULT_CARRY_OVER_PENALTIES };
+  }
+
+  return { carry_over_penalties: DEFAULT_CARRY_OVER_PENALTIES };
 }
 
 /**
@@ -58,32 +88,183 @@ export function isDropApprovalRequired(plan, dropPolicy) {
 }
 
 /**
+ * Extract the carry-over level number from a status string.
+ * 'Normal' → 0, 'Late_Month_1' → 1, 'Late_Month_2' → 2, etc.
+ */
+export function getCarryOverLevel(plan) {
+  const status = plan.carry_over_status || 'Normal';
+  if (status === 'Normal') return 0;
+  const match = status.match(/^Late_Month_(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+/**
+ * Get the max number of carry-over levels allowed based on settings.
+ */
+export function getMaxCarryOverLevels(settings) {
+  const penalties = settings?.carry_over_penalties || DEFAULT_CARRY_OVER_PENALTIES;
+  return penalties.length;
+}
+
+/**
  * Get the max possible score for a plan if it were carried over.
- * Returns null if the plan cannot be carried over (already at Late_Month_2).
+ * Returns null if the plan cannot be carried over (already at max level).
  */
 export function getNextCarryOverScore(plan, settings) {
-  const status = plan.carry_over_status || 'Normal';
-  if (status === 'Normal') return settings.carry_over_penalty_1;
-  if (status === 'Late_Month_1') return settings.carry_over_penalty_2;
-  return null; // Late_Month_2 — cannot carry over
+  const penalties = settings?.carry_over_penalties || DEFAULT_CARRY_OVER_PENALTIES;
+  const currentLevel = getCarryOverLevel(plan);
+  // currentLevel 0 (Normal) → penalties[0], level 1 → penalties[1], etc.
+  if (currentLevel < penalties.length) {
+    return penalties[currentLevel];
+  }
+  return null; // At or beyond max level — cannot carry over
 }
 
 /**
  * Check if a plan can still be carried over.
  */
-export function canCarryOver(plan) {
-  return (plan.carry_over_status || 'Normal') !== 'Late_Month_2';
+export function canCarryOver(plan, settings) {
+  const penalties = settings?.carry_over_penalties || DEFAULT_CARRY_OVER_PENALTIES;
+  const currentLevel = getCarryOverLevel(plan);
+  return currentLevel < penalties.length;
 }
 
 /**
  * Get a human-readable label for the carry-over status.
  */
-export function getCarryOverLabel(plan) {
-  const status = plan.carry_over_status || 'Normal';
-  if (status === 'Normal') return null;
-  if (status === 'Late_Month_1') return 'Carried Over (1st time)';
-  if (status === 'Late_Month_2') return 'Carried Over (2nd time — final)';
-  return null;
+export function getCarryOverLabel(plan, settings) {
+  const currentLevel = getCarryOverLevel(plan);
+  if (currentLevel === 0) return null;
+  const penalties = settings?.carry_over_penalties || DEFAULT_CARRY_OVER_PENALTIES;
+  const maxLevel = penalties.length;
+  const ordinal = getOrdinalSuffix(currentLevel);
+  if (currentLevel >= maxLevel) {
+    return `Carried Over (${ordinal} time — final)`;
+  }
+  return `Carried Over (${ordinal} time)`;
+}
+
+/**
+ * Get ordinal suffix for a number (1st, 2nd, 3rd, 4th, etc.)
+ */
+export function getOrdinalSuffix(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/**
+ * Get visual styling for a carry-over level.
+ * Returns { icon, label, badgeText, badgeBg, badgeText as badgeTextColor, borderColor, bgColor, hoverBgColor, textColor, severity }
+ * 
+ * Tiers:
+ *   Level 1          → amber (warning)
+ *   Level 2          → orange (elevated)
+ *   Level 3+         → rose (serious)
+ *   Final level      → red (critical) with skull icon
+ */
+export function getCarryOverVisual(plan, settings) {
+  const level = getCarryOverLevel(plan);
+  if (level === 0) return null;
+
+  // Only determine "isFinal" when settings are explicitly provided
+  // Without settings, we can't know the max level — so we never show "final"
+  const hasSettings = settings?.carry_over_penalties != null;
+  const penalties = hasSettings ? settings.carry_over_penalties : null;
+  const maxLevel = penalties ? penalties.length : null;
+  const isFinal = maxLevel != null ? level >= maxLevel : false;
+  const ordinal = getOrdinalSuffix(level);
+
+  // Tier determination based purely on level number
+  // Level 1 = amber, Level 2 = orange, Level 3+ = rose
+  // Final (only when settings known) = red/critical
+  let tier;
+  if (isFinal) {
+    tier = 'critical';
+  } else if (level >= 3) {
+    tier = 'serious';
+  } else if (level === 2) {
+    tier = 'elevated';
+  } else {
+    tier = 'warning';
+  }
+
+  const tiers = {
+    warning: {
+      icon: '↩️',
+      severity: 'warning',
+      badgeBg: 'bg-amber-50 border-amber-200',
+      badgeTextColor: 'text-amber-700',
+      badgeFontWeight: 'font-medium',
+      borderColor: 'border-amber-200',
+      bgColor: 'bg-amber-50',
+      hoverBgColor: 'group-hover/row:bg-amber-100',
+      textColor: 'text-amber-800',
+      subtextColor: 'text-amber-600',
+      bannerBg: 'bg-amber-50 border-amber-200',
+      bannerIcon: 'text-amber-600',
+    },
+    elevated: {
+      icon: '⚠️',
+      severity: 'elevated',
+      badgeBg: 'bg-orange-50 border-orange-200',
+      badgeTextColor: 'text-orange-700',
+      badgeFontWeight: 'font-semibold',
+      borderColor: 'border-orange-200',
+      bgColor: 'bg-orange-50',
+      hoverBgColor: 'group-hover/row:bg-orange-100',
+      textColor: 'text-orange-800',
+      subtextColor: 'text-orange-600',
+      bannerBg: 'bg-orange-50 border-orange-200',
+      bannerIcon: 'text-orange-600',
+    },
+    serious: {
+      icon: '🔥',
+      severity: 'serious',
+      badgeBg: 'bg-rose-50 border-rose-200',
+      badgeTextColor: 'text-rose-700',
+      badgeFontWeight: 'font-bold',
+      borderColor: 'border-rose-200',
+      bgColor: 'bg-rose-50',
+      hoverBgColor: 'group-hover/row:bg-rose-100',
+      textColor: 'text-rose-800',
+      subtextColor: 'text-rose-600',
+      bannerBg: 'bg-rose-50 border-rose-200',
+      bannerIcon: 'text-rose-600',
+    },
+    critical: {
+      icon: '💀',
+      severity: 'critical',
+      badgeBg: 'bg-red-50 border-red-300',
+      badgeTextColor: 'text-red-800',
+      badgeFontWeight: 'font-bold',
+      borderColor: 'border-red-300',
+      bgColor: 'bg-red-50',
+      hoverBgColor: 'group-hover/row:bg-red-100',
+      textColor: 'text-red-800',
+      subtextColor: 'text-red-600',
+      bannerBg: 'bg-red-50 border-red-300',
+      bannerIcon: 'text-red-600',
+    },
+  };
+
+  const style = tiers[tier];
+
+  return {
+    ...style,
+    level,
+    maxLevel,
+    isFinal,
+    ordinal,
+    tier,
+    label: isFinal
+      ? `FINAL LATE — ${ordinal} Carry Over`
+      : `LATE — ${ordinal} Carry Over`,
+    badgeLabel: isFinal
+      ? `${style.icon} Final (${ordinal}) from`
+      : `${style.icon} Late ${ordinal} from`,
+    maxScore: plan.max_possible_score ?? null,
+  };
 }
 
 /**

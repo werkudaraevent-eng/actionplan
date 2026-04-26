@@ -903,7 +903,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
       {/* Confirmation Modal for Rejection */}
       {showConfirmReject && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
@@ -953,7 +953,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       )}
       {/* Carry-over duplicate confirmation modal */}
       {showDuplicateConfirm && duplicateWarning && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-amber-100 rounded-full shrink-0">
@@ -1004,7 +1004,7 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       )}
       {/* Confirmation Modal for Verdict (Not Achieved) */}
       {showConfirmVerdict && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${verdict === 'revision' ? 'bg-amber-100' :

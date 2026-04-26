@@ -26,13 +26,16 @@ export async function fetchCarryOverChain(plan) {
       const { data, error } = await withTimeout(
         supabase
           .from('action_plans')
-          .select('id, month, year, quality_score, max_possible_score, status, admin_feedback, reviewed_by, reviewed_at, carry_over_status, origin_plan_id')
+          .select('id, month, year, quality_score, max_possible_score, status, admin_feedback, reviewed_by, reviewed_at, carry_over_status, origin_plan_id, company_id')
           .eq('id', currentId)
           .single(),
         5000
       );
 
       if (error || !data) break;
+
+      // Guard: don't traverse across companies
+      if (data.company_id !== plan.company_id) break;
 
       chain.unshift(data); // Prepend so oldest is first
       currentId = data.origin_plan_id; // Walk up to next ancestor

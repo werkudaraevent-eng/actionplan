@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -35,11 +35,18 @@ export default function Sidebar() {
   };
 
   // Check if user has unread changelog entries
-  const hasNewChangelog = useMemo(() => {
+  const [hasNewChangelog, setHasNewChangelog] = useState(() => {
     const lastSeen = localStorage.getItem('changelog_last_seen');
     const latest = getLatestVersion();
     return lastSeen !== latest;
-  }, []);
+  });
+
+  // Re-check when navigating away from changelog page
+  useEffect(() => {
+    const lastSeen = localStorage.getItem('changelog_last_seen');
+    const latest = getLatestVersion();
+    setHasNewChangelog(lastSeen !== latest);
+  }, [location.pathname]);
 
   // Pending unlock requests count (Admin only)
   const [pendingCount, setPendingCount] = useState(0);

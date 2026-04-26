@@ -26,6 +26,19 @@ DECLARE
   v_options_count INT := 0;
   v_plans_count INT := 0;
 BEGIN
+  -- Authorization: only holding_admin can clone
+  IF NOT EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = auth.uid() AND role = 'holding_admin'
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: holding_admin role required');
+  END IF;
+
+  -- Validate prefix
+  IF p_dept_prefix IS NOT NULL AND (length(p_dept_prefix) > 10 OR p_dept_prefix ~ '[^A-Za-z0-9_-]') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Invalid department prefix: max 10 chars, alphanumeric only');
+  END IF;
+
   -- Validate companies exist
   IF NOT EXISTS (SELECT 1 FROM companies WHERE id = p_source_company_id) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Source company not found');

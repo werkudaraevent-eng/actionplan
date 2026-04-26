@@ -40,6 +40,7 @@ export async function checkCarryOverDuplicate(plan, targetMonth, targetYear) {
           .from('action_plans')
           .select('id, action_plan, month, status')
           .eq('recurring_group_id', plan.recurring_group_id)
+          .eq('company_id', plan.company_id)
           .eq('month', targetMonth)
           .eq('year', targetYear)
           .is('deleted_at', null)

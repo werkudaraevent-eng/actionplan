@@ -102,6 +102,7 @@ function SortDropdown({ value, onChange }) {
 
 export default function AdminDashboard({ onNavigate }) {
   const { activeCompanyId, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
+  const sandboxExcludeKey = sandboxCompanyIds.join(',');
   // When in holding context, pass null to get consolidated data from ALL companies
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
@@ -324,7 +325,7 @@ export default function AdminDashboard({ onNavigate }) {
   // 2. USE EFFECT: Panggil fungsi tadi saat tanggal berubah (Load Awal)
   useEffect(() => {
     fetchAuditLogs();
-  }, [currentDate, effectiveCompanyId]);
+  }, [currentDate, effectiveCompanyId, isHoldingContext, sandboxExcludeKey]);
 
   // Filter plans by year first, then by date range
   const yearFilteredPlans = useMemo(() => {

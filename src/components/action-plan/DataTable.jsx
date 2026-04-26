@@ -878,6 +878,12 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         aVal = aVal ?? -1; // null scores go to bottom
         bVal = bVal ?? -1;
       }
+      // Special handling for PIC - resolve display names from profileMap
+      // Raw field is pic_ids (UUID[]), so we must resolve to names for meaningful sort
+      else if (sortConfig.key === 'pic') {
+        aVal = getPicDisplayName(a, profileMap).toLowerCase();
+        bVal = getPicDisplayName(b, profileMap).toLowerCase();
+      }
       // String comparison for other columns
       else {
         aVal = aVal?.toString().toLowerCase() || '';
@@ -910,7 +916,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
 
       return 0;
     });
-  }, [data, sortConfig, showPendingOnly]);
+  }, [data, sortConfig, showPendingOnly, profileMap]);
 
   // Pagination logic
   const totalPages = itemsPerPage === 'All' ? 1 : Math.ceil(sortedData.length / itemsPerPage);

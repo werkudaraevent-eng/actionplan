@@ -183,82 +183,35 @@ export function exportDashboardJSON({ title, period, stats, failureAnalysis, dep
 
 /**
  * Export dashboard as PDF screenshot.
- * Captures the dashboard content area as an image.
+ * Uses html-to-image (SVG foreignObject approach) instead of html2canvas
+ * to avoid oklch() color parsing issues with Tailwind CSS v4.
  */
 export async function exportDashboardPDF(elementId, title) {
   const element = document.getElementById(elementId);
   if (!element) return;
 
-  // Dynamic import to avoid loading html2canvas on every page
-  const html2canvas = (await import('html2canvas')).default;
+  const { toPng } = await import('html-to-image');
 
-  // Workaround: html2canvas doesn't support oklch() colors (Tailwind v4).
-  // Inject a global CSS override that forces all oklch to fallback rgb values,
-  // then remove it after capture.
-  const style = document.createElement('style');
-  style.id = 'html2canvas-oklch-fix';
-  style.textContent = `
-    *, *::before, *::after {
-      color: inherit !important;
-      background-color: inherit !important;
-      border-color: inherit !important;
-    }
-  `;
-
-  // Clone the element into an offscreen container with inline computed styles
-  // This avoids the oklch parsing entirely by using resolved rgb values
-  const clone = element.cloneNode(true);
-  clone.style.position = 'absolute';
-  clone.style.left = '-99999px';
-  clone.style.top = '0';
-  clone.style.width = element.offsetWidth + 'px';
-  document.body.appendChild(clone);
-
-  // Recursively apply computed styles as inline styles (resolved to rgb)
-  function inlineComputedStyles(source, target) {
-    const computed = getComputedStyle(source);
-    const props = ['color', 'background-color', 'border-color', 'border-top-color',
-      'border-right-color', 'border-bottom-color', 'border-left-color',
-      'outline-color', 'background-image', 'box-shadow', 'text-shadow'];
-    props.forEach(prop => {
-      const val = computed.getPropertyValue(prop);
-      if (val && val !== 'none' && val !== 'initial') {
-        target.style.setProperty(prop, val);
-      }
-    });
-    const sourceChildren = source.children;
-    const targetChildren = target.children;
-    for (let i = 0; i < sourceChildren.length && i < targetChildren.length; i++) {
-      inlineComputedStyles(sourceChildren[i], targetChildren[i]);
-    }
-  }
-  inlineComputedStyles(element, clone);
-
-  // Also handle SVG elements (charts) - copy their computed fills/strokes
-  clone.querySelectorAll('svg *').forEach((svgEl, idx) => {
-    const sourceEls = element.querySelectorAll('svg *');
-    if (sourceEls[idx]) {
-      const computed = getComputedStyle(sourceEls[idx]);
-      ['fill', 'stroke'].forEach(prop => {
-        const val = computed.getPropertyValue(prop);
-        if (val && val !== 'none') svgEl.style.setProperty(prop, val);
-      });
-    }
-  });
-
-  const canvas = await html2canvas(clone, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
+  const imgData = await toPng(element, {
+    quality: 0.95,
+    pixelRatio: 2,
     backgroundColor: '#f9fafb',
+    filter: (node) => {
+      // Skip hidden elements and script tags
+      if (node.tagName === 'SCRIPT' || node.tagName === 'NOSCRIPT') return false;
+      return true;
+    },
   });
 
-  // Cleanup
-  document.body.removeChild(clone);
+  // Get image dimensions
+  const img = new Image();
+  await new Promise((resolve) => {
+    img.onload = resolve;
+    img.src = imgData;
+  });
 
-  const imgData = canvas.toDataURL('image/png');
-  const imgWidth = canvas.width;
-  const imgHeight = canvas.height;
+  const imgWidth = img.naturalWidth;
+  const imgHeight = img.naturalHeight;
 
   // A4 landscape
   const pdf = new jsPDF('l', 'mm', 'a4');
@@ -268,31 +221,32 @@ export async function exportDashboardPDF(elementId, title) {
   const usableWidth = pageWidth - 2 * margin;
   const usableHeight = pageHeight - 2 * margin;
 
-  const ratio = Math.min(usableWidth / imgWidth, usableHeight / imgHeight);
-  const scaledWidth = imgWidth * ratio;
-  const scaledHeight = imgHeight * ratio;
+  // Scale to fit page width
+  const scale = usableWidth / imgWidth;
+  const scaledHeight = imgHeight * scale;
 
-  // If content is taller than one page, split into multiple pages
+  // Multi-page support
   const pagesNeeded = Math.ceil(scaledHeight / usableHeight);
 
   for (let i = 0; i < pagesNeeded; i++) {
     if (i > 0) pdf.addPage();
 
-    const sourceY = (i * usableHeight / ratio);
-    const sourceH = Math.min(imgHeight - sourceY, usableHeight / ratio);
-    const destH = sourceH * ratio;
+    // Calculate source crop for this page
+    const sourceY = (i * usableHeight) / scale;
+    const sourceH = Math.min(imgHeight - sourceY, usableHeight / scale);
+    const destH = sourceH * scale;
 
-    // Create a temporary canvas for this page slice
+    // Crop via canvas
     const pageCanvas = document.createElement('canvas');
     pageCanvas.width = imgWidth;
     pageCanvas.height = sourceH;
     const ctx = pageCanvas.getContext('2d');
-    ctx.drawImage(canvas, 0, sourceY, imgWidth, sourceH, 0, 0, imgWidth, sourceH);
+    ctx.drawImage(img, 0, sourceY, imgWidth, sourceH, 0, 0, imgWidth, sourceH);
 
     const pageImgData = pageCanvas.toDataURL('image/png');
-    pdf.addImage(pageImgData, 'PNG', margin, margin, scaledWidth, destH);
+    pdf.addImage(pageImgData, 'PNG', margin, margin, usableWidth, destH);
 
-    // Add title on first page
+    // Footer on first page
     if (i === 0) {
       pdf.setFontSize(8);
       pdf.setTextColor(150);

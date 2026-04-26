@@ -461,15 +461,19 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
       const buildRow = (p) => finalCols.map(c => COLUMN_DEFS[c]?.getValue(p) || '-');
       const statusColIdx = finalCols.indexOf('status');
 
-      // Build column styles
+      // Build column styles — proportional widths to fill the full page
       const colStyles = {};
+      const usableWidth = 273; // A4 landscape: 297mm - 2*12mm margins
+      const totalWeight = finalCols.reduce((sum, colId) => sum + (COLUMN_DEFS[colId]?.fixedWidth || 20), 0);
+
       finalCols.forEach((colId, idx) => {
         const def = COLUMN_DEFS[colId];
-        if (def?.fixedWidth) {
-          colStyles[idx] = { cellWidth: def.fixedWidth, halign: def.align };
-        } else {
-          colStyles[idx] = { halign: def?.align || 'left' };
-        }
+        const weight = def?.fixedWidth || 20;
+        colStyles[idx] = {
+          cellWidth: (weight / totalWeight) * usableWidth,
+          halign: def?.align || 'left',
+          ...(def?.fontSize ? { fontSize: def.fontSize } : {}),
+        };
       });
 
       // Create PDF document - LANDSCAPE A4
@@ -533,7 +537,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         margin: { top: 28, bottom: 20, left: margin, right: margin },
         tableLineColor: [200, 200, 200],
         tableLineWidth: 0.1,
-        tableWidth: 'wrap',
+        tableWidth: 'auto',
         didDrawPage: () => {
           doc.setFillColor(13, 148, 136);
           doc.rect(0, 0, pageWidth, 18, 'F');

@@ -73,7 +73,7 @@ function ChartDropdown({ value, onChange, options }) {
   return (
     <div className="relative">
       <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-600">
+        className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
         {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
       </select>
       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
@@ -88,11 +88,11 @@ function SortDropdown({ value, onChange }) {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-600"
+        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
-        <option value="high-low">? Highest</option>
-        <option value="low-high">? Lowest</option>
-        <option value="a-z">A ? Z</option>
+        <option value="high-low">↓ Highest</option>
+        <option value="low-high">↑ Lowest</option>
+        <option value="a-z">A → Z</option>
       </select>
       <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
     </div>
@@ -137,7 +137,7 @@ export default function AdminDashboard({ onNavigate }) {
   const [comparisonHistorical, setComparisonHistorical] = useState([]);
   // Audit logs for tracking organic vs admin activity
   const [auditLogs, setAuditLogs] = useState([]);
-  // Profile map for resolving pic_ids ? display names (for charts)
+  // Profile map for resolving pic_ids → display names (for charts)
   const [picProfileMap, setPicProfileMap] = useState(new Map());
 
   // Calculate comparison year value FIRST (before useEffects that depend on it)
@@ -151,7 +151,7 @@ export default function AdminDashboard({ onNavigate }) {
   useEffect(() => {
     const fetchTargetAndHistory = async () => {
       // HYDRATION GUARD: Don't fetch until company context is resolved
-      // (skip guard when in holding context � effectiveCompanyId is intentionally null)
+      // (skip guard when in holding context — effectiveCompanyId is intentionally null)
       if (!isHoldingContext && !effectiveCompanyId) {
         setAnnualTarget(null);
         setHistoricalStats([]);
@@ -678,7 +678,7 @@ export default function AdminDashboard({ onNavigate }) {
       // Calculate company-wide average completion rate from historical_stats
       const avgCompletion = filteredHistoricalStats.reduce((sum, h) => sum + h.completion_rate, 0) / filteredHistoricalStats.length;
       completionRate = Number(avgCompletion.toFixed(1));
-      // qualityScore remains null for historical years (displays as "�" in UI)
+      // qualityScore remains null for historical years (displays as "—" in UI)
     }
 
     return {
@@ -864,7 +864,7 @@ export default function AdminDashboard({ onNavigate }) {
           // Department view: single key per plan
           addToDataMap(plan.department_code || 'Unknown', plan);
         } else {
-          // PIC view: flatten multi-PIC � credit ALL assigned PICs
+          // PIC view: flatten multi-PIC — credit ALL assigned PICs
           const picKeys = getPicKeysForAggregation(plan, picProfileMap);
           picKeys.forEach(key => addToDataMap(key, plan));
         }
@@ -1045,7 +1045,7 @@ export default function AdminDashboard({ onNavigate }) {
     // We DO NOT filter out 'BULK' generically - 'BULK_SUBMIT' is valid team work!
     const BLACKLIST_ACTIONS = ['IMPORT', 'RESET', 'DELETE', 'RESTORE'];
 
-    // --- GHOST MODE ---------------------------------------------
+    // ─── GHOST MODE ─────────────────────────────────────────────
     // ADMIN ROLES: Exclude these from BOTH chart statistics AND Latest Updates feed.
     // holding_admin interventions (typo fixes, maintenance) must NOT inflate
     // department operational KPIs. Raw data remains in audit_logs for auditors.
@@ -1338,7 +1338,7 @@ export default function AdminDashboard({ onNavigate }) {
   const getDateRangeLabel = () => {
     if (startMonth === 'Jan' && endMonth === 'Dec') return 'Full Year';
     if (startMonth === endMonth) return startMonth;
-    return `${startMonth} � ${endMonth}`;
+    return `${startMonth} – ${endMonth}`;
   };
 
   // Helper: Sort chart data by different criteria
@@ -1390,9 +1390,9 @@ export default function AdminDashboard({ onNavigate }) {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Company Dashboard</h1>
               <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                <span>Executive Performance Overview � FY {selectedYear}</span>
+                <span>Executive Performance Overview — FY {selectedYear}</span>
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                  ?? {periodLabel}
+                  📅 {periodLabel}
                 </span>
               </div>
             </div>
@@ -1508,7 +1508,7 @@ export default function AdminDashboard({ onNavigate }) {
                       ))}
                     </SelectContent>
                   </Select>
-                  <span className="text-gray-400 text-sm">�</span>
+                  <span className="text-gray-400 text-sm">–</span>
                   <Select value={endMonth} onValueChange={setEndMonth}>
                     <SelectTrigger className="w-[70px] h-9 text-sm bg-white">
                       <SelectValue />
@@ -1660,7 +1660,7 @@ export default function AdminDashboard({ onNavigate }) {
 
             {/* Color Legend */}
             <div className="flex items-center gap-3 text-xs mb-4">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> =10</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> ≥10</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500"></span> 5-9</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 1-4</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-300"></span> 0</span>
@@ -1797,7 +1797,7 @@ export default function AdminDashboard({ onNavigate }) {
               <p className="text-xs text-gray-400">
                 Showing the last 20 activities
                 {weeklyActivityData.recentUpdates.length > 0 && weeklyActivityData.activeDepts > 0 && (
-                  <span className="mx-2">�</span>
+                  <span className="mx-2">•</span>
                 )}
                 {weeklyActivityData.recentUpdates.length > 0 && weeklyActivityData.activeDepts > 0 && (
                   <span>
@@ -1868,14 +1868,14 @@ export default function AdminDashboard({ onNavigate }) {
             {/* No comparison data warning */}
             {comparisonYear !== 'none' && !hasComparisonData && (
               <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                ?? No data available for {comparisonLabel}
+                ⚠️ No data available for {comparisonLabel}
               </div>
             )}
 
             {/* Verification Score not available for historical years warning */}
             {!isCompletionView && selectedYear < 2026 && (
               <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                ?? Verification Score system was introduced in 2026. No score data available for {selectedYear}.
+                ℹ️ Verification Score system was introduced in 2026. No score data available for {selectedYear}.
               </div>
             )}
 
@@ -1901,7 +1901,7 @@ export default function AdminDashboard({ onNavigate }) {
                         // Helper for trend styling
                         const getTrend = (val) => ({
                           color: val >= 0 ? 'text-emerald-600' : 'text-red-600',
-                          icon: val >= 0 ? '?' : '?',
+                          icon: val >= 0 ? '▲' : '▼',
                           prefix: val >= 0 ? '+' : ''
                         });
 
@@ -1970,9 +1970,9 @@ export default function AdminDashboard({ onNavigate }) {
                   <Line
                     type="monotone"
                     dataKey={isCompletionView ? 'main_completion' : 'main_score'}
-                    stroke="#0d9488"
+                    stroke="#02378D"
                     strokeWidth={2.5}
-                    dot={{ fill: '#0d9488', r: 4 }}
+                    dot={{ fill: '#02378D', r: 4 }}
                     connectNulls
                     name={`${selectedYear}`}
                   />
@@ -2230,7 +2230,7 @@ export default function AdminDashboard({ onNavigate }) {
             <div>
               <h3 className="text-lg font-bold text-gray-800">{orgTitle}</h3>
               <p className="text-xs font-medium text-gray-400 mt-1">
-                {dateContextLabel} � {sortedOrgChartData.length} items
+                {dateContextLabel} — {sortedOrgChartData.length} items
                 {isHistoricalView && orgMetric === 'department_code' && (
                   <span className="ml-2 text-amber-600 italic">(Historical avg.)</span>
                 )}
@@ -2261,18 +2261,18 @@ export default function AdminDashboard({ onNavigate }) {
               <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-yellow-500" />Department Leaderboard
               </h2>
-              <p className="text-xs font-medium text-gray-400 mt-1">{dateContextLabel} � Ranked by {isCompletionView ? 'completion rate' : 'verification score'}</p>
+              <p className="text-xs font-medium text-gray-400 mt-1">{dateContextLabel} — Ranked by {isCompletionView ? 'completion rate' : 'verification score'}</p>
             </div>
             <div className="flex items-center gap-2 text-xs">
               {isCompletionView ? (
                 <>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> =90%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600"></span> ≥90%</span>
                   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-400"></span> 70-89%</span>
                   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-300"></span> &lt;70%</span>
                 </>
               ) : (
                 <>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-600"></span> =90%</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-600"></span> ≥90%</span>
                   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500"></span> 70-89%</span>
                   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400"></span> &lt;70%</span>
                 </>

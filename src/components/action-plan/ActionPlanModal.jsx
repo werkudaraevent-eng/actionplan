@@ -1244,7 +1244,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
           </div>
           {/* Submission Mode Indicator */}
           {isSubmissionMode && editData && (
-            <p className="text-sm text-teal-600 mt-1 flex items-center gap-1">
+            <p className="text-sm text-blue-700 mt-1 flex items-center gap-1">
               <MessageSquare className="w-4 h-4" />
               You can update status, evidence, and remarks for this action plan.
             </p>
@@ -1574,7 +1574,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   <select
                     value={formData.department_code}
                     onChange={(e) => handleDepartmentChange(e.target.value)}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${editData || (!hasMultipleDepartments && !staffMode) ? 'bg-gray-50 text-gray-600' : ''
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${editData || (!hasMultipleDepartments && !staffMode) ? 'bg-gray-50 text-gray-600' : ''
                       }`}
                     required={!editData}
                     disabled={editData || (!hasMultipleDepartments && !staffMode)}
@@ -1596,7 +1596,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   <select
                     value={formData.month}
                     onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   >
                     {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
@@ -1617,7 +1617,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         setFormData({ ...formData, category: val });
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                     disabled={loadingDropdowns}
                   >
                     <option value="">Select category...</option>
@@ -1637,7 +1637,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         type="text"
                         value={formData.area_focus}
                         onChange={(e) => setFormData({ ...formData, area_focus: e.target.value })}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                         placeholder="Type your custom focus area..."
                         autoFocus
                       />
@@ -1667,7 +1667,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                           setFormData({ ...formData, area_focus: val });
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                       disabled={loadingDropdowns}
                     >
                       <option value="">Select focus area...</option>
@@ -1678,7 +1678,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         <option value="__CUSTOM__">📝 {formData.area_focus}</option>
                       )}
                       {areaFocusOptions.some(o => o.label === 'Other' || (o.value || '').toUpperCase() === 'OTHER') && (
-                        <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Focus Area...</option>
+                        <option value="__CUSTOM_ENTRY__" className="text-blue-700">+ Type Custom Focus Area...</option>
                       )}
                     </select>
                   )}
@@ -1694,7 +1694,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                       type="text"
                       value={formData.goal_strategy}
                       onChange={(e) => setFormData({ ...formData, goal_strategy: e.target.value })}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                       placeholder="Type your custom strategy..."
                       autoFocus
                       required
@@ -1726,7 +1726,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         setFormData({ ...formData, goal_strategy: val });
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                     disabled={loadingDropdowns}
                     required={!isCustomGoal}
                   >
@@ -1737,7 +1737,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     {formData.goal_strategy && !goalOptions.some(o => o.label === formData.goal_strategy) && (
                       <option value="__CUSTOM__">📝 {formData.goal_strategy}</option>
                     )}
-                    <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Strategy...</option>
+                    <option value="__CUSTOM_ENTRY__" className="text-blue-700">+ Type Custom Strategy...</option>
                   </select>
                 )}
               </div>
@@ -1750,7 +1750,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     <textarea
                       value={formData.action_plan}
                       onChange={(e) => setFormData({ ...formData, action_plan: e.target.value })}
-                      className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed"
+                      className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 leading-relaxed"
                       placeholder="Type your custom action plan..."
                       rows={2}
                       autoFocus
@@ -1783,7 +1783,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         setFormData({ ...formData, action_plan: val });
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                     disabled={loadingDropdowns}
                     required={!isCustomAction}
                   >
@@ -1794,7 +1794,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     {formData.action_plan && !actionPlanOptions.some(o => o.label === formData.action_plan) && (
                       <option value="__CUSTOM__">📝 {formData.action_plan}</option>
                     )}
-                    <option value="__CUSTOM_ENTRY__" className="text-teal-600">+ Type Custom Action Plan...</option>
+                    <option value="__CUSTOM_ENTRY__" className="text-blue-700">+ Type Custom Action Plan...</option>
                   </select>
                 )}
               </div>
@@ -1805,7 +1805,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 <textarea
                   value={formData.indicator}
                   onChange={(e) => setFormData({ ...formData, indicator: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none leading-relaxed"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 resize-none leading-relaxed"
                   rows={3}
                   placeholder="Describe the KPI or success indicator..."
                   required
@@ -1817,7 +1817,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   PIC (Person In Charge)
                   {allowMultiplePics && (
-                    <span className="ml-2 text-xs text-teal-600 font-normal">(Multi-select enabled)</span>
+                    <span className="ml-2 text-xs text-blue-700 font-normal">(Multi-select enabled)</span>
                   )}
                 </label>
                 <div className="relative">
@@ -1837,7 +1837,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                           {filteredStaff.map((staff) => (
                             <label
                               key={staff.id}
-                              className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-teal-50 text-sm transition-colors ${(formData.pic_ids || []).includes(staff.id) ? 'bg-teal-50 text-teal-800' : 'text-gray-700'
+                              className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm transition-colors ${(formData.pic_ids || []).includes(staff.id) ? 'bg-blue-50 text-[#02378D]' : 'text-gray-700'
                                 }`}
                             >
                               <input
@@ -1850,10 +1850,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                                     : currentIds.filter(id => id !== staff.id);
                                   setFormData({ ...formData, pic_ids: newIds });
                                 }}
-                                className="rounded text-teal-600 focus:ring-teal-500"
+                                className="rounded text-blue-700 focus:ring-blue-600"
                               />
                               <span>{staff.full_name}</span>
-                              {staff.role === 'leader' && <span className="text-xs text-teal-600">(Leader)</span>}
+                              {staff.role === 'leader' && <span className="text-xs text-blue-700">(Leader)</span>}
                               {staff.isPrimary ? (
                                 <span className="text-xs text-gray-400">Primary</span>
                               ) : staff.isSecondary ? (
@@ -1875,7 +1875,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                       <select
                         value={(formData.pic_ids || [])[0] || ''}
                         onChange={(e) => setFormData({ ...formData, pic_ids: e.target.value ? [e.target.value] : [] })}
-                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''}`}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${!formData.department_code ? 'bg-gray-50 text-gray-400' : ''}`}
                         required
                         disabled={!formData.department_code || loadingStaff}
                       >
@@ -1965,7 +1965,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                 <textarea
                   value={formData.evidence || ''}
                   onChange={(e) => setFormData({ ...formData, evidence: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 leading-relaxed"
                   rows={2}
                   placeholder="Describe the expected evidence or target output..."
                 />
@@ -2058,7 +2058,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   setFollowUpAction(null);
                 }
               }}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
                 }`}
               disabled={(isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock}
             >
@@ -2538,7 +2538,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
             <textarea
               value={formData.remark || ''}
               onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
-              className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 leading-relaxed ${((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+              className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 leading-relaxed ${((isLocked && !isAdminOverride && !isSubmissionMode) || (isSubmissionMode && isLockedForSubmission) || shouldDisableForDateLock) ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
                 }`}
               rows={3}
               placeholder="Enter your notes, analysis, or additional comments..."
@@ -2554,10 +2554,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   type="checkbox"
                   checked={repeatEnabled}
                   onChange={(e) => setRepeatEnabled(e.target.checked)}
-                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  className="w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
                 />
                 <div className="flex items-center gap-2">
-                  <Repeat className="w-4 h-4 text-teal-600" />
+                  <Repeat className="w-4 h-4 text-blue-700" />
                   <span className="text-sm font-medium text-gray-700">Repeat this Action Plan for other months?</span>
                 </div>
               </label>
@@ -2570,7 +2570,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                       <button
                         type="button"
                         onClick={selectAllMonths}
-                        className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                        className="text-xs text-blue-700 hover:text-blue-800 font-medium"
                       >
                         Select All
                       </button>
@@ -2592,8 +2592,8 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                         type="button"
                         onClick={() => toggleMonth(month)}
                         className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${selectedMonths.includes(month)
-                          ? 'bg-teal-600 text-white border-teal-600'
-                          : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+                          ? 'bg-blue-700 text-white border-blue-700'
+                          : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
                           }`}
                       >
                         {month}
@@ -2682,7 +2682,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                     return false;
                   })()}
                   className={`flex-1 px-4 py-2.5 text-white rounded-lg transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${isAdminOverride || isDateOverrideEnabled ? 'bg-red-600 hover:bg-red-700' :
-                    showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
+                    showConfirm ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'
                     }`}
                 >
                   {loading ? (

@@ -204,7 +204,7 @@ export default function AdminPermissions() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
         <span className="ml-3 text-gray-500">Loading permissions...</span>
       </div>
     );
@@ -231,8 +231,8 @@ export default function AdminPermissions() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-teal-100 rounded-xl flex items-center justify-center">
-              <Shield className="w-5 h-5 text-teal-600" />
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+              <Shield className="w-5 h-5 text-blue-700" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-800">Access Control</h2>
@@ -258,7 +258,7 @@ export default function AdminPermissions() {
             <button
               onClick={handleSave}
               disabled={pendingChanges.size === 0 || saving}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save Changes

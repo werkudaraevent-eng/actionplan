@@ -79,7 +79,7 @@ export default function ResolutionModal({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50">
+        <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-blue-50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
               <CheckCircle className="w-5 h-5 text-emerald-600" />
@@ -98,7 +98,7 @@ export default function ResolutionModal({
             {item && (
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700">
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     {item.department_code}
                   </span>
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
@@ -177,7 +177,7 @@ export default function ResolutionModal({
                       value={editedActionPlan}
                       onChange={(e) => setEditedActionPlan(e.target.value)}
                       rows={3}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none"
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 resize-none"
                     />
                   </div>
                   
@@ -190,7 +190,7 @@ export default function ResolutionModal({
                       value={editedIndicator}
                       onChange={(e) => setEditedIndicator(e.target.value)}
                       rows={2}
-                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none"
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 resize-none"
                     />
                   </div>
                 </div>

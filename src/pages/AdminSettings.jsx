@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -45,8 +45,8 @@ export default function AdminSettings({ onNavigateToUsers }) {
       {/* Header - Sticky with high z-index */}
       <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-6 py-4 sticky top-0 z-[100]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-            <Settings className="w-5 h-5 text-teal-600" />
+          <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+            <Settings className="w-5 h-5 text-blue-700" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Admin Settings</h1>
@@ -66,7 +66,7 @@ export default function AdminSettings({ onNavigateToUsers }) {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex-shrink-0 whitespace-nowrap flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id
-                    ? 'border-teal-600 text-teal-600'
+                    ? 'border-blue-700 text-blue-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}
                 >
@@ -249,7 +249,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
         <button
           onClick={startAdd}
           disabled={isAdding}
-          className="flex items-center gap-2 px-3 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-2 bg-blue-700 text-white text-sm rounded-lg hover:bg-blue-800 disabled:opacity-50"
         >
           <Plus className="w-4 h-4" /> Add Department
         </button>
@@ -267,7 +267,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
       <div className="divide-y divide-gray-100">
         {/* Add New Row */}
         {isAdding && (
-          <div key="add-new-row" className="p-4 bg-teal-50 grid grid-cols-12 gap-4 items-center">
+          <div key="add-new-row" className="p-4 bg-blue-50 grid grid-cols-12 gap-4 items-center">
             <div className="col-span-2">
               <input
                 type="text"
@@ -290,7 +290,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
             <div className="col-span-3 text-gray-400 text-sm italic">—</div>
             <div className="col-span-2 text-gray-400 text-sm italic">—</div>
             <div className="col-span-2 flex justify-end gap-2">
-              <button onClick={handleSaveNew} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+              <button onClick={handleSaveNew} disabled={saving} className="p-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               </button>
               <button onClick={cancelEdit} className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">
@@ -324,7 +324,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
                   <div className="col-span-3 text-gray-400 text-sm">—</div>
                   <div className="col-span-2 text-gray-400 text-sm">—</div>
                   <div className="col-span-2 flex justify-end gap-2">
-                    <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                    <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800">
                       {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     </button>
                     <button onClick={cancelEdit} className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300">
@@ -335,14 +335,14 @@ function DepartmentsTab({ onNavigateToUsers }) {
               ) : (
                 <>
                   <div className="col-span-2">
-                    <span className="px-3 py-1.5 bg-teal-100 text-teal-700 rounded-lg text-sm font-mono font-semibold inline-block">
+                    <span className="px-3 py-1.5 bg-blue-100 text-blue-800 rounded-lg text-sm font-mono font-semibold inline-block">
                       {dept.code}
                     </span>
                   </div>
                   <div className="col-span-3 text-gray-800 font-medium">{dept.name}</div>
                   <div className="col-span-3">
                     {leader ? (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 text-teal-700 rounded-full text-sm">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-800 rounded-full text-sm">
                         <User className="w-3.5 h-3.5" />
                         {leader.full_name}
                       </span>
@@ -369,7 +369,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
                       </button>
                       {additionalCount > 0 && (
                         <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-teal-50 text-teal-600 border border-teal-200"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200"
                           title={`${additionalCount} user${additionalCount > 1 ? 's' : ''} with additional access to this department`}
                         >
                           +{additionalCount} Extended
@@ -378,7 +378,7 @@ function DepartmentsTab({ onNavigateToUsers }) {
                     </div>
                   </div>
                   <div className="col-span-2 flex justify-end gap-2">
-                    <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
+                    <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg">
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button onClick={() => setConfirmDelete(dept.code)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
@@ -496,7 +496,7 @@ function TargetsTab() {
                 <button
                   onClick={() => handleSave(year)}
                   disabled={saving === year}
-                  className="ml-auto p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  className="ml-auto p-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 disabled:opacity-50"
                 >
                   {saving === year ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 </button>
@@ -821,7 +821,7 @@ function HistoricalTab() {
               onClick={handleSaveAll}
               disabled={saving || !hasChanges}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${hasChanges
-                ? 'bg-teal-600 text-white hover:bg-teal-700'
+                ? 'bg-blue-700 text-white hover:bg-blue-800'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
             >
@@ -841,7 +841,7 @@ function HistoricalTab() {
             <Download className="w-3.5 h-3.5" />
             Download Template
           </button>
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-teal-600 text-teal-600 rounded-lg hover:bg-teal-50 cursor-pointer">
+          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-700 text-blue-700 rounded-lg hover:bg-blue-50 cursor-pointer">
             {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
             {importing ? 'Importing...' : 'Import CSV'}
             <input
@@ -879,7 +879,7 @@ function HistoricalTab() {
                 <tr key={dept.code} className="hover:bg-gray-50/50">
                   <td className="px-4 py-2 sticky left-0 bg-white">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs font-mono font-semibold">
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-mono font-semibold">
                         {dept.code}
                       </span>
                       <span className="text-gray-600 text-xs truncate max-w-[80px]" title={dept.name}>
@@ -900,7 +900,7 @@ function HistoricalTab() {
                           value={value}
                           onChange={(e) => handleCellChange(dept.code, month, e.target.value)}
                           placeholder="—"
-                          className="w-full px-1 py-1.5 border border-gray-200 rounded text-center text-xs focus:ring-1 focus:ring-teal-500 focus:border-teal-500"
+                          className="w-full px-1 py-1.5 border border-gray-200 rounded text-center text-xs focus:ring-1 focus:ring-blue-600 focus:border-blue-600"
                         />
                       </td>
                     );
@@ -1193,8 +1193,8 @@ function DataManagementTab() {
       {/* Import Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-teal-50 rounded-lg">
-            <Upload className="w-6 h-6 text-teal-600" />
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <Upload className="w-6 h-6 text-blue-700" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-bold text-gray-800">Import Action Plans</h3>
@@ -1214,7 +1214,7 @@ function DataManagementTab() {
             <div className="mt-4">
               <button
                 onClick={() => setShowImportModal(true)}
-                className="px-4 py-2 bg-teal-600 text-white font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2 transition-colors shadow-sm"
+                className="px-4 py-2 bg-blue-700 text-white font-medium rounded-lg hover:bg-blue-800 flex items-center gap-2 transition-colors shadow-sm"
               >
                 <Upload className="w-4 h-4" />
                 Select Excel File
@@ -1306,7 +1306,7 @@ function SystemSettingsTab() {
 
   // Default settings (used for state reset & fallback)
   const DEFAULT_SETTINGS = { is_lock_enabled: true, lock_cutoff_day: 6 };
-  const DEFAULT_PENALTY = { carry_over_penalty_1: 80, carry_over_penalty_2: 50 };
+  const DEFAULT_PENALTY = { carry_over_penalties: [80, 50] };
   const DEFAULT_GRADING = { is_strict_grading_enabled: false, threshold_uh: 100, threshold_h: 100, threshold_m: 80, threshold_l: 70 };
   const DEFAULT_DROP_POLICY = { drop_approval_req_uh: false, drop_approval_req_h: false, drop_approval_req_m: false, drop_approval_req_l: false };
 
@@ -1320,7 +1320,7 @@ function SystemSettingsTab() {
   const ALLOWED_FIELDS = new Set([
     'is_lock_enabled', 'lock_cutoff_day',
     'is_strict_grading_enabled', 'threshold_uh', 'threshold_h', 'threshold_m', 'threshold_l',
-    'carry_over_penalty_1', 'carry_over_penalty_2',
+    'carry_over_penalties', 'carry_over_penalty_1', 'carry_over_penalty_2',
     'drop_approval_req_uh', 'drop_approval_req_h', 'drop_approval_req_m', 'drop_approval_req_l',
     'email_config', 'scoring_policies',
   ]);
@@ -1448,10 +1448,17 @@ function SystemSettingsTab() {
       // else: defaults already set by the state cleanup above
 
       if (!penaltyResult.error && penaltyResult.data) {
-        setPenaltySettings({
-          carry_over_penalty_1: penaltyResult.data.carry_over_penalty_1 ?? 80,
-          carry_over_penalty_2: penaltyResult.data.carry_over_penalty_2 ?? 50
-        });
+        // Support both new array format and old 2-field format
+        let penalties = [80, 50];
+        if (Array.isArray(penaltyResult.data.carry_over_penalties) && penaltyResult.data.carry_over_penalties.length > 0) {
+          penalties = penaltyResult.data.carry_over_penalties;
+        } else if (penaltyResult.data.carry_over_penalty_1 != null) {
+          penalties = [penaltyResult.data.carry_over_penalty_1];
+          if (penaltyResult.data.carry_over_penalty_2 != null) {
+            penalties.push(penaltyResult.data.carry_over_penalty_2);
+          }
+        }
+        setPenaltySettings({ carry_over_penalties: penalties });
       }
     } catch (error) {
       console.error('Error fetching system settings:', error);
@@ -1690,30 +1697,61 @@ function SystemSettingsTab() {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  // Save carry-over penalty settings
-  const handleSavePenalties = async () => {
-    const p1 = penaltySettings.carry_over_penalty_1;
-    const p2 = penaltySettings.carry_over_penalty_2;
-
-    if (p1 < 0 || p1 > 100 || p2 < 0 || p2 > 100) {
-      toast({ title: 'Invalid Values', description: 'Penalties must be between 0 and 100.', variant: 'warning' });
-      return;
+  // Validate carry-over penalties array: each 1-100, strictly descending
+  const isPenaltiesValid = () => {
+    const penalties = penaltySettings.carry_over_penalties || [];
+    if (penalties.length === 0) return false;
+    for (let i = 0; i < penalties.length; i++) {
+      if (penalties[i] < 1 || penalties[i] > 100) return false;
+      if (i > 0 && penalties[i] >= penalties[i - 1]) return false;
     }
-    if (p2 >= p1) {
-      toast({ title: 'Invalid Configuration', description: 'Month 2 penalty must be lower than Month 1.', variant: 'warning' });
+    return true;
+  };
+
+  // Add a new penalty level
+  const handleAddPenaltyLevel = () => {
+    const penalties = [...(penaltySettings.carry_over_penalties || [])];
+    const lastVal = penalties.length > 0 ? penalties[penalties.length - 1] : 100;
+    const newVal = Math.max(1, Math.floor(lastVal / 2)); // Suggest half of last value
+    penalties.push(newVal);
+    setPenaltySettings({ carry_over_penalties: penalties });
+  };
+
+  // Remove the last penalty level
+  const handleRemovePenaltyLevel = (index) => {
+    const penalties = [...(penaltySettings.carry_over_penalties || [])];
+    if (penalties.length <= 1) return; // Must have at least 1 level
+    penalties.splice(index, 1);
+    setPenaltySettings({ carry_over_penalties: penalties });
+  };
+
+  // Update a specific penalty level value
+  const handlePenaltyChange = (index, value) => {
+    const v = parseInt(value, 10);
+    if (isNaN(v) || v < 1 || v > 100) return;
+    const penalties = [...(penaltySettings.carry_over_penalties || [])];
+    penalties[index] = v;
+    setPenaltySettings({ carry_over_penalties: penalties });
+  };
+
+  // Save carry-over penalty settings (dynamic array)
+  const handleSavePenalties = async () => {
+    const penalties = penaltySettings.carry_over_penalties || [];
+
+    if (!isPenaltiesValid()) {
+      toast({ title: 'Invalid Configuration', description: 'Each level must be 1-100 and strictly descending.', variant: 'warning' });
       return;
     }
 
     setSavingPenalties(true);
     try {
-      // MULTI-TENANT: pass company_id to the RPC
+      // Use new RPC with JSONB array
       const { error } = await supabase.rpc('update_carry_over_settings', {
-        p_penalty_1: p1,
-        p_penalty_2: p2,
+        p_penalties: penalties,
         p_company_id: activeCompanyId
       });
       if (error) throw error;
-      toast({ title: 'Settings Updated', description: 'Carry-over penalties saved.', variant: 'success' });
+      toast({ title: 'Settings Updated', description: `Carry-over penalties saved (${penalties.length} level${penalties.length > 1 ? 's' : ''}).`, variant: 'success' });
     } catch (error) {
       console.error('Error saving penalty settings:', error);
       toast({ title: 'Error', description: error.message || 'Failed to save penalties.', variant: 'error' });
@@ -1812,8 +1850,8 @@ function SystemSettingsTab() {
         <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-teal-100 rounded-lg">
-                <Lock className="w-5 h-5 text-teal-600" />
+              <div className="p-2.5 bg-blue-100 rounded-lg">
+                <Lock className="w-5 h-5 text-blue-700" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-gray-800">Auto-Lock Control Center</h3>
@@ -1859,7 +1897,7 @@ function SystemSettingsTab() {
                 onClick={handleToggleLock}
                 disabled={saving}
                 className={`p-1 rounded-lg transition-all flex-shrink-0 ${settings.is_lock_enabled
-                  ? 'text-teal-600 hover:bg-teal-50'
+                  ? 'text-blue-700 hover:bg-blue-50'
                   : 'text-gray-400 hover:bg-gray-100'
                   }`}
                 title={settings.is_lock_enabled ? 'Click to disable' : 'Click to enable'}
@@ -1899,13 +1937,13 @@ function SystemSettingsTab() {
                   max="28"
                   value={settings.lock_cutoff_day}
                   onChange={(e) => handleCutoffDayChange(e.target.value)}
-                  className="w-14 px-2 py-1 text-center font-semibold text-gray-800 border border-gray-300 rounded focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  className="w-14 px-2 py-1 text-center font-semibold text-gray-800 border border-gray-300 rounded focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                 />
                 <span className="text-sm text-gray-500">of next month</span>
                 <button
                   onClick={handleSaveCutoffDay}
                   disabled={saving}
-                  className="px-3 py-1.5 bg-teal-600 text-white text-xs font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                  className="px-3 py-1.5 bg-blue-700 text-white text-xs font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
                 >
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                   Save
@@ -1924,7 +1962,7 @@ function SystemSettingsTab() {
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
               >
                 {LOCK_YEARS_RANGE.map((year) => (
                   <option key={year} value={year}>{year}</option>
@@ -1949,7 +1987,7 @@ function SystemSettingsTab() {
                     key={month.index}
                     className={`flex items-center justify-between p-3 rounded-xl border transition-all ${isForceOpen
                       ? 'bg-gray-50 border-gray-200'
-                      : 'bg-teal-50/50 border-teal-200'
+                      : 'bg-blue-50/50 border-blue-200'
                       }`}
                   >
                     {/* Left: Month Name + Toggle */}
@@ -1959,7 +1997,7 @@ function SystemSettingsTab() {
                         disabled={isSaving}
                         className={`p-0.5 rounded transition-all ${isForceOpen
                           ? 'text-gray-400 hover:text-gray-600'
-                          : 'text-teal-600 hover:text-teal-700'
+                          : 'text-blue-700 hover:text-blue-800'
                           }`}
                         title={isForceOpen ? 'Enable auto-lock' : 'Disable auto-lock'}
                       >
@@ -1979,12 +2017,12 @@ function SystemSettingsTab() {
                               type="datetime-local"
                               value={editDate}
                               onChange={(e) => setEditDate(e.target.value)}
-                              className="px-2 py-1 text-xs border border-teal-300 rounded focus:ring-1 focus:ring-teal-500"
+                              className="px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-600"
                             />
                             <button
                               onClick={() => handleSaveDate(month.index)}
                               disabled={isSaving || !editDate}
-                              className="p-1 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50"
+                              className="p-1 bg-blue-700 text-white rounded hover:bg-blue-800 disabled:opacity-50"
                             >
                               <Save className="w-3.5 h-3.5" />
                             </button>
@@ -1996,13 +2034,13 @@ function SystemSettingsTab() {
                             </button>
                           </div>
                         ) : (
-                          <p className={`text-xs mt-0.5 ${isForceOpen ? 'text-gray-500' : 'text-teal-700'}`}>
+                          <p className={`text-xs mt-0.5 ${isForceOpen ? 'text-gray-500' : 'text-blue-800'}`}>
                             {isForceOpen ? (
                               'Always Open'
                             ) : (
                               <>
                                 Locks: {formatDeadline(deadline)}
-                                {hasCustomDate && <span className="text-teal-600 ml-1">(custom)</span>}
+                                {hasCustomDate && <span className="text-blue-700 ml-1">(custom)</span>}
                               </>
                             )}
                           </p>
@@ -2016,7 +2054,7 @@ function SystemSettingsTab() {
                         <button
                           onClick={() => startEditDate(month.index)}
                           disabled={isSaving}
-                          className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-100 rounded-lg transition-colors"
+                          className="p-1.5 text-gray-400 hover:text-blue-700 hover:bg-blue-100 rounded-lg transition-colors"
                           title="Edit deadline"
                         >
                           <Pencil className="w-4 h-4" />
@@ -2041,7 +2079,7 @@ function SystemSettingsTab() {
             {/* Legend */}
             <div className="flex items-center gap-6 mt-4 pt-4 border-t border-gray-100">
               <div className="flex items-center gap-2 text-xs text-gray-500">
-                <div className="w-3 h-3 rounded-full bg-teal-500"></div>
+                <div className="w-3 h-3 rounded-full bg-blue-600"></div>
                 <span>Auto-Lock ON (follows schedule)</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -2069,74 +2107,82 @@ function SystemSettingsTab() {
           </div>
         </div>
 
-        <div className="p-5 space-y-5">
-          {/* Penalty 1 */}
-          <div className="flex items-start gap-4 bg-amber-50/50 rounded-xl p-4 border border-amber-200">
-            <div className="flex-1">
-              <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 1 — Max Score Cap
-              </label>
-              <p className="text-xs text-gray-500 mb-3">
-                The maximum score a plan can achieve if carried over once (first late month).
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={penaltySettings.carry_over_penalty_1}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    if (!isNaN(v) && v >= 0 && v <= 100) {
-                      setPenaltySettings(prev => ({ ...prev, carry_over_penalty_1: v }));
-                    }
-                  }}
-                  className="w-20 px-3 py-2 text-center font-semibold text-gray-800 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                />
-                <span className="text-gray-500 font-medium">%</span>
-              </div>
-            </div>
-            <span className="mt-1 px-2.5 py-1 bg-amber-200 text-amber-800 text-xs font-bold rounded-full">M1</span>
-          </div>
+        <div className="p-5 space-y-4">
+          {/* Dynamic Penalty Levels */}
+          {(penaltySettings.carry_over_penalties || []).map((penalty, index) => {
+            const levelNum = index + 1;
+            const ordinal = (() => { const s = ['th','st','nd','rd']; const v = levelNum % 100; return levelNum + (s[(v-20)%10] || s[v] || s[0]); })();
+            const isLast = index === (penaltySettings.carry_over_penalties || []).length - 1;
+            const prevVal = index > 0 ? penaltySettings.carry_over_penalties[index - 1] : 100;
+            const isInvalid = penalty >= prevVal || penalty < 1 || penalty > 100;
+            // Color gradient: amber for early levels, rose for later levels
+            const colorIntensity = Math.min(index / Math.max((penaltySettings.carry_over_penalties || []).length - 1, 1), 1);
+            const bgColor = colorIntensity >= 0.5 ? 'bg-rose-50/50' : 'bg-amber-50/50';
+            const borderColor = colorIntensity >= 0.5 ? 'border-rose-200' : 'border-amber-200';
+            const badgeBg = colorIntensity >= 0.5 ? 'bg-rose-200 text-rose-800' : 'bg-amber-200 text-amber-800';
+            const focusRing = colorIntensity >= 0.5 ? 'focus:ring-rose-500 focus:border-rose-500' : 'focus:ring-amber-500 focus:border-amber-500';
 
-          {/* Penalty 2 */}
-          <div className="flex items-start gap-4 bg-rose-50/50 rounded-xl p-4 border border-rose-200">
-            <div className="flex-1">
-              <label className="block font-semibold text-gray-800 mb-1">
-                Late Month 2 — Max Score Cap
-              </label>
-              <p className="text-xs text-gray-500 mb-3">
-                The maximum score for a second carry-over. Plans exceeding this limit will be forced to Drop.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={penaltySettings.carry_over_penalty_2}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    if (!isNaN(v) && v >= 0 && v <= 100) {
-                      setPenaltySettings(prev => ({ ...prev, carry_over_penalty_2: v }));
+            return (
+              <div key={index} className={`flex items-start gap-4 ${bgColor} rounded-xl p-4 border ${borderColor}`}>
+                <div className="flex-1">
+                  <label className="block font-semibold text-gray-800 mb-1">
+                    Late Month {levelNum} — Max Score Cap
+                  </label>
+                  <p className="text-xs text-gray-500 mb-3">
+                    {isLast
+                      ? `The maximum score for the ${ordinal} carry-over. Plans at this level that fail will be forced to Drop.`
+                      : `The maximum score a plan can achieve if carried over ${levelNum} time${levelNum > 1 ? 's' : ''}.`
                     }
-                  }}
-                  className="w-20 px-3 py-2 text-center font-semibold text-gray-800 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
-                />
-                <span className="text-gray-500 font-medium">%</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={penalty}
+                      onChange={(e) => handlePenaltyChange(index, e.target.value)}
+                      className={`w-20 px-3 py-2 text-center font-semibold text-gray-800 border rounded-lg focus:ring-2 ${isInvalid ? 'border-red-400 bg-red-50' : 'border-gray-300'} ${focusRing}`}
+                    />
+                    <span className="text-gray-500 font-medium">%</span>
+                    {isInvalid && (
+                      <span className="text-xs text-red-500 font-medium">Must be less than {prevVal}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col items-center gap-2 mt-1">
+                  <span className={`px-2.5 py-1 ${badgeBg} text-xs font-bold rounded-full`}>M{levelNum}</span>
+                  {(penaltySettings.carry_over_penalties || []).length > 1 && (
+                    <button
+                      onClick={() => handleRemovePenaltyLevel(index)}
+                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                      title={`Remove Level ${levelNum}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-            <span className="mt-1 px-2.5 py-1 bg-rose-200 text-rose-800 text-xs font-bold rounded-full">M2</span>
-          </div>
+            );
+          })}
+
+          {/* Add Level Button */}
+          <button
+            onClick={handleAddPenaltyLevel}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 text-gray-500 text-sm font-medium rounded-xl hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50/50 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Carry-Over Level
+          </button>
 
           {/* Validation hint + Save */}
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-400">
-              Month 2 cap must be lower than Month 1 cap.
+              Each level must be strictly lower than the previous. Min value: 1%.
             </p>
             <button
               onClick={handleSavePenalties}
-              disabled={savingPenalties || penaltySettings.carry_over_penalty_2 >= penaltySettings.carry_over_penalty_1}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              disabled={savingPenalties || !isPenaltiesValid()}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
             >
               {savingPenalties ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save Configuration
@@ -2269,7 +2315,7 @@ function SystemSettingsTab() {
             <button
               onClick={handleSaveGrading}
               disabled={savingGrading}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
             >
               {savingGrading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save Configuration

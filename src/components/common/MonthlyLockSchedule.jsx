@@ -246,7 +246,7 @@ export default function MonthlyLockSchedule({ defaultCutoffDay = 6 }) {
                             <button
                               onClick={() => handleSave(month.index)}
                               disabled={isSaving || !editDate}
-                              className="p-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                              className="p-1.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
                               title="Save"
                             >
                               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}

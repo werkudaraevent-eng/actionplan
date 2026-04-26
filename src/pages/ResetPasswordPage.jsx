@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Building2,
@@ -18,7 +18,7 @@ import { supabase } from '../lib/supabase';
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
 
-  // ─── Mode: 'loading' → 'request' (email form) | 'update' (password form) | 'success'
+  // --- Mode: 'loading' ? 'request' (email form) | 'update' (password form) | 'success'
   const [mode, setMode] = useState('loading');
   const modeRef = useRef('loading'); // ref to avoid race conditions
 
@@ -35,7 +35,7 @@ export default function ResetPasswordPage() {
 
   const [error, setError] = useState('');
 
-  // ─── AUTH LISTENER: detect PASSWORD_RECOVERY event ────────────────
+  // --- AUTH LISTENER: detect PASSWORD_RECOVERY event ----------------
   useEffect(() => {
     if (!supabase) {
       setError('Supabase not configured.');
@@ -69,8 +69,8 @@ export default function ResetPasswordPage() {
           // Clean up the URL hash for a cleaner look
           window.history.replaceState(null, '', window.location.pathname);
         } else if (event === 'SIGNED_IN' && modeRef.current === 'loading') {
-          // User signed in via recovery token — also switch to update
-          console.log('[ResetPassword] SIGNED_IN during loading — switching to update');
+          // User signed in via recovery token � also switch to update
+          console.log('[ResetPassword] SIGNED_IN during loading � switching to update');
           setError('');
           setMode('update');
           modeRef.current = 'update';
@@ -88,25 +88,25 @@ export default function ResetPasswordPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session && modeRef.current === 'loading') {
-          // Session exists — if URL has recovery-related params, show update
+          // Session exists � if URL has recovery-related params, show update
           const currentHash = window.location.hash;
           const hasRecoveryHash =
             currentHash.includes('type=recovery') ||
             currentHash.includes('access_token');
 
           if (hasRecoveryHash) {
-            console.log('[ResetPassword] Session found with recovery hash — switching to update');
+            console.log('[ResetPassword] Session found with recovery hash � switching to update');
             setMode('update');
             modeRef.current = 'update';
             window.history.replaceState(null, '', window.location.pathname);
           } else {
-            // Session exists but no recovery hash — probably a normal logged-in user
-            console.log('[ResetPassword] Session found but no recovery hash — showing request form');
+            // Session exists but no recovery hash � probably a normal logged-in user
+            console.log('[ResetPassword] Session found but no recovery hash � showing request form');
             setMode('request');
             modeRef.current = 'request';
           }
         } else if (modeRef.current === 'loading') {
-          // No session, no recovery — show email request form
+          // No session, no recovery � show email request form
           setMode('request');
           modeRef.current = 'request';
         }
@@ -125,7 +125,7 @@ export default function ResetPasswordPage() {
     };
   }, []);
 
-  // ─── HANDLERS ─────────────────────────────────────────────────────
+  // --- HANDLERS -----------------------------------------------------
 
   const handleRequestReset = async (e) => {
     e.preventDefault();
@@ -173,22 +173,22 @@ export default function ResetPasswordPage() {
     }
   };
 
-  // ─── RENDER: Loading ──────────────────────────────────────────────
+  // --- RENDER: Loading ----------------------------------------------
   if (mode === 'loading') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
-          <Loader2 className="w-10 h-10 text-teal-600 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-10 h-10 text-blue-700 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Verifying your reset link...</p>
         </div>
       </div>
     );
   }
 
-  // ─── RENDER: Success ──────────────────────────────────────────────
+  // --- RENDER: Success ----------------------------------------------
   if (mode === 'success') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
@@ -197,7 +197,7 @@ export default function ResetPasswordPage() {
           <p className="text-gray-600 mb-6">Your password has been changed. Redirecting to login...</p>
           <Link
             to="/login"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" /> Go to Login
           </Link>
@@ -206,17 +206,17 @@ export default function ResetPasswordPage() {
     );
   }
 
-  // ─── RENDER: Request + Update forms ───────────────────────────────
+  // --- RENDER: Request + Update forms -------------------------------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             {mode === 'update' ? (
-              <KeyRound className="w-8 h-8 text-teal-600" />
+              <KeyRound className="w-8 h-8 text-blue-700" />
             ) : (
-              <Building2 className="w-8 h-8 text-teal-600" />
+              <Building2 className="w-8 h-8 text-blue-700" />
             )}
           </div>
           <h1 className="text-2xl font-bold text-gray-800">
@@ -264,7 +264,7 @@ export default function ResetPasswordPage() {
           </div>
         )}
 
-        {/* ══ REQUEST MODE: Email form ═══════════════════════════════ */}
+        {/* -- REQUEST MODE: Email form ------------------------------- */}
         {mode === 'request' && !requestSent && (
           <form onSubmit={handleRequestReset} className="space-y-5">
             <div>
@@ -277,7 +277,7 @@ export default function ResetPasswordPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   placeholder="you@werkudara.com"
                   required
                   disabled={requestLoading}
@@ -287,7 +287,7 @@ export default function ResetPasswordPage() {
             <button
               type="submit"
               disabled={requestLoading}
-              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+              className="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {requestLoading ? (
                 <>
@@ -302,7 +302,7 @@ export default function ResetPasswordPage() {
           </form>
         )}
 
-        {/* ══ UPDATE MODE: Password form ═════════════════════════════ */}
+        {/* -- UPDATE MODE: Password form ----------------------------- */}
         {mode === 'update' && (
           <form onSubmit={handleUpdatePassword} className="space-y-5">
             {/* New Password */}
@@ -316,8 +316,8 @@ export default function ResetPasswordPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                  placeholder="••••••••"
+                  className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
+                  placeholder="��������"
                   required
                   minLength={6}
                   disabled={updating}
@@ -348,11 +348,11 @@ export default function ResetPasswordPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${confirmPassword && confirmPassword !== newPassword
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${confirmPassword && confirmPassword !== newPassword
                       ? 'border-red-300 bg-red-50'
                       : 'border-gray-300'
                     }`}
-                  placeholder="••••••••"
+                  placeholder="��������"
                   required
                   disabled={updating}
                 />
@@ -371,7 +371,7 @@ export default function ResetPasswordPage() {
                 !confirmPassword ||
                 newPassword !== confirmPassword
               }
-              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+              className="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {updating ? (
                 <>
@@ -390,7 +390,7 @@ export default function ResetPasswordPage() {
         <div className="mt-6 pt-6 border-t border-gray-100 text-center">
           <Link
             to="/login"
-            className="inline-flex items-center gap-2 text-sm text-teal-600 hover:text-teal-700 font-medium"
+            className="inline-flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 font-medium"
           >
             <ArrowLeft className="w-4 h-4" /> Back to Login
           </Link>

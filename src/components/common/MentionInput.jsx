@@ -81,9 +81,9 @@ export default function MentionInput({
 
   // Custom suggestion renderer
   const renderSuggestion = (suggestion, search, highlightedDisplay, index, focused) => (
-    <div className={`flex items-center gap-2 ${focused ? 'bg-teal-50' : ''}`}>
-      <div className="w-6 h-6 rounded-full bg-teal-100 flex items-center justify-center flex-shrink-0">
-        <span className="text-xs font-bold text-teal-700">
+    <div className={`flex items-center gap-2 ${focused ? 'bg-blue-50' : ''}`}>
+      <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+        <span className="text-xs font-bold text-blue-800">
           {suggestion.display?.charAt(0)?.toUpperCase() || '?'}
         </span>
       </div>

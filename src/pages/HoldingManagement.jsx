@@ -589,7 +589,7 @@ export default function HoldingManagement() {
                                 const gradients = [
                                     'from-violet-500 to-purple-600',
                                     'from-blue-500 to-indigo-600',
-                                    'from-emerald-500 to-teal-600',
+                                    'from-emerald-500 to-blue-700',
                                     'from-orange-500 to-red-500',
                                     'from-pink-500 to-rose-600',
                                     'from-cyan-500 to-blue-600',
@@ -892,7 +892,7 @@ export default function HoldingManagement() {
                                         <select
                                             value={cloneFromId}
                                             onChange={(e) => setCloneFromId(e.target.value)}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                                         >
                                             <option value="">— Don't copy, start fresh —</option>
                                             {companies.filter(c => !c.is_sandbox).map(c => (
@@ -910,7 +910,7 @@ export default function HoldingManagement() {
                                                 type="checkbox"
                                                 checked={cloneIncludePlans}
                                                 onChange={(e) => setCloneIncludePlans(e.target.checked)}
-                                                className="w-4 h-4 text-teal-600 rounded"
+                                                className="w-4 h-4 text-blue-700 rounded"
                                             />
                                             Include sample action plans (max 100)
                                         </label>

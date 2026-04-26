@@ -9,7 +9,7 @@ function SortDropdown({ value, onChange }) {
       <select 
         value={value} 
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500"
+        className="appearance-none bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 pr-6 text-xs text-gray-500 cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-600"
       >
         <option value="high-low">↓ Highest</option>
         <option value="low-high">↑ Lowest</option>
@@ -136,7 +136,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Target className="w-5 h-5 text-teal-600" />
+          <Target className="w-5 h-5 text-blue-700" />
           <h3 className="text-lg font-bold text-gray-800">Strategy Performance</h3>
         </div>
         <div className="h-[280px] flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
@@ -150,7 +150,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <Target className="w-5 h-5 text-teal-600" />
+          <Target className="w-5 h-5 text-blue-700" />
           <h3 className="text-lg font-bold text-gray-800">
             Strategy Performance: {activeLabel}
           </h3>

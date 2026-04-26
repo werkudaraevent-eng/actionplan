@@ -566,7 +566,7 @@ export default function EmailSettingsSection() {
       {/* Loading State */}
       {loading ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center">
-          <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-3" />
+          <Loader2 className="w-8 h-8 text-blue-700 animate-spin mb-3" />
           <p className="text-gray-500 text-sm">Loading email settings...</p>
         </div>
       ) : (
@@ -589,7 +589,7 @@ export default function EmailSettingsSection() {
 
           {/* Secure SMTP Status Card */}
           <div className="p-5 border-b border-gray-100">
-            <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-200">
+            <div className="flex items-start gap-3 p-4 bg-gradient-to-r from-emerald-50 to-blue-50 rounded-xl border border-emerald-200">
               <div className="p-2.5 bg-emerald-100 rounded-lg shrink-0 mt-0.5">
                 <ShieldCheck className="w-5 h-5 text-emerald-600" />
               </div>
@@ -656,7 +656,7 @@ export default function EmailSettingsSection() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
               {saving ? 'Saving...' : 'Save Settings'}
@@ -690,8 +690,8 @@ function NotificationRow({ templateKey, icon: Icon, title, description, enabled,
   return (
     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
       <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${enabled ? 'bg-teal-100' : 'bg-gray-200'}`}>
-          <Icon className={`w-4 h-4 ${enabled ? 'text-teal-600' : 'text-gray-500'}`} />
+        <div className={`p-2 rounded-lg ${enabled ? 'bg-blue-100' : 'bg-gray-200'}`}>
+          <Icon className={`w-4 h-4 ${enabled ? 'text-blue-700' : 'text-gray-500'}`} />
         </div>
         <div>
           <p className="text-sm font-medium text-gray-800">{title}</p>
@@ -724,7 +724,7 @@ function NotificationRow({ templateKey, icon: Icon, title, description, enabled,
         {/* Toggle */}
         <button
           onClick={onToggle}
-          className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-teal-600' : 'bg-gray-300'
+          className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-blue-700' : 'bg-gray-300'
             }`}
         >
           <span
@@ -752,8 +752,8 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
         {/* Header */}
         <div className="p-5 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${templateKey === 'critical_alert' ? 'bg-amber-100' : 'bg-teal-100'}`}>
-              <meta.icon className={`w-5 h-5 ${templateKey === 'critical_alert' ? 'text-amber-600' : 'text-teal-600'}`} />
+            <div className={`p-2 rounded-lg ${templateKey === 'critical_alert' ? 'bg-amber-100' : 'bg-blue-100'}`}>
+              <meta.icon className={`w-5 h-5 ${templateKey === 'critical_alert' ? 'text-amber-600' : 'text-blue-700'}`} />
             </div>
             <div>
               <h3 className="text-lg font-bold text-gray-800">Edit {meta.title}</h3>
@@ -776,7 +776,7 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
                 <button
                   onClick={() => setActiveTab('schedule')}
                   className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'schedule'
-                    ? 'text-teal-700 border-teal-600 bg-teal-50'
+                    ? 'text-blue-800 border-blue-700 bg-blue-50'
                     : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
                     }`}
                 >
@@ -788,7 +788,7 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
                 <button
                   onClick={() => setActiveTab('scope')}
                   className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'scope'
-                    ? 'text-teal-700 border-teal-600 bg-teal-50'
+                    ? 'text-blue-800 border-blue-700 bg-blue-50'
                     : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
                     }`}
                 >
@@ -799,7 +799,7 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
               <button
                 onClick={() => setActiveTab('template')}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${activeTab === 'template'
-                  ? 'text-teal-700 border-teal-600 bg-teal-50'
+                  ? 'text-blue-800 border-blue-700 bg-blue-50'
                   : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-50'
                   }`}
               >
@@ -862,7 +862,7 @@ function TemplateEditorModal({ templateKey, meta, draft, onDraftChange, onSave, 
             </button>
             <button
               onClick={onSave}
-              className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 transition-colors"
             >
               <CheckCircle className="w-4 h-4" />
               Save Template
@@ -933,7 +933,7 @@ function ScheduleTabContent({ schedule, onChange }) {
               type="time"
               value={schedule.time}
               onChange={(e) => handleTimeChange(e.target.value)}
-              className="pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              className="pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
             />
           </div>
           <span className="text-sm text-gray-500">
@@ -969,7 +969,7 @@ function ScheduleCheckbox({ checked, onChange, label, description }) {
         type="checkbox"
         checked={checked}
         onChange={onChange}
-        className="mt-0.5 w-5 h-5 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+        className="mt-0.5 w-5 h-5 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
       />
       <div>
         <p className="text-sm font-medium text-gray-800">{label}</p>
@@ -1012,7 +1012,7 @@ function ScopeTabContent({ scope, onChange, templateKey }) {
                 type="checkbox"
                 checked={scope.includes(priority.id)}
                 onChange={() => handleToggle(priority.id)}
-                className="mt-0.5 w-5 h-5 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                className="mt-0.5 w-5 h-5 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
               />
               <div>
                 <p className="text-sm font-medium text-gray-800">{priority.label}</p>
@@ -1067,7 +1067,7 @@ function TemplateTabContent({ draft, onDraftChange, variables }) {
           type="text"
           value={draft.subject}
           onChange={(e) => onDraftChange({ ...draft, subject: e.target.value })}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
           placeholder="Enter email subject..."
         />
       </div>
@@ -1081,7 +1081,7 @@ function TemplateTabContent({ draft, onDraftChange, variables }) {
           value={draft.body}
           onChange={(e) => onDraftChange({ ...draft, body: e.target.value })}
           rows={12}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none"
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-600 focus:border-blue-600 resize-none"
           placeholder="Enter email body..."
         />
       </div>

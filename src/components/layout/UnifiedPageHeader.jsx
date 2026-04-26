@@ -176,7 +176,7 @@ export default function UnifiedPageHeader({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery?.(e.target.value)}
                   placeholder={searchPlaceholder}
-                  className="w-full pl-10 pr-10 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  className="w-full pl-10 pr-10 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-colors"
                 />
                 {searchQuery && (
                   <button
@@ -214,7 +214,7 @@ export default function UnifiedPageHeader({
                       closeAllDropdowns();
                       setIsStartMonthOpen(!isStartMonthOpen);
                     }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors"
                   >
                     <span>{startMonth}</span>
                     <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthOpen ? 'rotate-180' : ''}`} />
@@ -237,12 +237,12 @@ export default function UnifiedPageHeader({
                               }}
                               className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
                                 startMonth === month
-                                  ? 'bg-teal-50 text-teal-700'
+                                  ? 'bg-blue-50 text-blue-800'
                                   : 'text-gray-600 hover:bg-gray-50'
                               }`}
                             >
                               {month}
-                              {startMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                              {startMonth === month && <Check className="w-3 h-3 text-blue-700" />}
                             </button>
                           ))}
                         </div>
@@ -260,7 +260,7 @@ export default function UnifiedPageHeader({
                       closeAllDropdowns();
                       setIsEndMonthOpen(!isEndMonthOpen);
                     }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-teal-600 transition-colors"
+                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors"
                   >
                     <span>{endMonth}</span>
                     <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthOpen ? 'rotate-180' : ''}`} />
@@ -283,12 +283,12 @@ export default function UnifiedPageHeader({
                               }}
                               className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
                                 endMonth === month
-                                  ? 'bg-teal-50 text-teal-700'
+                                  ? 'bg-blue-50 text-blue-800'
                                   : 'text-gray-600 hover:bg-gray-50'
                               }`}
                             >
                               {month}
-                              {endMonth === month && <Check className="w-3 h-3 text-teal-600" />}
+                              {endMonth === month && <Check className="w-3 h-3 text-blue-700" />}
                             </button>
                           ))}
                         </div>

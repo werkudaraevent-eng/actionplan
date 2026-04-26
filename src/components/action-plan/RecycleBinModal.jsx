@@ -122,7 +122,7 @@ export default function RecycleBinModal({
         <div className="flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-teal-500 animate-spin mb-3" />
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-3" />
               <p className="text-gray-500">Loading deleted items...</p>
             </div>
           ) : deletedPlans.length === 0 ? (
@@ -186,7 +186,7 @@ export default function RecycleBinModal({
                       <button
                         onClick={() => handleRestore(plan.id)}
                         disabled={restoringId === plan.id || deletingId === plan.id}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50"
                       >
                         {restoringId === plan.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />

@@ -52,7 +52,7 @@ function AdditionalDeptsBadge({ departments, getDeptName }) {
   return (
     <span
       ref={badgeRef}
-      className="relative inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200 cursor-help"
+      className="relative inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200 cursor-help"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -61,7 +61,7 @@ function AdditionalDeptsBadge({ departments, getDeptName }) {
         <span className="font-semibold text-gray-300 text-[10px] uppercase tracking-wider mb-1">Additional Access</span>
         {departments.map(code => (
           <span key={code} className="flex items-center gap-1.5 py-0.5">
-            <span className="font-mono text-[10px] text-teal-300">{code}</span>
+            <span className="font-mono text-[10px] text-blue-300">{code}</span>
             <span className="text-gray-300">{getDeptName(code)}</span>
           </span>
         ))}
@@ -403,7 +403,7 @@ export default function UserManagement({ initialFilter = '' }) {
     <tr key={user.id} className="hover:bg-gray-50 transition-colors">
       <td className="px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'holding_admin' ? 'bg-gradient-to-br from-amber-400 to-amber-600' : user.role === 'admin' ? 'bg-purple-500' : user.role === 'executive' ? 'bg-indigo-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-teal-500'
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${user.role === 'holding_admin' ? 'bg-gradient-to-br from-amber-400 to-amber-600' : user.role === 'admin' ? 'bg-purple-500' : user.role === 'executive' ? 'bg-indigo-500' : user.role === 'staff' ? 'bg-gray-500' : 'bg-blue-600'
             }`}>
             {user.role === 'holding_admin' ? <Crown className="w-5 h-5" /> : getInitials(user.full_name)}
           </div>
@@ -422,7 +422,7 @@ export default function UserManagement({ initialFilter = '' }) {
               ? 'bg-indigo-100 text-indigo-700'
               : user.role === 'staff'
                 ? 'bg-gray-100 text-gray-700'
-                : 'bg-teal-100 text-teal-700'
+                : 'bg-blue-100 text-blue-800'
           }`}>
           {user.role === 'holding_admin' ? (
             <Crown className="w-3 h-3" />
@@ -467,7 +467,7 @@ export default function UserManagement({ initialFilter = '' }) {
             {canEdit && (
               <button
                 onClick={() => setUserModal({ isOpen: true, editData: user })}
-                className="p-2 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="p-2 text-gray-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                 title="Edit"
               >
                 <Pencil className="w-4 h-4" />
@@ -500,7 +500,7 @@ export default function UserManagement({ initialFilter = '' }) {
           {canCreate && (
             <button
               onClick={() => setUserModal({ isOpen: true, editData: null })}
-              className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors"
             >
               <Plus className="w-4 h-4" />
               Add User
@@ -544,7 +544,7 @@ export default function UserManagement({ initialFilter = '' }) {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search by name or email..."
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   />
                 </div>
 
@@ -554,8 +554,8 @@ export default function UserManagement({ initialFilter = '' }) {
                   <select
                     value={selectedDept}
                     onChange={(e) => setSelectedDept(e.target.value)}
-                    className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${selectedDept !== 'All'
-                      ? 'border-teal-500 bg-teal-50 text-teal-700'
+                    className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${selectedDept !== 'All'
+                      ? 'border-blue-600 bg-blue-50 text-blue-800'
                       : 'border-gray-200 text-gray-700'
                       }`}
                   >
@@ -583,8 +583,8 @@ export default function UserManagement({ initialFilter = '' }) {
                   <select
                     value={selectedRole}
                     onChange={(e) => setSelectedRole(e.target.value)}
-                    className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${selectedRole !== 'All Roles'
-                      ? 'border-teal-500 bg-teal-50 text-teal-700'
+                    className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${selectedRole !== 'All Roles'
+                      ? 'border-blue-600 bg-blue-50 text-blue-800'
                       : 'border-gray-200 text-gray-700'
                       }`}
                   >
@@ -608,12 +608,12 @@ export default function UserManagement({ initialFilter = '' }) {
               <p className="text-xs text-gray-400 mt-2">
                 {filteredUsers.length} of {users.length} users
                 {selectedDept !== 'All' && (
-                  <span className="ml-2 px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full">
+                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
                     Filtered: {selectedDept}
                   </span>
                 )}
                 {selectedRole !== 'All Roles' && (
-                  <span className="ml-2 px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full">
+                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
                     Role: {selectedRole}
                   </span>
                 )}
@@ -624,7 +624,7 @@ export default function UserManagement({ initialFilter = '' }) {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               {loading ? (
                 <div className="p-12 text-center">
-                  <Loader2 className="w-8 h-8 text-teal-500 animate-spin mx-auto mb-3" />
+                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" />
                   <p className="text-gray-500">Loading users...</p>
                 </div>
               ) : filteredUsers.length === 0 ? (

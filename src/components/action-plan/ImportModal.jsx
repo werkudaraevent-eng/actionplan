@@ -402,8 +402,8 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
         <div className="p-6 border-b border-gray-100 shrink-0 bg-white rounded-t-2xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5 text-teal-600" />
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <FileSpreadsheet className="w-5 h-5 text-blue-700" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-gray-800">Import Action Plans</h2>
@@ -467,7 +467,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Step 2: Upload Your File</p>
                 <div
-                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${dragActive ? 'border-teal-500 bg-teal-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${dragActive ? 'border-blue-600 bg-blue-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   onDragEnter={handleDrag}
                   onDragLeave={handleDrag}
@@ -485,7 +485,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                   <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
                   {file ? (
                     <div>
-                      <p className="text-sm text-teal-600 font-medium">{file.name}</p>
+                      <p className="text-sm text-blue-700 font-medium">{file.name}</p>
                       <p className="text-xs text-gray-500 mt-1">Will be imported as {selectedYear} data</p>
                     </div>
                   ) : (
@@ -501,7 +501,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
           {step === 2 && (
             <div className="text-center py-8">
-              <Loader2 className="w-12 h-12 text-teal-500 animate-spin mx-auto mb-4" />
+              <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
               <p className="text-gray-600">Importing to {selectedYear}...</p>
               <p className="text-sm text-gray-400 mt-1">This may take a moment</p>
             </div>
@@ -555,7 +555,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
             <button
               onClick={processImport}
               disabled={!file}
-              className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="w-full py-3 bg-blue-700 text-white rounded-lg font-medium hover:bg-blue-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               Import to {selectedYear}
             </button>
@@ -570,7 +570,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
               </button>
               <button
                 onClick={handleClose}
-                className="flex-1 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+                className="flex-1 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors"
               >
                 Done
               </button>

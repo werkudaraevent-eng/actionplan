@@ -272,7 +272,7 @@ export default function DashboardCards({
               <Calendar className="w-3 h-3 text-gray-400" />
               <span>{dateRangeLabel}</span>
             </div>
-            <p><span className="font-bold text-teal-400">{total}</span> plans for this period</p>
+            <p><span className="font-bold text-blue-400">{total}</span> plans for this period</p>
             <div className="text-xs text-gray-400 mt-1 space-y-0.5">
               <p>• Ongoing: {inProgress + pending} ({inProgress} active, {pending} pending)</p>
               <p>• Finalized: {achieved + notAchieved} ({achieved} achieved, {notAchieved} failed)</p>
@@ -281,7 +281,7 @@ export default function DashboardCards({
         }
       >
         <div
-          className={getCardClasses('from-teal-500 to-teal-600', 'all', total)}
+          className={getCardClasses('from-blue-600 to-blue-700', 'all', total)}
           onClick={() => handleCardClick('all', total)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
@@ -289,7 +289,7 @@ export default function DashboardCards({
             </div>
             <div>
               <p className="text-2xl font-bold">{total}</p>
-              <p className="text-xs text-teal-100">Total Plans</p>
+              <p className="text-xs text-blue-100">Total Plans</p>
             </div>
           </div>
           {/* Footer: Done/Open Split */}
@@ -322,7 +322,7 @@ export default function DashboardCards({
             <p><span className="font-bold text-green-400">{achieved} of {total}</span> plans achieved</p>
             <p className="text-xs text-gray-400">Contribution: {total > 0 ? ((achieved / total) * 100).toFixed(1) : 0}% of total plans</p>
             {onFilterChange && achieved > 0 && (
-              <p className="text-xs text-teal-400 mt-1">Click to filter →</p>
+              <p className="text-xs text-blue-400 mt-1">Click to filter →</p>
             )}
           </>
         }
@@ -365,7 +365,7 @@ export default function DashboardCards({
             <p><span className="font-bold text-amber-400">{inProgress} of {total}</span> plans active</p>
             <p className="text-xs text-gray-400">Contribution: {total > 0 ? ((inProgress / total) * 100).toFixed(1) : 0}% of total plans</p>
             {onFilterChange && inProgress > 0 && (
-              <p className="text-xs text-teal-400 mt-1">Click to filter →</p>
+              <p className="text-xs text-blue-400 mt-1">Click to filter →</p>
             )}
           </>
         }
@@ -408,7 +408,7 @@ export default function DashboardCards({
             <p><span className="font-bold text-red-400">{notAchieved} of {total}</span> plans not achieved</p>
             <p className="text-xs text-gray-400">Contribution: {total > 0 ? ((notAchieved / total) * 100).toFixed(1) : 0}% of total plans</p>
             {onFilterChange && notAchieved > 0 && (
-              <p className="text-xs text-teal-400 mt-1">Click to filter →</p>
+              <p className="text-xs text-blue-400 mt-1">Click to filter →</p>
             )}
           </>
         }

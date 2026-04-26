@@ -71,9 +71,9 @@ export default function UpdatePasswordPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md text-center">
-          <Loader2 className="w-10 h-10 text-teal-600 animate-spin mx-auto mb-4" />
+          <Loader2 className="w-10 h-10 text-blue-700 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Verifying session...</p>
         </div>
       </div>
@@ -81,11 +81,11 @@ export default function UpdatePasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <KeyRound className="w-8 h-8 text-teal-600" />
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <KeyRound className="w-8 h-8 text-blue-700" />
           </div>
           <h1 className="text-2xl font-bold text-gray-800">Set New Password</h1>
           <p className="text-gray-500 mt-2">Enter your new password below</p>
@@ -109,7 +109,7 @@ export default function UpdatePasswordPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                 placeholder="••••••••"
                 required
                 minLength={6}
@@ -136,7 +136,7 @@ export default function UpdatePasswordPage() {
                 type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${
+                className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${
                   confirmPassword && confirmPassword !== newPassword
                     ? 'border-red-300 bg-red-50'
                     : 'border-gray-300'
@@ -154,7 +154,7 @@ export default function UpdatePasswordPage() {
           <button
             type="submit"
             disabled={updating || !newPassword || !confirmPassword || newPassword !== confirmPassword}
-            className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {updating ? (
               <>

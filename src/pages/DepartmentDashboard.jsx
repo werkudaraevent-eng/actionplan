@@ -49,7 +49,7 @@ function ChartDropdown({ value, onChange, options, children }) {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+        className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-8 text-xs text-gray-600 font-medium cursor-pointer hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
       >
         {children || options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1312,7 +1312,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
               {comparisonYear !== 'none' && (
                 <div className="flex items-center gap-4 text-xs">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-teal-500"></span>
+                    <span className="w-3 h-3 rounded bg-blue-600"></span>
                     {selectedYear}
                   </span>
                   {hasComparisonData && (

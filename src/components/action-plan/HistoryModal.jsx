@@ -89,8 +89,8 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center">
-              <History className="w-5 h-5 text-teal-600" />
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <History className="w-5 h-5 text-blue-700" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-800">Change History</h2>
@@ -111,7 +111,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
         <div className="flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-teal-500 animate-spin mb-3" />
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-3" />
               <p className="text-gray-500">Loading history...</p>
             </div>
           ) : error ? (
@@ -120,7 +120,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
               <p className="text-sm text-gray-500">{error}</p>
               <button
                 onClick={fetchUnifiedHistory}
-                className="mt-4 px-4 py-2 text-sm text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="mt-4 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
               >
                 Try Again
               </button>
@@ -128,7 +128,7 @@ export default function HistoryModal({ isOpen, onClose, actionPlanId, actionPlan
           ) : (
             <SharedHistoryTimeline
               items={logs}
-              accentColor="teal"
+              accentColor="blue"
               emptyMessage="No change history yet"
               emptySubMessage="Changes will appear here when updates are made"
               EmptyIcon={Clock}

@@ -1863,7 +1863,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                 <button
                   onClick={handleExportExcel}
                   disabled={exporting || plans.length === 0}
-                  className="flex items-center gap-2 px-4 py-2.5 border border-teal-600 text-teal-600 bg-white rounded-lg hover:bg-teal-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 px-4 py-2.5 border border-blue-700 text-blue-700 bg-white rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   {exporting ? 'Exporting...' : 'Export Excel'}
@@ -1900,7 +1900,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
                   setEditData(null);
                   setIsModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Add Action Plan

@@ -296,10 +296,10 @@ export default function GlobalStatsGrid({
       <KPICard
         key="total-plans-card"
         icon={Target}
-        gradient="from-teal-500 to-teal-600"
+        gradient="from-blue-600 to-blue-700"
         value={stats.total}
         label={labels.total}
-        labelColor="text-teal-100"
+        labelColor="text-blue-100"
         size="compact"
         badge={inventoryBadge}
         isActive={isCardActive('all')}
@@ -321,7 +321,7 @@ export default function GlobalStatsGrid({
         tooltipContent={
           <div className="space-y-1">
             <p className="font-medium border-b border-gray-600 pb-1 mb-1">{labels.total}</p>
-            <p><span className="font-bold text-teal-400">{stats.total}</span> {scope === 'personal' ? 'tasks assigned to you' : 'total action plans'}</p>
+            <p><span className="font-bold text-blue-400">{stats.total}</span> {scope === 'personal' ? 'tasks assigned to you' : 'total action plans'}</p>
             <div className="text-xs text-gray-400 mt-1 space-y-0.5">
               <p>• Open: {stats.inProgress + stats.open} ({stats.inProgress} active, {stats.open} pending)</p>
               <p>• Closed: {stats.achieved + stats.notAchieved} ({stats.achieved} achieved, {stats.notAchieved} failed)</p>

@@ -27,7 +27,7 @@ export default function CredentialSuccessModal({ isOpen, onClose, credentials })
       {/* Modal */}
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Success Header */}
-        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 px-6 py-8 text-center">
+        <div className="bg-gradient-to-br from-emerald-500 to-blue-700 px-6 py-8 text-center">
           <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
             <CheckCircle2 className="w-10 h-10 text-white" />
           </div>
@@ -62,7 +62,7 @@ export default function CredentialSuccessModal({ isOpen, onClose, credentials })
                 </div>
                 <button
                   onClick={() => handleCopy(credentials.email, 'email')}
-                  className="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                  className="p-2 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                   title="Copy email"
                 >
                   {copiedField === 'email' ? (
@@ -93,7 +93,7 @@ export default function CredentialSuccessModal({ isOpen, onClose, credentials })
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                     copiedField === 'password'
                       ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-teal-600 text-white hover:bg-teal-700'
+                      : 'bg-blue-700 text-white hover:bg-blue-800'
                   }`}
                 >
                   {copiedField === 'password' ? (

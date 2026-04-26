@@ -712,14 +712,14 @@ export default function ExecutiveActionCenter() {
                                 <button
                                     onClick={() => setActiveTab('unlock_requests')}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'unlock_requests'
-                                        ? 'bg-white shadow text-teal-700'
+                                        ? 'bg-white shadow text-blue-800'
                                         : 'text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
                                     <Lock className="w-4 h-4" />
                                     Unlock Requests
                                     {pendingUnlockCount > 0 && (
-                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold min-w-[20px] text-center ${activeTab === 'unlock_requests' ? 'bg-teal-100 text-teal-700' : 'bg-red-500 text-white'
+                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold min-w-[20px] text-center ${activeTab === 'unlock_requests' ? 'bg-blue-100 text-blue-800' : 'bg-red-500 text-white'
                                             }`}>
                                             {pendingUnlockCount}
                                         </span>
@@ -957,7 +957,7 @@ export default function ExecutiveActionCenter() {
                                                             <h3 className="text-base font-bold text-gray-900 truncate">{plan.action_plan || 'Untitled Plan'}</h3>
                                                         </div>
                                                         <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-                                                            <span className="px-2 py-0.5 rounded bg-teal-50 text-teal-700 font-medium border border-teal-100">{plan.department_code}</span>
+                                                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-medium border border-blue-100">{plan.department_code}</span>
                                                             <span className="text-gray-300">•</span>
                                                             <span className="font-medium text-gray-600">{plan.month} {plan.year}</span>
                                                             <span className="text-gray-300">•</span>
@@ -1219,13 +1219,13 @@ export default function ExecutiveActionCenter() {
                                     <div key={group.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
                                         <div className="p-5">
                                             <div className="flex items-start gap-4">
-                                                <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-700 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
                                                     <User className="w-6 h-6 text-white" />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <span className="font-semibold text-gray-800 text-lg">{group.requester?.full_name || 'Unknown User'}</span>
-                                                        <span className="text-xs px-2.5 py-1 bg-teal-100 text-teal-700 rounded-full font-medium">{group.department_code}</span>
+                                                        <span className="text-xs px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">{group.department_code}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2 mb-3">
                                                         <Calendar className="w-5 h-5 text-amber-500" />
@@ -1316,28 +1316,28 @@ export default function ExecutiveActionCenter() {
                                     const timeRemaining = formatTimeRemaining(group.approved_until);
                                     const expiryDate = new Date(group.approved_until);
                                     const hoursLeft = (expiryDate - new Date()) / 3600000;
-                                    const urgencyColor = hoursLeft < 2 ? 'red' : hoursLeft < 12 ? 'amber' : 'teal';
+                                    const urgencyColor = hoursLeft < 2 ? 'red' : hoursLeft < 12 ? 'amber' : 'blue';
 
                                     return (
                                         <div key={group.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
                                             <div className="p-5">
                                                 <div className="flex items-start gap-4">
-                                                    <div className="w-12 h-12 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                    <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-700 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
                                                         <User className="w-6 h-6 text-white" />
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2 mb-2">
                                                             <span className="font-semibold text-gray-800 text-lg">{group.requester?.full_name || 'Unknown User'}</span>
-                                                            <span className="text-xs px-2.5 py-1 bg-teal-100 text-teal-700 rounded-full font-medium">{group.department_code}</span>
+                                                            <span className="text-xs px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">{group.department_code}</span>
                                                         </div>
                                                         <div className="flex items-center gap-2 mb-3">
-                                                            <Unlock className="w-5 h-5 text-teal-500" />
+                                                            <Unlock className="w-5 h-5 text-blue-600" />
                                                             <h2 className="text-xl font-bold text-gray-900">{group.month} {group.year}</h2>
                                                             <span className="text-sm text-gray-500">•</span>
                                                             <span className="text-sm font-medium text-gray-600">{group.items.length} item{group.items.length !== 1 ? 's' : ''}</span>
                                                         </div>
                                                         <div className="flex items-center gap-3 mb-3">
-                                                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${urgencyColor === 'red' ? 'bg-red-50 text-red-700' : urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-teal-50 text-teal-700'}`}>
+                                                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${urgencyColor === 'red' ? 'bg-red-50 text-red-700' : urgencyColor === 'amber' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-800'}`}>
                                                                 <Timer className="w-4 h-4" />
                                                                 <span className="text-sm font-semibold">{timeRemaining}</span>
                                                             </div>
@@ -1502,8 +1502,8 @@ export default function ExecutiveActionCenter() {
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
-                                <Timer className="w-5 h-5 text-teal-600" />
+                            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                <Timer className="w-5 h-5 text-blue-700" />
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-800">Set Unlock Duration</h3>
@@ -1514,19 +1514,19 @@ export default function ExecutiveActionCenter() {
                         <div className="flex gap-2 mb-4">
                             {[{ label: '24 Hours', hours: 24 }, { label: '48 Hours', hours: 48 }, { label: '1 Week', hours: 168 }].map(({ label, hours }) => (
                                 <button key={hours} onClick={() => setPresetDuration(hours)}
-                                    className="flex-1 px-3 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-teal-50 hover:border-teal-300 hover:text-teal-700 transition-colors">{label}</button>
+                                    className="flex-1 px-3 py-2 text-sm font-medium border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 hover:text-blue-800 transition-colors">{label}</button>
                             ))}
                         </div>
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Custom Deadline</label>
                             <input type="datetime-local" value={customExpiryDate} onChange={(e) => setCustomExpiryDate(e.target.value)}
                                 min={formatDatetimeLocal(new Date())}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500" />
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600" />
                         </div>
                         {customExpiryDate && (
-                            <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 mb-4 flex items-center gap-2">
-                                <Unlock className="w-4 h-4 text-teal-600 flex-shrink-0" />
-                                <p className="text-sm text-teal-800">Will re-lock on <strong>{formatExpiryDisplay(customExpiryDate)}</strong></p>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+                                <Unlock className="w-4 h-4 text-blue-700 flex-shrink-0" />
+                                <p className="text-sm text-[#02378D]">Will re-lock on <strong>{formatExpiryDisplay(customExpiryDate)}</strong></p>
                             </div>
                         )}
                         <div className="flex gap-3">

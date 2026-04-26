@@ -564,7 +564,7 @@ export default function OptionManager({
                         </button>
                         <button
                             onClick={loadOptions}
-                            className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                            className="p-1.5 text-gray-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                             title="Refresh"
                         >
                             <RefreshCw className="w-3.5 h-3.5" />
@@ -581,7 +581,7 @@ export default function OptionManager({
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search options..."
-                            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                         />
                     </div>
                 )}
@@ -629,7 +629,7 @@ export default function OptionManager({
                                 <button
                                     onClick={confirmImport}
                                     disabled={importing}
-                                    className="px-3 py-1 text-[11px] font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1"
+                                    className="px-3 py-1 text-[11px] font-medium bg-blue-700 text-white rounded-lg hover:bg-blue-800 disabled:opacity-50 flex items-center gap-1"
                                 >
                                     {importing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                                     Confirm
@@ -689,7 +689,7 @@ export default function OptionManager({
                                                 value={editLabel}
                                                 onChange={(e) => setEditLabel(e.target.value)}
                                                 onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                                                className="flex-1 px-2 py-1 text-sm border border-teal-300 rounded focus:ring-2 focus:ring-teal-500"
+                                                className="flex-1 px-2 py-1 text-sm border border-blue-300 rounded focus:ring-2 focus:ring-blue-600"
                                                 autoFocus
                                             />
                                             {showValue && (
@@ -698,11 +698,11 @@ export default function OptionManager({
                                                     value={editValue}
                                                     onChange={(e) => setEditValue(e.target.value)}
                                                     onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                                                    className="w-28 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-teal-500"
+                                                    className="w-28 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-600"
                                                     placeholder="Value"
                                                 />
                                             )}
-                                            <button onClick={saveEdit} disabled={saving} className="p-1 text-teal-600 hover:bg-teal-50 rounded">
+                                            <button onClick={saveEdit} disabled={saving} className="p-1 text-blue-700 hover:bg-blue-50 rounded">
                                                 <Check className="w-4 h-4" />
                                             </button>
                                             <button onClick={cancelEdit} className="p-1 text-gray-400 hover:bg-gray-100 rounded">
@@ -728,7 +728,7 @@ export default function OptionManager({
                                     onClick={() => handleToggleActive(option)}
                                     disabled={saving}
                                     className={`p-0.5 rounded transition-colors shrink-0 ${option.is_active
-                                        ? 'text-teal-600 hover:bg-teal-50'
+                                        ? 'text-blue-700 hover:bg-blue-50'
                                         : 'text-gray-400 hover:bg-gray-100'
                                         }`}
                                     title={option.is_active ? 'Archive' : 'Restore'}
@@ -751,7 +751,7 @@ export default function OptionManager({
                                             <button
                                                 onClick={() => handleMove(index, 'up')}
                                                 disabled={saving || index === 0}
-                                                className="p-1 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                className="p-1 text-gray-400 hover:text-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                                 title="Move up"
                                             >
                                                 <ChevronUp className="w-3.5 h-3.5" />
@@ -759,7 +759,7 @@ export default function OptionManager({
                                             <button
                                                 onClick={() => handleMove(index, 'down')}
                                                 disabled={saving || index === filteredOptions.length - 1}
-                                                className="p-1 text-gray-400 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                className="p-1 text-gray-400 hover:text-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                                 title="Move down"
                                             >
                                                 <ChevronDown className="w-3.5 h-3.5" />
@@ -797,7 +797,7 @@ export default function OptionManager({
                                 onChange={(e) => setNewLabel(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                                 placeholder="Add option(s)..."
-                                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                             />
                             {showValue && (
                                 <input
@@ -806,13 +806,13 @@ export default function OptionManager({
                                     onChange={(e) => setNewValue(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                                     placeholder="Value (auto)"
-                                    className="w-32 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                                    className="w-32 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white"
                                 />
                             )}
                             <button
                                 onClick={handleAdd}
                                 disabled={saving || !newLabel.trim()}
-                                className="px-3 py-1.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                                className="px-3 py-1.5 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 disabled:opacity-50 flex items-center gap-1.5 transition-colors"
                             >
                                 <Plus className="w-4 h-4" />
                                 Add
@@ -839,7 +839,7 @@ export default function OptionManager({
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-medium text-gray-600">Allow Custom Input</span>
                                         {isOtherEnabled && (
-                                            <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded font-medium">
+                                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded font-medium">
                                                 Active
                                             </span>
                                         )}
@@ -849,7 +849,7 @@ export default function OptionManager({
                                     onClick={handleToggleOther}
                                     disabled={saving}
                                     className={`p-0.5 rounded-lg transition-colors shrink-0 ${isOtherEnabled
-                                        ? 'text-teal-600 hover:bg-teal-50'
+                                        ? 'text-blue-700 hover:bg-blue-50'
                                         : 'text-gray-300 hover:bg-gray-100'
                                         }`}
                                     title={isOtherEnabled ? 'Disable custom input' : 'Enable custom input'}

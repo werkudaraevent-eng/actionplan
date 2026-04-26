@@ -95,8 +95,8 @@ const NOTIFICATION_CONFIG = {
   },
   TASK_ASSIGNED: { 
     icon: ArrowRight, 
-    color: 'text-teal-500', 
-    bgColor: 'bg-teal-100',
+    color: 'text-blue-600', 
+    bgColor: 'bg-blue-100',
     label: 'Task Assigned',
     tier: 'standard',
   },
@@ -396,7 +396,7 @@ export default function NotificationCenter({ onNotificationClick }) {
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
       <Popover.Trigger asChild>
         <button
-          className={`relative p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+          className={`relative p-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 ${
             isOpen 
               ? 'bg-gray-100 text-gray-700' 
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -452,7 +452,7 @@ export default function NotificationCenter({ onNotificationClick }) {
                   <button
                     onClick={markAllAsRead}
                     disabled={markingAllRead}
-                    className="text-xs text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50 flex items-center gap-1 px-2 py-1 rounded hover:bg-teal-50 transition-colors"
+                    className="text-xs text-blue-700 hover:text-blue-800 font-medium disabled:opacity-50 flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
                   >
                     {markingAllRead ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -473,7 +473,7 @@ export default function NotificationCenter({ onNotificationClick }) {
           <div className="max-h-[420px] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-6 h-6 text-teal-500 animate-spin" />
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
               </div>
             ) : filteredNotifications.length === 0 ? (
               /* Empty State */

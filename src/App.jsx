@@ -63,7 +63,7 @@ function AccessDeniedScreen({ message, redirectTo = '/' }) {
         </div>
         <h1 className="text-xl font-bold text-gray-800 mb-2">Access Denied</h1>
         <p className="text-gray-600 mb-6">{message}</p>
-        <button onClick={() => navigate(redirectTo, { replace: true })} className="px-6 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+        <button onClick={() => navigate(redirectTo, { replace: true })} className="px-6 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors">
           Go Back
         </button>
       </div>

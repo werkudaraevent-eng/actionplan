@@ -16,7 +16,7 @@ export const CHANGE_TYPE_LABELS = {
   'MARKED_READY': { label: 'Marked Ready for Leader', color: 'bg-purple-100 text-purple-700', icon: '✅' },
   'STATUS_UPDATE': { label: 'Status Changed', color: 'bg-amber-100 text-amber-700', icon: '🔄' },
   'REMARK_UPDATE': { label: 'Remark Updated', color: 'bg-purple-100 text-purple-700', icon: '📝' },
-  'OUTCOME_UPDATE': { label: 'Proof of Evidence Updated', color: 'bg-teal-100 text-teal-700', icon: '🔗' },
+  'OUTCOME_UPDATE': { label: 'Proof of Evidence Updated', color: 'bg-blue-100 text-blue-800', icon: '🔗' },
   'FULL_UPDATE': { label: 'Record Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️' },
   'CREATED': { label: 'Created', color: 'bg-green-100 text-green-700', icon: '➕' },
   'DELETED': { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: '🗑️' },
@@ -187,7 +187,7 @@ function extractUserNote(item) {
 /**
  * TimelineItem - Single item in the timeline
  */
-function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
+function TimelineItem({ item, index, isFirst, accentColor = 'blue' }) {
   const typeInfo = CHANGE_TYPE_LABELS[item.change_type] || {
     label: item.change_type || 'Update',
     color: 'bg-gray-100 text-gray-700'
@@ -205,11 +205,11 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
   return (
     <div className="relative pl-10">
       {/* Timeline dot */}
-      <div className={`absolute left-2 top-2 w-4 h-4 rounded-full border-2 border-white shadow ${isFirst ? 'bg-teal-500' : 'bg-gray-300'
+      <div className={`absolute left-2 top-2 w-4 h-4 rounded-full border-2 border-white shadow ${isFirst ? 'bg-blue-600' : 'bg-gray-300'
         }`} />
 
       {/* Content card */}
-      <div className={`rounded-lg p-4 border ${isFirst ? 'border-teal-200 bg-teal-50/30' : 'border-gray-100 bg-gray-50'}`}>
+      <div className={`rounded-lg p-4 border ${isFirst ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50'}`}>
         {/* User info & timestamp header */}
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
@@ -244,7 +244,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
             <ul className="text-sm text-gray-700 mb-3 space-y-1">
               {descriptionItems.map((desc, idx) => (
                 <li key={idx} className="flex items-start gap-2">
-                  <span className="text-teal-500 mt-1">•</span>
+                  <span className="text-blue-600 mt-1">•</span>
                   <span>{desc}</span>
                 </li>
               ))}
@@ -262,7 +262,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
 
             {/* Latest badge for first item */}
             {isFirst && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-100 text-teal-700 rounded text-xs font-medium">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium">
                 <Clock className="w-3 h-3" />
                 Latest
               </span>
@@ -289,7 +289,7 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
                         ? 'bg-red-100 text-red-700'
                         : item.new_value?.status === 'Achieved'
                           ? 'bg-green-100 text-green-700'
-                          : 'bg-teal-100 text-teal-700'
+                          : 'bg-blue-100 text-blue-800'
                   }`}>
                   {item.new_value?.status || item.new_value?.submission_status || 'Unknown'}
                 </span>
@@ -547,13 +547,13 @@ function TimelineItem({ item, index, isFirst, accentColor = 'teal' }) {
  * SharedHistoryTimeline - Main timeline component
  * 
  * @param {Array} items - Array of history items (audit_logs or progress_logs)
- * @param {string} accentColor - Accent color for the timeline (default: 'teal')
+ * @param {string} accentColor - Accent color for the timeline (default: 'blue')
  * @param {string} emptyMessage - Message to show when no items
  * @param {string} emptySubMessage - Sub-message for empty state
  */
 export default function SharedHistoryTimeline({
   items = [],
-  accentColor = 'teal',
+  accentColor = 'blue',
   emptyMessage = 'No history yet',
   emptySubMessage = 'Changes will appear here when updates are made',
   EmptyIcon = Clock

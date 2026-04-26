@@ -11,6 +11,7 @@ import { usePicProfiles } from '../../hooks/usePicProfiles';
 import { getPicDisplayName, isUserPicOfPlan } from '../../utils/picUtils';
 import { isPlanLocked, getLockStatus, getLockStatusMessage, checkLockStatusServerSide } from '../../utils/lockUtils';
 import { getBlockedDays, getBlockedSeverity, getBlockedDaysLabel } from '../../utils/escalationUtils';
+import { getCarryOverVisual } from '../../utils/resolutionWizardUtils';
 import { useToast } from '../../components/common/Toast';
 import HistoryModal from './HistoryModal';
 import ViewDetailModal from './ViewDetailModal';
@@ -251,7 +252,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
             <span className="text-sm font-semibold text-gray-700">Columns</span>
             <button
               onClick={resetColumns}
-              className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+              className="text-xs text-blue-700 hover:text-blue-800 flex items-center gap-1"
             >
               <RotateCcw className="w-3 h-3" />
               Reset All
@@ -269,7 +270,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, key)}
                 className={`flex items-center gap-2 px-3 py-2 hover:bg-gray-50 group cursor-grab active:cursor-grabbing transition-all ${!visibleColumns[key] ? 'opacity-50' : ''
-                  } ${dragOverItem === key ? 'bg-teal-50 border-t-2 border-teal-400' : ''} ${draggedItem === key ? 'opacity-50' : ''
+                  } ${dragOverItem === key ? 'bg-blue-50 border-t-2 border-blue-400' : ''} ${draggedItem === key ? 'opacity-50' : ''
                   }`}
               >
                 {/* Reorder buttons */}
@@ -277,7 +278,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
                   <button
                     onClick={(e) => { e.stopPropagation(); moveColumn && moveColumn(key, 'up'); }}
                     disabled={index === 0}
-                    className="p-0.5 text-gray-300 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="p-0.5 text-gray-300 hover:text-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     title="Move up"
                   >
                     <ChevronUp className="w-3 h-3" />
@@ -285,7 +286,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
                   <button
                     onClick={(e) => { e.stopPropagation(); moveColumn && moveColumn(key, 'down'); }}
                     disabled={index === orderedColumns.length - 1}
-                    className="p-0.5 text-gray-300 hover:text-teal-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="p-0.5 text-gray-300 hover:text-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     title="Move down"
                   >
                     <ChevronDown className="w-3 h-3" />
@@ -304,7 +305,7 @@ export function ColumnToggle({ visibleColumns, columnOrder, toggleColumn, moveCo
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleColumn(key); }}
                   className={`p-1 rounded transition-colors ${visibleColumns[key]
-                    ? 'text-teal-600 hover:bg-teal-50'
+                    ? 'text-blue-700 hover:bg-blue-50'
                     : 'text-gray-400 hover:bg-gray-100'
                     }`}
                   title={visibleColumns[key] ? 'Hide column' : 'Show column'}
@@ -940,20 +941,20 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
       );
     }
 
-    // Active: show single arrow with teal color
+    // Active: show single arrow with blue color
     return sortConfig.direction === 'ascending'
-      ? <ChevronUp className="w-4 h-4 text-teal-600 flex-shrink-0" />
-      : <ChevronDown className="w-4 h-4 text-teal-600 flex-shrink-0" />;
+      ? <ChevronUp className="w-4 h-4 text-blue-700 flex-shrink-0" />
+      : <ChevronDown className="w-4 h-4 text-blue-700 flex-shrink-0" />;
   };
 
   // Sortable header component - Dynamic styling based on active sort state
-  // Active columns get teal text and background highlight
+  // Active columns get blue text and background highlight
   const SortableHeader = ({ columnKey, children, className = '', align = 'left' }) => {
     const isActive = sortConfig.key === columnKey;
     return (
       <th
         className={`px-4 py-4 text-xs font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200 select-none group border-b border-gray-200 ${isActive
-          ? 'bg-teal-50 text-teal-700'
+          ? 'bg-blue-50 text-blue-800'
           : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-700'
           } ${className}`}
         onClick={() => requestSort(columnKey)}
@@ -1045,17 +1046,17 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               {showDepartmentColumn ? (
                 // When department has its own column, show clean action plan text
                 <div className="flex flex-col gap-1">
-                  {/* Carry Over Micro-Badge — sits above the plan name */}
-                  {item.carry_over_status === 'Late_Month_2' && (
-                    <span className="self-start text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-bold whitespace-nowrap" title={`Second carry-over. Max score capped at ${item.max_possible_score ?? 50}%. Must be resolved this month.`}>
-                      🔥 Critical from {item.origin_plan?.month || 'prev month'}
-                    </span>
-                  )}
-                  {item.carry_over_status === 'Late_Month_1' && (
-                    <span className="self-start text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-medium whitespace-nowrap" title={`Carried over from ${item.origin_plan?.month || 'previous month'}. Max score capped at ${item.max_possible_score ?? 80}%.`}>
-                      ↩️ Late from {item.origin_plan?.month || 'prev month'}
-                    </span>
-                  )}
+                  {/* Carry Over Micro-Badge — tiered visual per level */}
+                  {(() => {
+                    const coVisual = getCarryOverVisual(item);
+                    if (!coVisual) return null;
+                    return (
+                      <span className={`self-start text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${coVisual.badgeTextColor} ${coVisual.badgeBg} ${coVisual.badgeFontWeight}`}
+                        title={`${coVisual.ordinal} carry-over.${coVisual.maxScore ? ` Max score capped at ${coVisual.maxScore}%.` : ''}${coVisual.isFinal ? ' Must be resolved this month.' : ''}`}>
+                        {coVisual.badgeLabel} {item.origin_plan?.month || 'prev month'}
+                      </span>
+                    );
+                  })()}
                   <CardTooltip content={<p className="whitespace-pre-wrap">{item.action_plan}</p>} side="top" delayDuration={300}>
                     <span className="group-hover/action:text-emerald-600 transition-colors line-clamp-2 cursor-help">
                       {item.action_plan}
@@ -1065,19 +1066,19 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               ) : (
                 // When no department column, show inline department badge
                 <div className="flex flex-col gap-1">
-                  {/* Carry Over Micro-Badge — sits above */}
-                  {item.carry_over_status === 'Late_Month_2' && (
-                    <span className="self-start text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-bold whitespace-nowrap" title={`Second carry-over. Max score capped at ${item.max_possible_score ?? 50}%. Must be resolved this month.`}>
-                      🔥 Critical from {item.origin_plan?.month || 'prev month'}
-                    </span>
-                  )}
-                  {item.carry_over_status === 'Late_Month_1' && (
-                    <span className="self-start text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-medium whitespace-nowrap" title={`Carried over from ${item.origin_plan?.month || 'previous month'}. Max score capped at ${item.max_possible_score ?? 80}%.`}>
-                      ↩️ Late from {item.origin_plan?.month || 'prev month'}
-                    </span>
-                  )}
+                  {/* Carry Over Micro-Badge — tiered visual per level */}
+                  {(() => {
+                    const coVisual = getCarryOverVisual(item);
+                    if (!coVisual) return null;
+                    return (
+                      <span className={`self-start text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${coVisual.badgeTextColor} ${coVisual.badgeBg} ${coVisual.badgeFontWeight}`}
+                        title={`${coVisual.ordinal} carry-over.${coVisual.maxScore ? ` Max score capped at ${coVisual.maxScore}%.` : ''}${coVisual.isFinal ? ' Must be resolved this month.' : ''}`}>
+                        {coVisual.badgeLabel} {item.origin_plan?.month || 'prev month'}
+                      </span>
+                    );
+                  })()}
                   <div className="flex items-start gap-2">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-teal-100 text-teal-700 flex-shrink-0">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800 flex-shrink-0">
                       {item.department_code}
                     </span>
                     <CardTooltip content={<p className="whitespace-pre-wrap">{item.action_plan}</p>} side="top" delayDuration={300}>
@@ -1122,7 +1123,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
           <td key={colId} className="px-4 py-3 border-b border-gray-100">
             {Array.isArray(item.attachments) && item.attachments.length > 0 ? (
               <span
-                className="inline-flex items-center gap-1.5 text-teal-600 text-sm cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-blue-700 text-sm cursor-pointer"
                 onClick={(e) => { e.stopPropagation(); setViewPlan(item); }}
                 title={`${item.attachments.length} evidence attachment(s)`}
               >
@@ -1137,7 +1138,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm"
+                  className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-800 text-sm"
                 >
                   <ExternalLink className="w-4 h-4" />
                   View
@@ -1574,7 +1575,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
+          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
           <p className="text-gray-500">Loading action plans...</p>
         </div>
       </div>
@@ -1657,18 +1658,16 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                   // UNLOCK REJECTED: Red danger tint to assertively flag rejected items
                   // IMPORTANT: Use solid colors ONLY (no /opacity) for sticky column compatibility
                   // Opacity causes content to bleed through sticky cells when scrolling
-                  const isLateM2 = item.carry_over_status === 'Late_Month_2';
-                  const isLateM1 = item.carry_over_status === 'Late_Month_1';
+                  // Dynamic carry-over level detection — tiered visual
+                  const rowCoVisual = getCarryOverVisual(item);
                   const rowBgColor = isUnlockRejected ? 'bg-red-50'
                     : isGhostRow ? 'bg-gray-100'
-                      : isLateM2 ? 'bg-rose-50'
-                        : isLateM1 ? 'bg-amber-50'
-                          : 'bg-white';
+                      : rowCoVisual ? rowCoVisual.bgColor
+                        : 'bg-white';
                   const rowHoverBgColor = isUnlockRejected ? 'group-hover/row:bg-red-100'
                     : isGhostRow ? 'group-hover/row:bg-gray-200'
-                      : isLateM2 ? 'group-hover/row:bg-rose-100'
-                        : isLateM1 ? 'group-hover/row:bg-amber-100'
-                          : 'group-hover/row:bg-gray-50';
+                      : rowCoVisual ? rowCoVisual.hoverBgColor
+                        : 'group-hover/row:bg-gray-50';
 
                   // Left-border escalation indicator class
                   // Unlock rejected gets highest-priority red border
@@ -1700,7 +1699,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                         }
                       }}
                       className={`transition-colors group/row cursor-pointer ${rowBgColor} ${isHighlighted
-                        ? 'ring-2 ring-teal-500 ring-inset bg-teal-50 animate-pulse'
+                        ? 'ring-2 ring-blue-600 ring-inset bg-blue-50 animate-pulse'
                         : isGhostRow
                           ? `${escalationBorderClass || 'border-l-4 border-l-amber-400'} grayscale-[40%] opacity-80 hover:opacity-95 hover:grayscale-[20%] hover:bg-gray-200`
                           : `${escalationBorderClass} hover:bg-gray-50`
@@ -1712,7 +1711,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                         }`}>{indexOfFirstItem + index + 1}</td>
                       {showDepartmentColumn && (
                         <td className="px-4 py-3 border-b border-gray-100">
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800" title={getDeptName(item.department_code)}>
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-[#02378D]" title={getDeptName(item.department_code)}>
                             {item.department_code}
                           </span>
                         </td>
@@ -1803,7 +1802,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                                   {/* Loading overlay */}
                                   {updatingId === item.id && (
                                     <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded z-10">
-                                      <Loader2 className="w-4 h-4 animate-spin text-teal-500" />
+                                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                                     </div>
                                   )}
 
@@ -2185,7 +2184,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                 setItemsPerPage(val === 'All' ? 'All' : Number(val));
                 setCurrentPage(1);
               }}
-              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-teal-500 focus:border-teal-500 bg-white"
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-blue-600 focus:border-blue-600 bg-white"
             >
               <option value={5}>5</option>
               <option value={10}>10</option>

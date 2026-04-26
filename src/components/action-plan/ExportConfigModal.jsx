@@ -36,7 +36,7 @@ export default function ExportConfigModal({
       
       <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
-        <div className="bg-teal-600 px-6 py-4 flex items-center justify-between">
+        <div className="bg-blue-700 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <FileText className="w-5 h-5 text-white" />
             <h2 className="text-lg font-semibold text-white">Export to PDF</h2>
@@ -63,20 +63,20 @@ export default function ExportConfigModal({
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-gray-700">Export Summary</h3>
             <div className="grid grid-cols-2 gap-3">
-              <div className={`p-3 rounded-lg transition-colors ${isConsolidated ? 'bg-teal-50 border border-teal-200' : 'bg-gray-50'}`}>
-                <p className="text-2xl font-bold text-teal-600">{displayCount}</p>
+              <div className={`p-3 rounded-lg transition-colors ${isConsolidated ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'}`}>
+                <p className="text-2xl font-bold text-blue-700">{displayCount}</p>
                 <p className="text-xs text-gray-500">
                   {isConsolidated ? 'Consolidated rows' : 'Records to export'}
                 </p>
                 {isConsolidated && savedRows > 0 && (
-                  <p className="text-xs text-teal-600 mt-1 flex items-center gap-1">
+                  <p className="text-xs text-blue-700 mt-1 flex items-center gap-1">
                     <Layers className="w-3 h-3" />
                     {savedRows} duplicates merged
                   </p>
                 )}
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-2xl font-bold text-teal-600">{visibleColumnCount}</p>
+                <p className="text-2xl font-bold text-blue-700">{visibleColumnCount}</p>
                 <p className="text-xs text-gray-500">Visible columns</p>
               </div>
             </div>
@@ -90,7 +90,7 @@ export default function ExportConfigModal({
                 type="checkbox"
                 checked={isConsolidated}
                 onChange={(e) => setIsConsolidated(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                className="w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
               />
               <div>
                 <p className="text-sm font-medium text-gray-700">Consolidate Monthly Duplicates</p>
@@ -102,7 +102,7 @@ export default function ExportConfigModal({
                 type="checkbox"
                 checked={includesSummary}
                 onChange={(e) => setIncludesSummary(e.target.checked)}
-                className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                className="w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
               />
               <div>
                 <p className="text-sm font-medium text-gray-700">Include Summary Page</p>
@@ -124,7 +124,7 @@ export default function ExportConfigModal({
           <button
             onClick={handleExport}
             disabled={isExporting || recordCount === 0}
-            className="px-5 py-2.5 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-5 py-2.5 bg-blue-700 text-white text-sm font-medium rounded-lg hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isExporting ? (
               <>

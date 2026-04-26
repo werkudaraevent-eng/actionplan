@@ -8,7 +8,7 @@ const ROLES = [
   { value: 'holding_admin', label: 'Holding Admin', icon: Crown, description: 'Absolute access to all subsidiaries and holding-level settings', color: 'amber', restricted: true },
   { value: 'admin', label: 'Administrator', icon: Shield, description: 'Full access to all departments and settings', color: 'purple' },
   { value: 'executive', label: 'Executive', icon: Shield, description: 'View-only access to Company Dashboard & All Plans', color: 'indigo' },
-  { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team', color: 'teal' },
+  { value: 'leader', label: 'Leader', icon: Users, description: 'Manage own department plans and team', color: 'blue' },
   { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only', color: 'gray' },
 ];
 
@@ -230,7 +230,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 disabled={isEdit}
                 placeholder="user@company.com"
-                className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 ${isEdit ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''
+                className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${isEdit ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''
                   }`}
               />
               {isEdit && (
@@ -248,7 +248,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                 placeholder="John Doe"
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
               />
             </div>
 
@@ -265,21 +265,21 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                     amber: isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : 'border-gray-200 hover:border-gray-300',
                     purple: isSelected ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500' : 'border-gray-200 hover:border-gray-300',
                     indigo: isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500' : 'border-gray-200 hover:border-gray-300',
-                    teal: isSelected ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500' : 'border-gray-200 hover:border-gray-300',
+                    blue: isSelected ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600' : 'border-gray-200 hover:border-gray-300',
                     gray: isSelected ? 'border-gray-500 bg-gray-50 ring-2 ring-gray-500' : 'border-gray-200 hover:border-gray-300',
                   };
                   const iconColorClasses = {
                     amber: isSelected ? 'text-amber-600' : 'text-gray-400',
                     purple: isSelected ? 'text-purple-600' : 'text-gray-400',
                     indigo: isSelected ? 'text-indigo-600' : 'text-gray-400',
-                    teal: isSelected ? 'text-teal-600' : 'text-gray-400',
+                    blue: isSelected ? 'text-blue-700' : 'text-gray-400',
                     gray: isSelected ? 'text-gray-600' : 'text-gray-400',
                   };
                   const textColorClasses = {
                     amber: isSelected ? 'text-amber-700' : 'text-gray-700',
                     purple: isSelected ? 'text-purple-700' : 'text-gray-700',
                     indigo: isSelected ? 'text-indigo-700' : 'text-gray-700',
-                    teal: isSelected ? 'text-teal-700' : 'text-gray-700',
+                    blue: isSelected ? 'text-blue-800' : 'text-gray-700',
                     gray: isSelected ? 'text-gray-700' : 'text-gray-700',
                   };
                   return (
@@ -312,7 +312,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                   <select
                     value={formData.department_code}
                     onChange={(e) => setFormData({ ...formData, department_code: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   >
                     <option value="">Select a department...</option>
                     {departments.map((dept) => (
@@ -346,7 +346,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                                 : formData.additional_departments.filter(d => d !== dept.code);
                               setFormData({ ...formData, additional_departments: newAdditional });
                             }}
-                            className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                            className="w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
                           />
                           <span className="text-sm text-gray-700">
                             {dept.code} - {dept.name}
@@ -500,7 +500,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
             <button
               onClick={handleSubmit}
               disabled={saving}
-              className="flex-1 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saving ? (
                 <>

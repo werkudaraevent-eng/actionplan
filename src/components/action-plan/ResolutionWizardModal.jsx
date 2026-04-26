@@ -352,20 +352,20 @@ export default function ResolutionWizardModal({
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300">
           <div className="p-8 text-center">
             {/* Success Icon */}
-            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-teal-400 to-teal-500 flex items-center justify-center shadow-lg">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-lg">
               <CheckCircle2 className="w-10 h-10 text-white" />
             </div>
 
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Ready to Submit {month} Report?</h2>
 
-            <div className="bg-teal-50 border border-teal-100 rounded-xl p-4 mb-6">
-              <p className="text-teal-800 font-medium mb-1">Great work!</p>
-              <p className="text-teal-700 text-sm">All outstanding items have been resolved.</p>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
+              <p className="text-[#02378D] font-medium mb-1">Great work!</p>
+              <p className="text-blue-800 text-sm">All outstanding items have been resolved.</p>
             </div>
 
             <p className="text-gray-600 mb-8 leading-relaxed">
               You are about to submit <span className="font-bold text-gray-900">{draftCount} action plans</span>.<br />
-              This will <span className="font-bold text-teal-600">LOCK</span> the data and notify Management for grading.
+              This will <span className="font-bold text-blue-700">LOCK</span> the data and notify Management for grading.
             </p>
 
             <div className="flex items-center gap-3">
@@ -381,7 +381,7 @@ export default function ResolutionWizardModal({
                   onFinalSubmit?.();
                 }}
                 disabled={submitting}
-                className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-all font-bold shadow-lg shadow-teal-200 hover:shadow-teal-300 disabled:opacity-75 disabled:cursor-not-allowed transform active:scale-95"
+                className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 bg-blue-700 text-white rounded-xl hover:bg-blue-800 transition-all font-bold shadow-lg shadow-blue-200 hover:shadow-blue-300 disabled:opacity-75 disabled:cursor-not-allowed transform active:scale-95"
               >
                 {submitting ? (
                   <><Loader2 className="w-5 h-5 animate-spin" /> Submitting...</>
@@ -634,7 +634,7 @@ export default function ResolutionWizardModal({
               <button
                 onClick={handleResolveSubmit}
                 disabled={!allDecided || submitting || loadingSettings}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>

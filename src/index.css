@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --teal-primary: #0d9488;
-  --teal-dark: #115e59;
-  --teal-light: #14b8a6;
+  --blue-primary: #02378D;
+  --blue-dark: #012a6b;
+  --blue-light: #1e40af;
 }
 
 /* Prevent horizontal overflow on body */

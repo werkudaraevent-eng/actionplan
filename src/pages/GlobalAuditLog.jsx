@@ -42,7 +42,7 @@ const CHANGE_TYPE_CONFIG = {
   'UNLOCK_APPROVED': { label: 'Unlocked', color: 'bg-green-100 text-green-700', icon: '✅', group: 'success' },
   // Info / updates (slate/gray)
   'REMARK_UPDATE': { label: 'Remark', color: 'bg-purple-100 text-purple-700', icon: '📝', group: 'update' },
-  'OUTCOME_UPDATE': { label: 'Evidence', color: 'bg-teal-100 text-teal-700', icon: '🔗', group: 'update' },
+  'OUTCOME_UPDATE': { label: 'Evidence', color: 'bg-blue-100 text-blue-800', icon: '🔗', group: 'update' },
   'FULL_UPDATE': { label: 'Updated', color: 'bg-gray-100 text-gray-600', icon: '✏️', group: 'update' },
   // Comments (slate)
   'PROGRESS_UPDATE': { label: 'Comment', color: 'bg-slate-100 text-slate-600', icon: '💬', group: 'comment' },
@@ -306,8 +306,8 @@ export default function GlobalAuditLog() {
         <div className="mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-teal-100 rounded-xl">
-                <History className="w-6 h-6 text-teal-600" />
+              <div className="p-2.5 bg-blue-100 rounded-xl">
+                <History className="w-6 h-6 text-blue-700" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">Global Activity Log</h1>
@@ -336,7 +336,7 @@ export default function GlobalAuditLog() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search user, plan, or details..."
-                className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                className="w-full pl-9 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
@@ -359,13 +359,13 @@ export default function GlobalAuditLog() {
               {deptDropdownOpen && (
                 <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-72 overflow-y-auto">
                   <button onClick={() => { setSelectedDept('ALL'); setDeptDropdownOpen(false); }}
-                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedDept === 'ALL' ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'}`}>
+                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedDept === 'ALL' ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-700'}`}>
                     All Departments
                   </button>
                   <div className="border-t border-gray-100" />
                   {departments.map((dept) => (
                     <button key={dept.code} onClick={() => { setSelectedDept(dept.code); setDeptDropdownOpen(false); }}
-                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedDept === dept.code ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'}`}>
+                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedDept === dept.code ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-700'}`}>
                       <span className="font-medium">{dept.code}</span>
                       <span className="text-gray-500 ml-2">— {dept.name}</span>
                     </button>
@@ -389,7 +389,7 @@ export default function GlobalAuditLog() {
                 <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
                   {TYPE_FILTER_OPTIONS.map((opt) => (
                     <button key={opt.value} onClick={() => { setSelectedType(opt.value); setTypeDropdownOpen(false); }}
-                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedType === opt.value ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'}`}>
+                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 ${selectedType === opt.value ? 'bg-blue-50 text-blue-800 font-medium' : 'text-gray-700'}`}>
                       {opt.label}
                     </button>
                   ))}
@@ -400,16 +400,16 @@ export default function GlobalAuditLog() {
             {/* Date Range */}
             <div className="flex items-center gap-2">
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-600" />
               <span className="text-gray-400 text-xs">to</span>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-600" />
             </div>
 
             {/* Clear + Count */}
             <div className="flex items-center gap-3 ml-auto">
               {hasActiveFilters && (
-                <button onClick={clearFilters} className="text-xs text-teal-600 hover:text-teal-700 font-medium flex items-center gap-1">
+                <button onClick={clearFilters} className="text-xs text-blue-700 hover:text-blue-800 font-medium flex items-center gap-1">
                   <X className="w-3 h-3" /> Clear
                 </button>
               )}
@@ -426,7 +426,7 @@ export default function GlobalAuditLog() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           {loading && allMerged.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 text-teal-500 animate-spin mb-3" />
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-3" />
               <p className="text-gray-500">Loading activity logs...</p>
             </div>
           ) : error ? (
@@ -434,7 +434,7 @@ export default function GlobalAuditLog() {
               <AlertCircle className="w-10 h-10 text-red-400 mb-3" />
               <p className="text-red-600 font-medium mb-1">Failed to load logs</p>
               <p className="text-sm text-gray-500 mb-4">{error}</p>
-              <button onClick={fetchLogs} className="px-4 py-2 text-sm text-teal-600 hover:bg-teal-50 rounded-lg transition-colors">
+              <button onClick={fetchLogs} className="px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 rounded-lg transition-colors">
                 Try Again
               </button>
             </div>
@@ -480,8 +480,8 @@ export default function GlobalAuditLog() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                <User className="w-3.5 h-3.5 text-teal-600" />
+                              <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                <User className="w-3.5 h-3.5 text-blue-700" />
                               </div>
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-gray-800 truncate">{userName}</p>

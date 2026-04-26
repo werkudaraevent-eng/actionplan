@@ -167,14 +167,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-700 to-[#02378D] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             {isRecoveryMode ? (
-              <KeyRound className="w-8 h-8 text-teal-600" />
+              <KeyRound className="w-8 h-8 text-blue-700" />
             ) : (
-              <Building2 className="w-8 h-8 text-teal-600" />
+              <Building2 className="w-8 h-8 text-blue-700" />
             )}
           </div>
           <h1 className="text-2xl font-bold text-gray-800">
@@ -233,7 +233,7 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder={isLocked ? 'Login disabled during maintenance' : 'you@werkudara.com'}
                   required
                   disabled={loading || isLocked}
@@ -249,7 +249,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={enterRecoveryMode}
-                  className={`text-sm font-medium ${isLocked ? 'text-gray-400 cursor-not-allowed' : 'text-teal-600 hover:text-teal-700'}`}
+                  className={`text-sm font-medium ${isLocked ? 'text-gray-400 cursor-not-allowed' : 'text-blue-700 hover:text-blue-800'}`}
                   disabled={isLocked}
                 >
                   Forgot Password?
@@ -261,7 +261,7 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-10 py-2.5 border rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
+                  className={`w-full pl-10 pr-10 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-colors ${isLocked ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : error ? 'border-red-300' : 'border-gray-300'}`}
                   placeholder="••••••••"
                   required
                   disabled={loading || isLocked}
@@ -286,7 +286,7 @@ export default function LoginPage() {
               disabled={loading || isLocked}
               className={`w-full py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${isLocked
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-teal-600 text-white hover:bg-teal-700 disabled:bg-teal-400 disabled:cursor-not-allowed'
+                  : 'bg-blue-700 text-white hover:bg-blue-800 disabled:bg-blue-400 disabled:cursor-not-allowed'
                 }`}
             >
               {isLocked ? (
@@ -319,7 +319,7 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 transition-colors"
                   placeholder="you@werkudara.com"
                   required
                   disabled={loading}
@@ -330,7 +330,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors disabled:bg-teal-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -361,7 +361,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={exitRecoveryMode}
-            className="w-full py-3 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 bg-blue-700 text-white rounded-lg font-semibold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Login

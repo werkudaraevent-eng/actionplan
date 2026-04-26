@@ -213,7 +213,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div className={`w-64 min-w-64 flex-shrink-0 ${theme.container} h-screen flex flex-col relative z-40`}>
+    <div className={`w-64 min-w-64 flex-shrink-0 ${theme.container} h-full flex flex-col relative z-40`}>
       {/* Header — Dynamic Tenant Branding */}
       <div className={`p-4 border-b ${theme.headerBorder} flex-shrink-0`}>
         <div className="flex items-center gap-3">

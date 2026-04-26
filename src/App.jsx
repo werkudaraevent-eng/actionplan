@@ -21,6 +21,7 @@ import DepartmentDashboard from './pages/DepartmentDashboard';
 import DepartmentView from './pages/DepartmentView';
 import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
+import ChangelogPage from './pages/ChangelogPage';
 import HoldingManagement from './pages/HoldingManagement';
 import { supabase } from './lib/supabase';
 import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical } from 'lucide-react';
@@ -409,6 +410,9 @@ function AppRoutes() {
 
           {/* Profile - accessible to all authenticated users */}
           <Route path="/profile" element={<UserProfile />} />
+
+          {/* Changelog - accessible to all authenticated users */}
+          <Route path="/changelog" element={<ChangelogPage />} />
 
           {/* Catch-all redirect */}
           <Route path="*" element={<DefaultRedirect />} />

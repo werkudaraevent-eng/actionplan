@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2 } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -8,6 +8,7 @@ import { useDepartments } from '../../hooks/useDepartments';
 import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
+import { getLatestVersion } from '../../data/changelog';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -20,6 +21,13 @@ export default function Sidebar() {
   // MULTI-TENANT: Use company-scoped departments for the sidebar list
   // This is the same hook used by DepartmentContext, scoped to activeCompanyId
   const { departments, loading: deptLoading } = useDepartments(activeCompanyId);
+
+  // Check if user has unread changelog entries
+  const hasNewChangelog = useMemo(() => {
+    const lastSeen = localStorage.getItem('changelog_last_seen');
+    const latest = getLatestVersion();
+    return lastSeen !== latest;
+  }, []);
 
   // Pending unlock requests count (Admin only)
   const [pendingCount, setPendingCount] = useState(0);
@@ -180,6 +188,7 @@ export default function Sidebar() {
     if (path === '/settings') return location.pathname === '/settings';
     if (path === '/permissions') return location.pathname === '/permissions';
     if (path === '/profile') return location.pathname === '/profile';
+    if (path === '/changelog') return location.pathname === '/changelog';
     if (path === '/workspace') return location.pathname === '/workspace';
     if (path === '/action-center') return location.pathname === '/action-center';
     if (path === '/audit-log') return location.pathname === '/audit-log';
@@ -573,6 +582,19 @@ export default function Sidebar() {
 
       {/* My Profile & Sign Out */}
       <div className="p-3 border-t border-teal-700 flex-shrink-0 space-y-1">
+        <button
+          onClick={() => navigate('/changelog')}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/changelog') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'
+            }`}
+        >
+          <ScrollText className="w-4 h-4" />
+          <span className="text-sm flex-1 text-left">Changelog</span>
+          {hasNewChangelog && (
+            <span className="px-1.5 py-0.5 text-xs font-bold bg-emerald-400 text-emerald-900 rounded-full">
+              New
+            </span>
+          )}
+        </button>
         <button
           onClick={() => navigate('/profile')}
           className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${isActive('/profile') ? 'bg-teal-600 text-white' : 'text-teal-200 hover:bg-teal-700/50'

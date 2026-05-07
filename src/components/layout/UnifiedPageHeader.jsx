@@ -103,8 +103,7 @@ export default function UnifiedPageHeader({
   filterActions,
 }) {
   // Dropdown open states
-  const [isStartMonthOpen, setIsStartMonthOpen] = useState(false);
-  const [isEndMonthOpen, setIsEndMonthOpen] = useState(false);
+  const [isMonthRangeOpen, setIsMonthRangeOpen] = useState(false);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isCarryOverOpen, setIsCarryOverOpen] = useState(false);
@@ -128,8 +127,7 @@ export default function UnifiedPageHeader({
 
   // Close all dropdowns
   const closeAllDropdowns = () => {
-    setIsStartMonthOpen(false);
-    setIsEndMonthOpen(false);
+    setIsMonthRangeOpen(false);
     setIsStatusOpen(false);
     setIsCategoryOpen(false);
     setIsCarryOverOpen(false);
@@ -204,107 +202,153 @@ export default function UnifiedPageHeader({
               )}
 
               {/* Month Range Filter */}
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shrink-0">
-                <Calendar className="w-4 h-4 text-gray-500" />
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => {
+                    closeAllDropdowns();
+                    setIsMonthRangeOpen(!isMonthRangeOpen);
+                  }}
+                  className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
+                >
+                  <Calendar className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">{startMonth}</span>
+                  <span className="text-gray-400 text-sm">—</span>
+                  <span className="text-sm font-medium text-gray-700">{endMonth}</span>
+                  <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isMonthRangeOpen ? 'rotate-180' : ''}`} />
+                  {/* Clear month filter button */}
+                  {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clearMonthFilter();
+                      }}
+                      className="ml-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </button>
 
-                {/* Start Month Dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      closeAllDropdowns();
-                      setIsStartMonthOpen(!isStartMonthOpen);
-                    }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors"
-                  >
-                    <span>{startMonth}</span>
-                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isStartMonthOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {isStartMonthOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[55]" onClick={() => setIsStartMonthOpen(false)} />
-                      <div className="absolute top-full left-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-[60] overflow-hidden">
-                        <div className="max-h-48 overflow-y-auto p-1">
-                          {MONTHS_ORDER.map((month) => (
-                            <button
-                              key={month}
-                              onClick={() => {
-                                setStartMonth?.(month);
-                                if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
-                                  setEndMonth?.(month);
-                                }
-                                setIsStartMonthOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                                startMonth === month
-                                  ? 'bg-blue-50 text-blue-800'
-                                  : 'text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {month}
-                              {startMonth === month && <Check className="w-3 h-3 text-blue-700" />}
-                            </button>
-                          ))}
+                {isMonthRangeOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[55]" onClick={() => setIsMonthRangeOpen(false)} />
+                    <div className="absolute top-full left-0 mt-2 w-[260px] bg-white border border-gray-100 rounded-xl shadow-xl z-[60] overflow-hidden">
+                      {/* Quick Period Presets */}
+                      <div className="p-2 border-b border-gray-100">
+                        <p className="px-2 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Quick Select</p>
+                        <div className="grid grid-cols-2 gap-1 mt-1">
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const currentMonth = MONTHS_ORDER[now.getMonth()];
+                              setStartMonth?.(currentMonth);
+                              setEndMonth?.(currentMonth);
+                              setIsMonthRangeOpen(false);
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
+                          >
+                            This Month
+                          </button>
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const prevIdx = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+                              const prevMonth = MONTHS_ORDER[prevIdx];
+                              setStartMonth?.(prevMonth);
+                              setEndMonth?.(prevMonth);
+                              setIsMonthRangeOpen(false);
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
+                          >
+                            Last Month
+                          </button>
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const q = Math.floor(now.getMonth() / 3);
+                              const qStart = MONTHS_ORDER[q * 3];
+                              const qEnd = MONTHS_ORDER[q * 3 + 2];
+                              setStartMonth?.(qStart);
+                              setEndMonth?.(qEnd);
+                              setIsMonthRangeOpen(false);
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
+                          >
+                            This Quarter
+                          </button>
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const currentMonth = MONTHS_ORDER[now.getMonth()];
+                              setStartMonth?.('Jan');
+                              setEndMonth?.(currentMonth);
+                              setIsMonthRangeOpen(false);
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
+                          >
+                            Year to Date
+                          </button>
                         </div>
                       </div>
-                    </>
-                  )}
-                </div>
 
-                <span className="text-gray-400 text-sm">—</span>
-
-                {/* End Month Dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      closeAllDropdowns();
-                      setIsEndMonthOpen(!isEndMonthOpen);
-                    }}
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors"
-                  >
-                    <span>{endMonth}</span>
-                    <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isEndMonthOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {isEndMonthOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[55]" onClick={() => setIsEndMonthOpen(false)} />
-                      <div className="absolute top-full right-0 mt-2 w-[100px] bg-white border border-gray-100 rounded-xl shadow-xl z-[60] overflow-hidden">
-                        <div className="max-h-48 overflow-y-auto p-1">
-                          {MONTHS_ORDER.map((month) => (
-                            <button
-                              key={month}
-                              onClick={() => {
-                                setEndMonth?.(month);
-                                if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
-                                  setStartMonth?.(month);
-                                }
-                                setIsEndMonthOpen(false);
-                              }}
-                              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
-                                endMonth === month
-                                  ? 'bg-blue-50 text-blue-800'
-                                  : 'text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {month}
-                              {endMonth === month && <Check className="w-3 h-3 text-blue-700" />}
-                            </button>
-                          ))}
+                      {/* Manual Month Range Pickers */}
+                      <div className="p-2">
+                        <p className="px-2 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Custom Range</p>
+                        <div className="flex gap-2 mt-1">
+                          {/* Start Month */}
+                          <div className="flex-1">
+                            <p className="px-2 py-0.5 text-[10px] font-medium text-gray-400 uppercase">From</p>
+                            <div className="max-h-36 overflow-y-auto p-0.5">
+                              {MONTHS_ORDER.map((month) => (
+                                <button
+                                  key={month}
+                                  onClick={() => {
+                                    setStartMonth?.(month);
+                                    if (MONTH_INDEX[month] > MONTH_INDEX[endMonth]) {
+                                      setEndMonth?.(month);
+                                    }
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${
+                                    startMonth === month
+                                      ? 'bg-blue-50 text-blue-800'
+                                      : 'text-gray-600 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {month}
+                                  {startMonth === month && <Check className="w-3 h-3 text-blue-700" />}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* End Month */}
+                          <div className="flex-1">
+                            <p className="px-2 py-0.5 text-[10px] font-medium text-gray-400 uppercase">To</p>
+                            <div className="max-h-36 overflow-y-auto p-0.5">
+                              {MONTHS_ORDER.map((month) => (
+                                <button
+                                  key={month}
+                                  onClick={() => {
+                                    setEndMonth?.(month);
+                                    if (MONTH_INDEX[month] < MONTH_INDEX[startMonth]) {
+                                      setStartMonth?.(month);
+                                    }
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${
+                                    endMonth === month
+                                      ? 'bg-blue-50 text-blue-800'
+                                      : 'text-gray-600 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {month}
+                                  {endMonth === month && <Check className="w-3 h-3 text-blue-700" />}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Clear month filter button */}
-                {(startMonth !== 'Jan' || endMonth !== 'Dec') && (
-                  <button
-                    onClick={clearMonthFilter}
-                    className="ml-1 text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                    </div>
+                  </>
                 )}
               </div>
 

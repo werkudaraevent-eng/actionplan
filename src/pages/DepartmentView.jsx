@@ -25,6 +25,7 @@ import { supabase } from '../lib/supabase';
 import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../utils/lockUtils';
 import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 import { getPicDisplayName, collectAllPicUuids, batchResolveProfiles } from '../utils/picUtils';
+import { usePicProfiles } from '../hooks/usePicProfiles';
 
 // NOTE: Manual audit logging REMOVED - DB trigger handles all audit logging automatically
 // See migration: enhanced_audit_trigger_super_detailed
@@ -51,6 +52,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const canEdit = !isExecutive && canEditPlan; // Executives have read-only access
   const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
   const { plans, setPlans, loading, createPlan, bulkCreatePlans, updatePlan, deletePlan, restorePlan, fetchDeletedPlans, permanentlyDeletePlan, updateStatus, finalizeMonthReport, recallMonthReport, unlockItem, gradePlan, carryOverPlan, refetch } = useActionPlans(departmentCode, safeCompanyId);
+  const { profileMap } = usePicProfiles(plans);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
@@ -466,6 +468,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           plan.goal_strategy,
           plan.action_plan,
           plan.indicator,
+          getPicDisplayName(plan, profileMap),
           plan.legacy_pic_text || plan.pic,
           plan.remark,
         ].filter(Boolean);
@@ -479,7 +482,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       return true;
     });
-  }, [plans, startMonth, endMonth, searchQuery]);
+  }, [plans, startMonth, endMonth, searchQuery, profileMap]);
 
   // TABLE DATA: Base data filtered FURTHER by Status, then SORTED by Month (for Table - dynamic)
   const tablePlans = useMemo(() => {

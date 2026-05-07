@@ -20,6 +20,7 @@ import ExportConfigModal from '../components/action-plan/ExportConfigModal';
 import { useToast } from '../components/common/Toast';
 import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 import { getPicDisplayName, collectAllPicUuids, batchResolveProfiles } from '../utils/picUtils';
+import { usePicProfiles } from '../hooks/usePicProfiles';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -38,6 +39,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const { departments } = useDepartments(activeCompanyId);
   // Fetch ALL plans (no department filter) scoped to active company
   const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(null, safeCompanyId);
+  const { profileMap } = usePicProfiles(plans);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editData, setEditData] = useState(null);
@@ -173,6 +175,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           plan.goal_strategy,
           plan.action_plan,
           plan.indicator,
+          getPicDisplayName(plan, profileMap),
           plan.legacy_pic_text || plan.pic,
           plan.remark,
           plan.department_code,
@@ -202,7 +205,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     });
 
     return filtered;
-  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, selectedCarryOver]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, selectedCarryOver, profileMap]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation

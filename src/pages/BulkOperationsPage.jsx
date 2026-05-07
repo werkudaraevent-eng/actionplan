@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check, ChevronDown } from 'lucide-react';
 import { supabase, STATUS_OPTIONS } from '../lib/supabase';
 import { useCompanyContext } from '../context/CompanyContext';
+import { useAuth } from '../context/AuthContext';
 import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from '../components/common/Toast';
 
@@ -70,8 +71,11 @@ function SearchableUserSelect({ value, onChange, users, placeholder, excludeId }
   );
 }
 
+const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function BulkOperationsPage() {
   const { activeCompanyId } = useCompanyContext();
+  const { profile } = useAuth();
   const { departments } = useDepartments(activeCompanyId);
   const { toast } = useToast();
   
@@ -85,6 +89,7 @@ export default function BulkOperationsPage() {
   const [affectedPlans, setAffectedPlans] = useState([]);
   const [transferring, setTransferring] = useState(false);
   const [loadingPlans, setLoadingPlans] = useState(false);
+  const [transferMonthFilter, setTransferMonthFilter] = useState('all'); // 'all' | 'future'
   
   // === Bulk Update State ===
   const [bulkPlans, setBulkPlans] = useState([]);
@@ -132,12 +137,12 @@ export default function BulkOperationsPage() {
     if (!sourcePic || !targetPic || sourcePic === targetPic) return;
     setConfirmModal({
       title: 'Confirm Transfer',
-      message: `Are you sure you want to transfer ${affectedPlans.length} plans from ${sourceUser?.full_name} to ${targetUser?.full_name}?`,
+      message: `Are you sure you want to transfer ${filteredAffectedPlans.length} plans from ${sourceUser?.full_name} to ${targetUser?.full_name}?`,
       onConfirm: async () => {
         setTransferring(true);
         try {
           let successCount = 0;
-          for (const plan of affectedPlans) {
+          for (const plan of filteredAffectedPlans) {
             const { error } = await supabase
               .from('action_plans')
               .update({
@@ -148,6 +153,19 @@ export default function BulkOperationsPage() {
               .eq('id', plan.id);
             if (!error) successCount++;
           }
+
+          // Insert audit logs for the transfer
+          const auditLogs = filteredAffectedPlans.map(plan => ({
+            action_plan_id: plan.id,
+            user_id: profile?.id,
+            change_type: 'BULK_PIC_TRANSFER',
+            description: `PIC transferred from ${sourceUser?.full_name} to ${targetUser?.full_name} (bulk operation)`,
+            previous_value: { pic_ids: plan.pic_ids },
+            new_value: { pic_ids: plan.pic_ids?.map(id => id === sourcePic ? targetPic : id) || [targetPic] },
+          }));
+
+          await supabase.from('audit_logs').insert(auditLogs);
+
           toast({
             title: 'Transfer Complete',
             description: `${successCount} plans transferred successfully.`,
@@ -219,6 +237,21 @@ export default function BulkOperationsPage() {
 
           if (error) throw error;
 
+          // Insert audit logs for bulk update
+          const auditLogs = ids.map(id => {
+            const plan = bulkPlans.find(p => p.id === id);
+            return {
+              action_plan_id: id,
+              user_id: profile?.id,
+              change_type: 'BULK_UPDATE',
+              description: `Bulk update: ${bulkField} changed to "${bulkField === 'pic' ? users.find(u => u.id === bulkValue)?.full_name : bulkValue}"`,
+              previous_value: { [bulkField]: bulkField === 'pic' ? plan?.pic_ids : plan?.[bulkField] },
+              new_value: { [bulkField]: bulkField === 'pic' ? [bulkValue] : bulkValue },
+            };
+          });
+
+          await supabase.from('audit_logs').insert(auditLogs);
+
           toast({
             title: 'Bulk Update Complete',
             description: `${ids.length} plans updated successfully.`,
@@ -252,6 +285,16 @@ export default function BulkOperationsPage() {
 
   const sourceUser = users.find(u => u.id === sourcePic);
   const targetUser = users.find(u => u.id === targetPic);
+
+  const currentMonthIdx = new Date().getMonth();
+
+  const filteredAffectedPlans = useMemo(() => {
+    if (transferMonthFilter === 'all') return affectedPlans;
+    if (transferMonthFilter === 'future') {
+      return affectedPlans.filter(p => MONTHS_ORDER.indexOf(p.month) >= currentMonthIdx);
+    }
+    return affectedPlans;
+  }, [affectedPlans, transferMonthFilter]);
 
   return (
     <div className="h-full flex flex-col">
@@ -309,14 +352,39 @@ export default function BulkOperationsPage() {
               {sourcePic && !loadingPlans && (
                 <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-sm text-amber-800 font-medium">
-                    {affectedPlans.length} plan{affectedPlans.length !== 1 ? 's' : ''} assigned to {sourceUser?.full_name}
+                    {filteredAffectedPlans.length} plan{filteredAffectedPlans.length !== 1 ? 's' : ''} assigned to {sourceUser?.full_name}
+                    {transferMonthFilter === 'future' && ` (filtered from ${affectedPlans.length} total)`}
                   </p>
+                </div>
+              )}
+
+              {sourcePic && affectedPlans.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-sm font-medium text-gray-700">Apply to:</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setTransferMonthFilter('all')}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                        transferMonthFilter === 'all' ? 'bg-[#02378D] text-white border-[#02378D]' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      All Months ({affectedPlans.length})
+                    </button>
+                    <button
+                      onClick={() => setTransferMonthFilter('future')}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                        transferMonthFilter === 'future' ? 'bg-[#02378D] text-white border-[#02378D]' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      This Month & Future Only
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Target PIC */}
-            {sourcePic && affectedPlans.length > 0 && (
+            {sourcePic && filteredAffectedPlans.length > 0 && (
               <div className="bg-white border border-gray-200 rounded-xl p-6">
                 <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 2: Transfer To</h3>
                 <SearchableUserSelect
@@ -330,28 +398,28 @@ export default function BulkOperationsPage() {
             )}
 
             {/* Preview + Confirm */}
-            {sourcePic && targetPic && affectedPlans.length > 0 && (
+            {sourcePic && targetPic && filteredAffectedPlans.length > 0 && (
               <div className="bg-white border border-gray-200 rounded-xl p-6">
                 <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 3: Confirm Transfer</h3>
                 <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
                   <span className="text-sm font-medium text-blue-900">{sourceUser?.full_name}</span>
                   <ArrowRight className="w-4 h-4 text-blue-600" />
                   <span className="text-sm font-medium text-blue-900">{targetUser?.full_name}</span>
-                  <span className="text-xs text-blue-600 ml-auto">{affectedPlans.length} plans</span>
+                  <span className="text-xs text-blue-600 ml-auto">{filteredAffectedPlans.length} plans</span>
                 </div>
                 
                 {/* Plan list preview */}
                 <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
-                  {affectedPlans.slice(0, 20).map(plan => (
+                  {filteredAffectedPlans.slice(0, 20).map(plan => (
                     <div key={plan.id} className="px-3 py-2 text-sm flex items-center gap-3">
                       <span className="text-xs font-mono text-gray-400">{plan.department_code}</span>
                       <span className="text-xs text-gray-500">{plan.month}</span>
                       <span className="text-gray-700 truncate flex-1">{plan.action_plan}</span>
                     </div>
                   ))}
-                  {affectedPlans.length > 20 && (
+                  {filteredAffectedPlans.length > 20 && (
                     <div className="px-3 py-2 text-xs text-gray-400 text-center">
-                      +{affectedPlans.length - 20} more plans
+                      +{filteredAffectedPlans.length - 20} more plans
                     </div>
                   )}
                 </div>
@@ -364,7 +432,7 @@ export default function BulkOperationsPage() {
                   {transferring ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Transferring...</>
                   ) : (
-                    <><RefreshCw className="w-4 h-4" /> Transfer {affectedPlans.length} Plans</>
+                    <><RefreshCw className="w-4 h-4" /> Transfer {filteredAffectedPlans.length} Plans</>
                   )}
                 </button>
               </div>

@@ -24,7 +24,18 @@ import UserProfile from './pages/UserProfile';
 import ChangelogPage from './pages/ChangelogPage';
 import HoldingManagement from './pages/HoldingManagement';
 import { supabase } from './lib/supabase';
-import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical } from 'lucide-react';
+import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical, Info, AlertTriangle, AlertOctagon, X } from 'lucide-react';
+
+// Simple string hash for announcement dismiss tracking
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return hash.toString(36);
+}
 
 // Error screen for missing profile
 function ProfileErrorScreen({ error, onSignOut }) {
@@ -254,6 +265,8 @@ function AppRoutes() {
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [announcementText, setAnnouncementText] = useState('');
+  const [announcementType, setAnnouncementType] = useState('info');
+  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
 
   useEffect(() => {
     let interval;
@@ -261,11 +274,20 @@ function AppRoutes() {
       try {
         const { data } = await supabase
           .from('system_settings')
-          .select('is_maintenance_mode, announcement_text')
+          .select('is_maintenance_mode, announcement_text, announcement_type')
           .eq('id', 1)
           .single();
         setIsMaintenanceMode(data?.is_maintenance_mode || false);
         setAnnouncementText(data?.announcement_text || '');
+        setAnnouncementType(data?.announcement_type || 'info');
+        // Check if announcement was already dismissed
+        if (data?.announcement_text) {
+          const hash = simpleHash(data.announcement_text);
+          const dismissed = localStorage.getItem('dismissed_announcement');
+          setAnnouncementDismissed(dismissed === hash);
+        } else {
+          setAnnouncementDismissed(false);
+        }
       } catch (err) {
         console.error('[Maintenance] Fetch error:', err);
       } finally {
@@ -278,6 +300,12 @@ function AppRoutes() {
     interval = setInterval(fetchMaintenanceStatus, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const dismissAnnouncement = () => {
+    const hash = simpleHash(announcementText);
+    localStorage.setItem('dismissed_announcement', hash);
+    setAnnouncementDismissed(true);
+  };
 
   // Show loading screen while checking auth
   if (loading) return <LoadingScreen />;
@@ -326,6 +354,25 @@ function AppRoutes() {
             <FlaskConical className="w-4 h-4" />
             SANDBOX MODE — Data di sini tidak mempengaruhi production
           </span>
+        </div>
+      )}
+      {/* Global Announcement Banner */}
+      {announcementText && !isMaintenanceMode && !announcementDismissed && (
+        <div className={`shrink-0 px-4 py-2 flex items-center gap-3 border-b text-sm ${
+          announcementType === 'critical' ? 'bg-red-50 border-red-200 text-red-800' :
+          announcementType === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' :
+          'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
+          {announcementType === 'critical' ? <AlertOctagon className="w-4 h-4 shrink-0" /> :
+           announcementType === 'warning' ? <AlertTriangle className="w-4 h-4 shrink-0" /> :
+           <Info className="w-4 h-4 shrink-0" />}
+          <p className="flex-1 truncate">{announcementText}</p>
+          <button
+            onClick={dismissAnnouncement}
+            className="p-1 rounded hover:bg-black/10 transition-colors shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">

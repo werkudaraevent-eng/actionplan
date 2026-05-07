@@ -23,6 +23,9 @@ export const CHANGELOG = [
       { type: 'improvement', description: 'Searchable PIC dropdown di Bulk Operations — ketik nama atau email untuk filter cepat' },
       { type: 'improvement', description: 'Custom confirmation modal menggantikan dialog browser bawaan' },
       { type: 'fix', description: 'Search di tabel action plan sekarang bisa menemukan PIC berdasarkan nama (sebelumnya hanya cari di field text lama)' },
+      { type: 'improvement', description: 'PIC Transfer sekarang tercatat di Activity Log (audit trail) untuk setiap plan yang dipindahkan' },
+      { type: 'improvement', description: 'Bulk Update juga tercatat di Activity Log dengan detail perubahan sebelum dan sesudah' },
+      { type: 'improvement', description: 'PIC Transfer bisa dipilih: transfer semua bulan atau hanya bulan ini & ke depan (plan lama tetap di PIC sebelumnya)' },
     ],
   },
   {

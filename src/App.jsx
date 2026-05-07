@@ -258,7 +258,7 @@ function DefaultRedirect() {
 // Main App Content with Routes
 function AppRoutes() {
   const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
-  const { isSandbox } = useCompanyContext();
+  const { isSandbox, activeCompanyId } = useCompanyContext();
   const location = useLocation();
 
   // ── MAINTENANCE MODE GATE (hooks must be before any returns) ──
@@ -268,26 +268,17 @@ function AppRoutes() {
   const [announcementType, setAnnouncementType] = useState('info');
   const [announcementDismissed, setAnnouncementDismissed] = useState(false);
 
+  // Fetch maintenance mode (global, not company-scoped)
   useEffect(() => {
     let interval;
     const fetchMaintenanceStatus = async () => {
       try {
         const { data } = await supabase
           .from('system_settings')
-          .select('is_maintenance_mode, announcement_text, announcement_type')
-          .eq('id', 1)
-          .single();
-        setIsMaintenanceMode(data?.is_maintenance_mode || false);
-        setAnnouncementText(data?.announcement_text || '');
-        setAnnouncementType(data?.announcement_type || 'info');
-        // Check if announcement was already dismissed
-        if (data?.announcement_text) {
-          const hash = simpleHash(data.announcement_text);
-          const dismissed = localStorage.getItem('dismissed_announcement');
-          setAnnouncementDismissed(dismissed === hash);
-        } else {
-          setAnnouncementDismissed(false);
-        }
+          .select('is_maintenance_mode')
+          .eq('is_maintenance_mode', true)
+          .maybeSingle();
+        setIsMaintenanceMode(!!data);
       } catch (err) {
         console.error('[Maintenance] Fetch error:', err);
       } finally {
@@ -296,10 +287,38 @@ function AppRoutes() {
     };
 
     fetchMaintenanceStatus();
-    // Poll every 30s so admin toggle is reflected quickly
     interval = setInterval(fetchMaintenanceStatus, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch announcement (company-scoped)
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    const fetchAnnouncement = async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('announcement_text, announcement_type')
+          .eq('company_id', activeCompanyId)
+          .maybeSingle();
+
+        setAnnouncementText(data?.announcement_text || '');
+        setAnnouncementType(data?.announcement_type || 'info');
+
+        if (data?.announcement_text) {
+          const hash = simpleHash(data.announcement_text);
+          const dismissed = localStorage.getItem('dismissed_announcement');
+          setAnnouncementDismissed(dismissed === hash);
+        } else {
+          setAnnouncementDismissed(false);
+        }
+      } catch (err) {
+        console.error('[Announcement] Fetch error:', err);
+      }
+    };
+
+    fetchAnnouncement();
+  }, [activeCompanyId]);
 
   const dismissAnnouncement = () => {
     const hash = simpleHash(announcementText);

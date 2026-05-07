@@ -13,10 +13,14 @@
 
 export const CHANGELOG = [
   {
-    version: '1.7.1',
+    version: '1.7.2',
     date: '2026-04-26',
-    title: 'Data Security & Stability',
+    title: 'Announcement & Fixes',
     changes: [
+      { type: 'feature', description: 'System Announcement sekarang tampil sebagai banner global di semua halaman — bukan hanya saat maintenance mode' },
+      { type: 'improvement', description: 'Announcement bisa di-dismiss oleh user (klik X), dan muncul kembali jika admin mengubah pesan' },
+      { type: 'improvement', description: 'Announcement berwarna sesuai tipe: biru (Info), kuning (Warning), merah (Critical)' },
+      { type: 'fix', description: 'Announcement sekarang tampil sesuai company user yang login (sebelumnya hardcoded ke satu company)' },
       { type: 'security', description: 'Perbaikan kebocoran data saat refresh halaman — data subsidiary lain tidak lagi muncul sesaat sebelum halaman selesai dimuat' },
     ],
   },

@@ -85,6 +85,14 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const setStartMonth = useCallback((v) => setParam('startMonth', v, 'Jan'), [setParam]);
   const endMonth = searchParams.get('endMonth') || 'Dec';
   const setEndMonth = useCallback((v) => setParam('endMonth', v, 'Dec'), [setParam]);
+  const setMonthRange = useCallback((start, end) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (start === 'Jan') next.delete('startMonth'); else next.set('startMonth', start);
+      if (end === 'Dec') next.delete('endMonth'); else next.set('endMonth', end);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const selectedStatus = searchParams.get('status') || initialStatusFilter || 'all';
   const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
   const selectedCategory = searchParams.get('category') || 'all';
@@ -1864,6 +1872,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         setStartMonth={setStartMonth}
         endMonth={endMonth}
         setEndMonth={setEndMonth}
+        setMonthRange={setMonthRange}
         selectedStatus={selectedStatus}
         setSelectedStatus={setSelectedStatus}
         selectedCategory={selectedCategory}

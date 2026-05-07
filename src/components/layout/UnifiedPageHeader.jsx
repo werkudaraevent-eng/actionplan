@@ -84,6 +84,7 @@ export default function UnifiedPageHeader({
   setStartMonth,
   endMonth = 'Dec',
   setEndMonth,
+  setMonthRange,
   selectedStatus = 'all',
   setSelectedStatus,
   selectedCategory = 'all',
@@ -240,9 +241,9 @@ export default function UnifiedPageHeader({
                           <button
                             onClick={() => {
                               const now = new Date();
-                              const currentMonth = MONTHS_ORDER[now.getMonth()];
-                              setStartMonth?.(currentMonth);
-                              setEndMonth?.(currentMonth);
+                              const m = MONTHS_ORDER[now.getMonth()];
+                              if (setMonthRange) { setMonthRange(m, m); }
+                              else { setStartMonth?.(m); setEndMonth?.(m); }
                               setIsMonthRangeOpen(false);
                             }}
                             className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
@@ -253,9 +254,9 @@ export default function UnifiedPageHeader({
                             onClick={() => {
                               const now = new Date();
                               const prevIdx = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-                              const prevMonth = MONTHS_ORDER[prevIdx];
-                              setStartMonth?.(prevMonth);
-                              setEndMonth?.(prevMonth);
+                              const m = MONTHS_ORDER[prevIdx];
+                              if (setMonthRange) { setMonthRange(m, m); }
+                              else { setStartMonth?.(m); setEndMonth?.(m); }
                               setIsMonthRangeOpen(false);
                             }}
                             className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
@@ -266,10 +267,10 @@ export default function UnifiedPageHeader({
                             onClick={() => {
                               const now = new Date();
                               const q = Math.floor(now.getMonth() / 3);
-                              const qStart = MONTHS_ORDER[q * 3];
-                              const qEnd = MONTHS_ORDER[q * 3 + 2];
-                              setStartMonth?.(qStart);
-                              setEndMonth?.(qEnd);
+                              const s = MONTHS_ORDER[q * 3];
+                              const e = MONTHS_ORDER[q * 3 + 2];
+                              if (setMonthRange) { setMonthRange(s, e); }
+                              else { setStartMonth?.(s); setEndMonth?.(e); }
                               setIsMonthRangeOpen(false);
                             }}
                             className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"
@@ -279,9 +280,9 @@ export default function UnifiedPageHeader({
                           <button
                             onClick={() => {
                               const now = new Date();
-                              const currentMonth = MONTHS_ORDER[now.getMonth()];
-                              setStartMonth?.('Jan');
-                              setEndMonth?.(currentMonth);
+                              const m = MONTHS_ORDER[now.getMonth()];
+                              if (setMonthRange) { setMonthRange('Jan', m); }
+                              else { setStartMonth?.('Jan'); setEndMonth?.(m); }
                               setIsMonthRangeOpen(false);
                             }}
                             className="px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors text-left"

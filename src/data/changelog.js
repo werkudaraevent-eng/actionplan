@@ -20,6 +20,9 @@ export const CHANGELOG = [
       { type: 'feature', description: 'Halaman Bulk Operations — PIC Transfer untuk memindahkan semua plan dari satu PIC ke PIC lain (kasus resign/pindah)' },
       { type: 'feature', description: 'Bulk Update — pilih multiple plans dan ubah PIC, Status, Category, atau Focus Area sekaligus' },
       { type: 'feature', description: 'Preview affected plans sebelum transfer — lihat daftar plan yang akan dipindahkan' },
+      { type: 'improvement', description: 'Searchable PIC dropdown di Bulk Operations — ketik nama atau email untuk filter cepat' },
+      { type: 'improvement', description: 'Custom confirmation modal menggantikan dialog browser bawaan' },
+      { type: 'fix', description: 'Search di tabel action plan sekarang bisa menemukan PIC berdasarkan nama (sebelumnya hanya cari di field text lama)' },
     ],
   },
   {

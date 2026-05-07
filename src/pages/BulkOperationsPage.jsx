@@ -1,9 +1,74 @@
 import { useState, useEffect } from 'react';
-import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check } from 'lucide-react';
+import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check, ChevronDown } from 'lucide-react';
 import { supabase, STATUS_OPTIONS } from '../lib/supabase';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useDepartments } from '../hooks/useDepartments';
 import { useToast } from '../components/common/Toast';
+
+// Searchable PIC Select component
+function SearchableUserSelect({ value, onChange, users, placeholder, excludeId }) {
+  const [search, setSearch] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedUser = users.find(u => u.id === value);
+
+  const filtered = users.filter(u => {
+    if (excludeId && u.id === excludeId) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="relative">
+      <div
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm cursor-pointer flex items-center justify-between focus-within:ring-2 focus-within:ring-[#02378D]/20 focus-within:border-[#02378D]"
+      >
+        <span className={selectedUser ? 'text-gray-900' : 'text-gray-400'}>
+          {selectedUser ? `${selectedUser.full_name} (${selectedUser.email})` : placeholder || '— Select user —'}
+        </span>
+        <ChevronDown className="w-4 h-4 text-gray-400" />
+      </div>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+            <div className="p-2 border-b border-gray-100">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or email..."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#02378D]/20 focus:border-[#02378D]"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-gray-400">No users found</p>
+              ) : (
+                filtered.map(u => (
+                  <button
+                    key={u.id}
+                    onClick={() => { onChange(u.id); setIsOpen(false); setSearch(''); }}
+                    className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center justify-between ${value === u.id ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                  >
+                    <div>
+                      <p className="font-medium">{u.full_name}</p>
+                      <p className="text-xs text-gray-400">{u.email} · {u.department_code}</p>
+                    </div>
+                    {value === u.id && <Check className="w-4 h-4 text-blue-600" />}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function BulkOperationsPage() {
   const { activeCompanyId } = useCompanyContext();
@@ -11,6 +76,7 @@ export default function BulkOperationsPage() {
   const { toast } = useToast();
   
   const [activeTab, setActiveTab] = useState('transfer'); // 'transfer' | 'bulk'
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm }
   
   // === PIC Transfer State ===
   const [users, setUsers] = useState([]);
@@ -62,36 +128,41 @@ export default function BulkOperationsPage() {
   }, [sourcePic, activeCompanyId]);
 
   // PIC Transfer handler
-  const handleTransfer = async () => {
+  const handleTransfer = () => {
     if (!sourcePic || !targetPic || sourcePic === targetPic) return;
-    if (!confirm(`Are you sure you want to transfer ${affectedPlans.length} plans from ${sourceUser?.full_name} to ${targetUser?.full_name}?`)) return;
-    setTransferring(true);
-    try {
-      let successCount = 0;
-      for (const plan of affectedPlans) {
-        const { error } = await supabase
-          .from('action_plans')
-          .update({
-            pic_ids: plan.pic_ids
-              ? plan.pic_ids.map(id => id === sourcePic ? targetPic : id)
-              : [targetPic]
-          })
-          .eq('id', plan.id);
-        if (!error) successCount++;
+    setConfirmModal({
+      title: 'Confirm Transfer',
+      message: `Are you sure you want to transfer ${affectedPlans.length} plans from ${sourceUser?.full_name} to ${targetUser?.full_name}?`,
+      onConfirm: async () => {
+        setTransferring(true);
+        try {
+          let successCount = 0;
+          for (const plan of affectedPlans) {
+            const { error } = await supabase
+              .from('action_plans')
+              .update({
+                pic_ids: plan.pic_ids
+                  ? plan.pic_ids.map(id => id === sourcePic ? targetPic : id)
+                  : [targetPic]
+              })
+              .eq('id', plan.id);
+            if (!error) successCount++;
+          }
+          toast({
+            title: 'Transfer Complete',
+            description: `${successCount} plans transferred successfully.`,
+            variant: 'success'
+          });
+          setSourcePic('');
+          setTargetPic('');
+          setAffectedPlans([]);
+        } catch (err) {
+          toast({ title: 'Transfer Failed', description: err.message, variant: 'error' });
+        } finally {
+          setTransferring(false);
+        }
       }
-      toast({
-        title: 'Transfer Complete',
-        description: `${successCount} plans transferred successfully.`,
-        variant: 'success'
-      });
-      setSourcePic('');
-      setTargetPic('');
-      setAffectedPlans([]);
-    } catch (err) {
-      toast({ title: 'Transfer Failed', description: err.message, variant: 'error' });
-    } finally {
-      setTransferring(false);
-    }
+    });
   };
 
   // Fetch plans for bulk update tab
@@ -120,44 +191,49 @@ export default function BulkOperationsPage() {
   }, [activeTab, activeCompanyId, bulkDept, bulkStatus]);
 
   // Bulk apply handler
-  const handleBulkApply = async () => {
+  const handleBulkApply = () => {
     if (selectedIds.size === 0 || !bulkField || !bulkValue) return;
-    if (!confirm(`Are you sure you want to update ${selectedIds.size} plans?`)) return;
-    setApplying(true);
-    try {
-      const ids = Array.from(selectedIds);
-      let updateData = {};
-      
-      if (bulkField === 'pic') {
-        updateData = { pic_ids: [bulkValue] };
-      } else if (bulkField === 'status') {
-        updateData = { status: bulkValue };
-      } else if (bulkField === 'category') {
-        updateData = { category: bulkValue };
-      } else if (bulkField === 'area_focus') {
-        updateData = { area_focus: bulkValue };
+    setConfirmModal({
+      title: 'Confirm Bulk Update',
+      message: `Are you sure you want to update ${selectedIds.size} plans?`,
+      onConfirm: async () => {
+        setApplying(true);
+        try {
+          const ids = Array.from(selectedIds);
+          let updateData = {};
+          
+          if (bulkField === 'pic') {
+            updateData = { pic_ids: [bulkValue] };
+          } else if (bulkField === 'status') {
+            updateData = { status: bulkValue };
+          } else if (bulkField === 'category') {
+            updateData = { category: bulkValue };
+          } else if (bulkField === 'area_focus') {
+            updateData = { area_focus: bulkValue };
+          }
+
+          const { error } = await supabase
+            .from('action_plans')
+            .update(updateData)
+            .in('id', ids);
+
+          if (error) throw error;
+
+          toast({
+            title: 'Bulk Update Complete',
+            description: `${ids.length} plans updated successfully.`,
+            variant: 'success'
+          });
+          setSelectedIds(new Set());
+          setBulkValue('');
+          fetchBulkPlans();
+        } catch (err) {
+          toast({ title: 'Update Failed', description: err.message, variant: 'error' });
+        } finally {
+          setApplying(false);
+        }
       }
-
-      const { error } = await supabase
-        .from('action_plans')
-        .update(updateData)
-        .in('id', ids);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Bulk Update Complete',
-        description: `${ids.length} plans updated successfully.`,
-        variant: 'success'
-      });
-      setSelectedIds(new Set());
-      setBulkValue('');
-      fetchBulkPlans();
-    } catch (err) {
-      toast({ title: 'Update Failed', description: err.message, variant: 'error' });
-    } finally {
-      setApplying(false);
-    }
+    });
   };
 
   const toggleSelectAll = () => {
@@ -216,16 +292,12 @@ export default function BulkOperationsPage() {
             {/* Source PIC */}
             <div className="bg-white border border-gray-200 rounded-xl p-6">
               <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 1: Select PIC to Replace</h3>
-              <select
+              <SearchableUserSelect
                 value={sourcePic}
-                onChange={(e) => { setSourcePic(e.target.value); setTargetPic(''); }}
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#02378D]/20 focus:border-[#02378D]"
-              >
-                <option value="">— Select user —</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
-                ))}
-              </select>
+                onChange={(id) => { setSourcePic(id); setTargetPic(''); }}
+                users={users}
+                placeholder="— Select user —"
+              />
               
               {loadingPlans && (
                 <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
@@ -247,16 +319,13 @@ export default function BulkOperationsPage() {
             {sourcePic && affectedPlans.length > 0 && (
               <div className="bg-white border border-gray-200 rounded-xl p-6">
                 <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 2: Transfer To</h3>
-                <select
+                <SearchableUserSelect
                   value={targetPic}
-                  onChange={(e) => setTargetPic(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#02378D]/20 focus:border-[#02378D]"
-                >
-                  <option value="">— Select new PIC —</option>
-                  {users.filter(u => u.id !== sourcePic).map(u => (
-                    <option key={u.id} value={u.id}>{u.full_name} ({u.department_code})</option>
-                  ))}
-                </select>
+                  onChange={(id) => setTargetPic(id)}
+                  users={users}
+                  placeholder="— Select new PIC —"
+                  excludeId={sourcePic}
+                />
               </div>
             )}
 
@@ -343,10 +412,14 @@ export default function BulkOperationsPage() {
                   </select>
                   
                   {bulkField === 'pic' && (
-                    <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                      <option value="">— Select PIC —</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-                    </select>
+                    <div className="w-64">
+                      <SearchableUserSelect
+                        value={bulkValue}
+                        onChange={(id) => setBulkValue(id)}
+                        users={users}
+                        placeholder="— Select PIC —"
+                      />
+                    </div>
                   )}
                   {bulkField === 'status' && (
                     <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -441,6 +514,30 @@ export default function BulkOperationsPage() {
           </div>
         )}
       </div>
+
+      {/* Confirmation Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900">{confirmModal.title}</h3>
+            <p className="mt-2 text-sm text-gray-600">{confirmModal.message}</p>
+            <div className="flex justify-end gap-3 mt-5">
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                className="px-4 py-2 text-sm font-medium text-white bg-[#02378D] rounded-lg hover:bg-blue-900"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

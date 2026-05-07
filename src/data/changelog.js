@@ -14,7 +14,7 @@
 export const CHANGELOG = [
   {
     version: '1.7.2',
-    date: '2026-04-26',
+    date: '2026-05-07',
     title: 'Announcement & Fixes',
     changes: [
       { type: 'feature', description: 'System Announcement sekarang tampil sebagai banner global di semua halaman — bukan hanya saat maintenance mode' },
@@ -27,7 +27,7 @@ export const CHANGELOG = [
   },
   {
     version: '1.7.0',
-    date: '2026-04-26',
+    date: '2026-05-07',
     title: 'Dashboard Export & Analisa AI',
     changes: [
       { type: 'feature', description: 'Dashboard Export — export dashboard dalam 4 format: PDF (visual screenshot), Excel (data terstruktur), JSON (data mentah), dan Copy for AI (markdown untuk paste ke ChatGPT/Claude)' },
@@ -39,7 +39,7 @@ export const CHANGELOG = [
   },
   {
     version: '1.6.1',
-    date: '2026-04-26',
+    date: '2026-05-07',
     title: 'PDF Export, Sorting & Security Fixes',
     changes: [
       { type: 'improvement', description: 'PDF Export — tabel sekarang memenuhi seluruh lebar halaman secara proporsional, tidak ada lagi ruang kosong di sisi kanan' },

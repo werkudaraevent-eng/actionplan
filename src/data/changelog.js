@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.8.0',
+    date: '2026-05-07',
+    title: 'Bulk Operations',
+    changes: [
+      { type: 'feature', description: 'Halaman Bulk Operations — PIC Transfer untuk memindahkan semua plan dari satu PIC ke PIC lain (kasus resign/pindah)' },
+      { type: 'feature', description: 'Bulk Update — pilih multiple plans dan ubah PIC, Status, Category, atau Focus Area sekaligus' },
+      { type: 'feature', description: 'Preview affected plans sebelum transfer — lihat daftar plan yang akan dipindahkan' },
+    ],
+  },
+  {
     version: '1.7.2',
     date: '2026-05-07',
     title: 'Announcement & Fixes',

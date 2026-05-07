@@ -23,6 +23,7 @@ import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
 import ChangelogPage from './pages/ChangelogPage';
 import HoldingManagement from './pages/HoldingManagement';
+import BulkOperationsPage from './pages/BulkOperationsPage';
 import { supabase } from './lib/supabase';
 import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical, Info, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 
@@ -443,6 +444,12 @@ function AppRoutes() {
           <Route path="/audit-log" element={
             <ProtectedRoute adminOnly>
               <GlobalAuditLog />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/bulk-operations" element={
+            <ProtectedRoute adminOnly>
+              <BulkOperationsPage />
             </ProtectedRoute>
           } />
 

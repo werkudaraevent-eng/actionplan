@@ -1,0 +1,446 @@
+import { useState, useEffect } from 'react';
+import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check } from 'lucide-react';
+import { supabase, STATUS_OPTIONS } from '../lib/supabase';
+import { useCompanyContext } from '../context/CompanyContext';
+import { useDepartments } from '../hooks/useDepartments';
+import { useToast } from '../components/common/Toast';
+
+export default function BulkOperationsPage() {
+  const { activeCompanyId } = useCompanyContext();
+  const { departments } = useDepartments(activeCompanyId);
+  const { toast } = useToast();
+  
+  const [activeTab, setActiveTab] = useState('transfer'); // 'transfer' | 'bulk'
+  
+  // === PIC Transfer State ===
+  const [users, setUsers] = useState([]);
+  const [sourcePic, setSourcePic] = useState('');
+  const [targetPic, setTargetPic] = useState('');
+  const [affectedPlans, setAffectedPlans] = useState([]);
+  const [transferring, setTransferring] = useState(false);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  
+  // === Bulk Update State ===
+  const [bulkPlans, setBulkPlans] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkField, setBulkField] = useState(''); // 'pic' | 'status' | 'category' | 'area_focus'
+  const [bulkValue, setBulkValue] = useState('');
+  const [bulkDept, setBulkDept] = useState('all');
+  const [bulkStatus, setBulkStatus] = useState('all');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  // Fetch all users for this company
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    supabase
+      .from('profiles')
+      .select('id, full_name, email, department_code, role')
+      .eq('company_id', activeCompanyId)
+      .order('full_name')
+      .then(({ data }) => setUsers(data || []));
+  }, [activeCompanyId]);
+
+  // Fetch affected plans when source PIC changes
+  useEffect(() => {
+    if (!sourcePic || !activeCompanyId) {
+      setAffectedPlans([]);
+      return;
+    }
+    setLoadingPlans(true);
+    supabase
+      .from('action_plans')
+      .select('id, action_plan, month, year, department_code, status, pic_ids')
+      .eq('company_id', activeCompanyId)
+      .is('deleted_at', null)
+      .contains('pic_ids', [sourcePic])
+      .order('month')
+      .then(({ data }) => {
+        setAffectedPlans(data || []);
+        setLoadingPlans(false);
+      });
+  }, [sourcePic, activeCompanyId]);
+
+  // PIC Transfer handler
+  const handleTransfer = async () => {
+    if (!sourcePic || !targetPic || sourcePic === targetPic) return;
+    if (!confirm(`Are you sure you want to transfer ${affectedPlans.length} plans from ${sourceUser?.full_name} to ${targetUser?.full_name}?`)) return;
+    setTransferring(true);
+    try {
+      let successCount = 0;
+      for (const plan of affectedPlans) {
+        const { error } = await supabase
+          .from('action_plans')
+          .update({
+            pic_ids: plan.pic_ids
+              ? plan.pic_ids.map(id => id === sourcePic ? targetPic : id)
+              : [targetPic]
+          })
+          .eq('id', plan.id);
+        if (!error) successCount++;
+      }
+      toast({
+        title: 'Transfer Complete',
+        description: `${successCount} plans transferred successfully.`,
+        variant: 'success'
+      });
+      setSourcePic('');
+      setTargetPic('');
+      setAffectedPlans([]);
+    } catch (err) {
+      toast({ title: 'Transfer Failed', description: err.message, variant: 'error' });
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  // Fetch plans for bulk update tab
+  const fetchBulkPlans = async () => {
+    if (!activeCompanyId) return;
+    setBulkLoading(true);
+    let query = supabase
+      .from('action_plans')
+      .select('id, action_plan, month, year, department_code, status, category, area_focus, pic_ids')
+      .eq('company_id', activeCompanyId)
+      .is('deleted_at', null)
+      .order('department_code')
+      .order('month');
+    
+    if (bulkDept !== 'all') query = query.eq('department_code', bulkDept);
+    if (bulkStatus !== 'all') query = query.eq('status', bulkStatus);
+    
+    const { data } = await query;
+    setBulkPlans(data || []);
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'bulk') fetchBulkPlans();
+  }, [activeTab, activeCompanyId, bulkDept, bulkStatus]);
+
+  // Bulk apply handler
+  const handleBulkApply = async () => {
+    if (selectedIds.size === 0 || !bulkField || !bulkValue) return;
+    if (!confirm(`Are you sure you want to update ${selectedIds.size} plans?`)) return;
+    setApplying(true);
+    try {
+      const ids = Array.from(selectedIds);
+      let updateData = {};
+      
+      if (bulkField === 'pic') {
+        updateData = { pic_ids: [bulkValue] };
+      } else if (bulkField === 'status') {
+        updateData = { status: bulkValue };
+      } else if (bulkField === 'category') {
+        updateData = { category: bulkValue };
+      } else if (bulkField === 'area_focus') {
+        updateData = { area_focus: bulkValue };
+      }
+
+      const { error } = await supabase
+        .from('action_plans')
+        .update(updateData)
+        .in('id', ids);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Bulk Update Complete',
+        description: `${ids.length} plans updated successfully.`,
+        variant: 'success'
+      });
+      setSelectedIds(new Set());
+      setBulkValue('');
+      fetchBulkPlans();
+    } catch (err) {
+      toast({ title: 'Update Failed', description: err.message, variant: 'error' });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === bulkPlans.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(bulkPlans.map(p => p.id)));
+    }
+  };
+
+  const toggleSelect = (id) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const sourceUser = users.find(u => u.id === sourcePic);
+  const targetUser = users.find(u => u.id === targetPic);
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4 shrink-0">
+        <h1 className="text-2xl font-bold text-gray-900">Bulk Operations</h1>
+        <p className="text-sm text-gray-500 mt-1">Mass update action plans — PIC transfer and bulk field changes</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="px-6 pt-4 shrink-0">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => setActiveTab('transfer')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === 'transfer' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Users className="w-4 h-4 inline mr-1.5" />
+            PIC Transfer
+          </button>
+          <button
+            onClick={() => setActiveTab('bulk')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === 'bulk' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4 inline mr-1.5" />
+            Bulk Update
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        {activeTab === 'transfer' && (
+          <div className="max-w-3xl space-y-6">
+            {/* Source PIC */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 1: Select PIC to Replace</h3>
+              <select
+                value={sourcePic}
+                onChange={(e) => { setSourcePic(e.target.value); setTargetPic(''); }}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#02378D]/20 focus:border-[#02378D]"
+              >
+                <option value="">— Select user —</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+                ))}
+              </select>
+              
+              {loadingPlans && (
+                <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading affected plans...
+                </div>
+              )}
+              
+              {sourcePic && !loadingPlans && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800 font-medium">
+                    {affectedPlans.length} plan{affectedPlans.length !== 1 ? 's' : ''} assigned to {sourceUser?.full_name}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Target PIC */}
+            {sourcePic && affectedPlans.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 2: Transfer To</h3>
+                <select
+                  value={targetPic}
+                  onChange={(e) => setTargetPic(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#02378D]/20 focus:border-[#02378D]"
+                >
+                  <option value="">— Select new PIC —</option>
+                  {users.filter(u => u.id !== sourcePic).map(u => (
+                    <option key={u.id} value={u.id}>{u.full_name} ({u.department_code})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Preview + Confirm */}
+            {sourcePic && targetPic && affectedPlans.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Step 3: Confirm Transfer</h3>
+                <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                  <span className="text-sm font-medium text-blue-900">{sourceUser?.full_name}</span>
+                  <ArrowRight className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900">{targetUser?.full_name}</span>
+                  <span className="text-xs text-blue-600 ml-auto">{affectedPlans.length} plans</span>
+                </div>
+                
+                {/* Plan list preview */}
+                <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+                  {affectedPlans.slice(0, 20).map(plan => (
+                    <div key={plan.id} className="px-3 py-2 text-sm flex items-center gap-3">
+                      <span className="text-xs font-mono text-gray-400">{plan.department_code}</span>
+                      <span className="text-xs text-gray-500">{plan.month}</span>
+                      <span className="text-gray-700 truncate flex-1">{plan.action_plan}</span>
+                    </div>
+                  ))}
+                  {affectedPlans.length > 20 && (
+                    <div className="px-3 py-2 text-xs text-gray-400 text-center">
+                      +{affectedPlans.length - 20} more plans
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleTransfer}
+                  disabled={transferring}
+                  className="mt-4 w-full py-2.5 bg-[#02378D] text-white rounded-lg font-semibold text-sm hover:bg-blue-900 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {transferring ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Transferring...</>
+                  ) : (
+                    <><RefreshCw className="w-4 h-4" /> Transfer {affectedPlans.length} Plans</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'bulk' && (
+          <div className="space-y-4">
+            {/* Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <select
+                value={bulkDept}
+                onChange={(e) => setBulkDept(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                <option value="all">All Departments</option>
+                {departments.map(d => (
+                  <option key={d.code} value={d.code}>{d.code} - {d.name}</option>
+                ))}
+              </select>
+              <select
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                <option value="all">All Status</option>
+                {STATUS_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 ml-auto">
+                  <select
+                    value={bulkField}
+                    onChange={(e) => { setBulkField(e.target.value); setBulkValue(''); }}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  >
+                    <option value="">— Action —</option>
+                    <option value="pic">Change PIC</option>
+                    <option value="status">Change Status</option>
+                    <option value="category">Change Category</option>
+                    <option value="area_focus">Change Focus Area</option>
+                  </select>
+                  
+                  {bulkField === 'pic' && (
+                    <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                      <option value="">— Select PIC —</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                    </select>
+                  )}
+                  {bulkField === 'status' && (
+                    <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                      <option value="">— Select Status —</option>
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  )}
+                  {bulkField === 'category' && (
+                    <input value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} placeholder="e.g. UH (Ultra High)" className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48" />
+                  )}
+                  {bulkField === 'area_focus' && (
+                    <input value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} placeholder="e.g. Digital Transformation" className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48" />
+                  )}
+                  
+                  {bulkField && bulkValue && (
+                    <button
+                      onClick={handleBulkApply}
+                      disabled={applying}
+                      className="px-4 py-2 bg-[#02378D] text-white rounded-lg text-sm font-medium hover:bg-blue-900 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {applying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      Apply to {selectedIds.size}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Table */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              {bulkLoading ? (
+                <div className="p-8 text-center text-gray-500">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  Loading plans...
+                </div>
+              ) : bulkPlans.length === 0 ? (
+                <div className="p-8 text-center text-gray-400">No plans found</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.size === bulkPlans.length && bulkPlans.length > 0}
+                            onChange={toggleSelectAll}
+                            className="w-4 h-4 rounded"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Dept</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Month</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Action Plan</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Category</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {bulkPlans.map(plan => (
+                        <tr key={plan.id} className={selectedIds.has(plan.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(plan.id)}
+                              onChange={() => toggleSelect(plan.id)}
+                              className="w-4 h-4 rounded"
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-xs font-mono text-gray-500">{plan.department_code}</td>
+                          <td className="px-3 py-2 text-gray-600">{plan.month}</td>
+                          <td className="px-3 py-2 text-gray-900 max-w-xs truncate">{plan.action_plan}</td>
+                          <td className="px-3 py-2">
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                              plan.status === 'Achieved' ? 'bg-green-100 text-green-700' :
+                              plan.status === 'Not Achieved' ? 'bg-red-100 text-red-700' :
+                              plan.status === 'On Progress' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{plan.status}</span>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-500">{plan.category || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            {selectedIds.size > 0 && (
+              <p className="text-sm text-gray-500">{selectedIds.size} of {bulkPlans.length} plans selected</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -20,6 +20,7 @@ export const CHANGELOG = [
       { type: 'feature', description: 'System Announcement sekarang tampil sebagai banner global di semua halaman — bukan hanya saat maintenance mode' },
       { type: 'improvement', description: 'Announcement bisa di-dismiss oleh user (klik X), dan muncul kembali jika admin mengubah pesan' },
       { type: 'improvement', description: 'Announcement berwarna sesuai tipe: biru (Info), kuning (Warning), merah (Critical)' },
+      { type: 'feature', description: 'Quick Period Presets — klik "This Month", "Last Month", "This Quarter", atau "Year to Date" di filter bulan untuk set range cepat tanpa pilih manual' },
       { type: 'fix', description: 'Announcement sekarang tampil sesuai company user yang login (sebelumnya hardcoded ke satu company)' },
       { type: 'security', description: 'Perbaikan kebocoran data saat refresh halaman — data subsidiary lain tidak lagi muncul sesaat sebelum halaman selesai dimuat' },
     ],

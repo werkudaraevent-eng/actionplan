@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.9.0',
+    date: '2026-05-13',
+    title: 'AI Evidence Assessment',
+    changes: [
+      { type: 'feature', description: 'AI Evidence Assessment di Grade Modal — admin bisa meminta AI membandingkan target evidence dengan bukti submit user' },
+      { type: 'feature', description: 'Token usage tampil per analisa: estimasi sebelum call, input tokens, output tokens, total tokens, dan cached result' },
+      { type: 'feature', description: 'Admin Settings sekarang memiliki konfigurasi AI Evidence Assessment untuk tunnel URL, model, timeout, enable/disable, dan vision mode' },
+      { type: 'security', description: 'API key AI tetap server-side di Supabase secrets; halaman Settings hanya menyimpan konfigurasi non-secret' },
+      { type: 'improvement', description: 'Edge Function analyze-evidence menyimpan hasil AI, snapshot evidence, token usage, cache hash, dan limitation untuk file/link yang tidak bisa dibaca' },
+    ],
+  },
+  {
     version: '1.8.0',
     date: '2026-05-07',
     title: 'Bulk Operations',

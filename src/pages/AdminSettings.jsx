@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone, BrainCircuit } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import ImportModal from '../components/action-plan/ImportModal';
@@ -1309,6 +1309,7 @@ function SystemSettingsTab() {
   const DEFAULT_PENALTY = { carry_over_penalties: [80, 50] };
   const DEFAULT_GRADING = { is_strict_grading_enabled: false, threshold_uh: 100, threshold_h: 100, threshold_m: 80, threshold_l: 70 };
   const DEFAULT_DROP_POLICY = { drop_approval_req_uh: false, drop_approval_req_h: false, drop_approval_req_m: false, drop_approval_req_l: false };
+  const DEFAULT_AI_CONFIG = { enabled: true, proxy_url: '', model_fast: '', model_reasoning: '', timeout_ms: 60000, vision: true };
 
   // ──────────────────────────────────────────────────────────────
   //  STERILIZED MULTI-TENANT SAVE HELPER
@@ -1322,7 +1323,7 @@ function SystemSettingsTab() {
     'is_strict_grading_enabled', 'threshold_uh', 'threshold_h', 'threshold_m', 'threshold_l',
     'carry_over_penalties', 'carry_over_penalty_1', 'carry_over_penalty_2',
     'drop_approval_req_uh', 'drop_approval_req_h', 'drop_approval_req_m', 'drop_approval_req_l',
-    'email_config', 'scoring_policies',
+    'email_config', 'scoring_policies', 'ai_config',
   ]);
 
   const saveSystemSettings = async (rawFields) => {
@@ -1384,6 +1385,8 @@ function SystemSettingsTab() {
   const DEFAULT_SCORING = { allow_multiple_pics: true };
   const [scoringPolicies, setScoringPolicies] = useState(DEFAULT_SCORING);
   const [savingScoringPolicy, setSavingScoringPolicy] = useState(false);
+  const [aiConfig, setAiConfig] = useState(DEFAULT_AI_CONFIG);
+  const [savingAiConfig, setSavingAiConfig] = useState(false);
 
   const LOCK_YEARS_RANGE = [2025, 2026, 2027, 2028, 2029, 2030];
   const LOCK_MONTHS = Array.from({ length: 12 }, (_, i) => ({
@@ -1399,6 +1402,7 @@ function SystemSettingsTab() {
     setGradingSettings(DEFAULT_GRADING);
     setDropPolicy(DEFAULT_DROP_POLICY);
     setScoringPolicies(DEFAULT_SCORING);
+    setAiConfig(DEFAULT_AI_CONFIG);
     setSchedules([]);
     setLoading(true);
     if (activeCompanyId) fetchSettings();
@@ -1413,7 +1417,7 @@ function SystemSettingsTab() {
       // MULTI-TENANT: fetch ONLY named columns (never `*` — avoids leaking row `id` into state)
       const [settingsResult, penaltyResult] = await Promise.all([
         supabase.from('system_settings')
-          .select('is_lock_enabled, lock_cutoff_day, is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l, drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l, scoring_policies')
+          .select('is_lock_enabled, lock_cutoff_day, is_strict_grading_enabled, threshold_uh, threshold_h, threshold_m, threshold_l, drop_approval_req_uh, drop_approval_req_h, drop_approval_req_m, drop_approval_req_l, scoring_policies, ai_config')
           .eq('company_id', activeCompanyId)
           .maybeSingle(),
         supabase.rpc('get_carry_over_settings', { p_company_id: activeCompanyId })
@@ -1443,6 +1447,15 @@ function SystemSettingsTab() {
         const sp = settingsResult.data.scoring_policies;
         setScoringPolicies({
           allow_multiple_pics: sp?.allow_multiple_pics ?? true,
+        });
+        const ai = settingsResult.data.ai_config || {};
+        setAiConfig({
+          enabled: ai.enabled ?? true,
+          proxy_url: ai.proxy_url || '',
+          model_fast: ai.model_fast || '',
+          model_reasoning: ai.model_reasoning || '',
+          timeout_ms: ai.timeout_ms ?? 60000,
+          vision: ai.vision ?? true,
         });
       }
       // else: defaults already set by the state cleanup above
@@ -1832,6 +1845,45 @@ function SystemSettingsTab() {
     setSavingScoringPolicy(false);
   };
 
+  const handleAiConfigChange = (key, value) => {
+    setAiConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveAiConfig = async () => {
+    const timeoutMs = parseInt(aiConfig.timeout_ms, 10);
+    if (Number.isNaN(timeoutMs) || timeoutMs < 5000 || timeoutMs > 300000) {
+      toast({ title: 'Invalid Timeout', description: 'Timeout must be between 5,000 and 300,000 ms.', variant: 'warning' });
+      return;
+    }
+
+    const cleanConfig = {
+      enabled: !!aiConfig.enabled,
+      proxy_url: aiConfig.proxy_url.trim() || null,
+      model_fast: aiConfig.model_fast.trim() || null,
+      model_reasoning: aiConfig.model_reasoning.trim() || null,
+      timeout_ms: timeoutMs,
+      vision: !!aiConfig.vision,
+    };
+
+    setSavingAiConfig(true);
+    try {
+      await saveSystemSettings({ ai_config: cleanConfig });
+      setAiConfig({
+        enabled: cleanConfig.enabled,
+        proxy_url: cleanConfig.proxy_url || '',
+        model_fast: cleanConfig.model_fast || '',
+        model_reasoning: cleanConfig.model_reasoning || '',
+        timeout_ms: cleanConfig.timeout_ms,
+        vision: cleanConfig.vision,
+      });
+      toast({ title: 'AI Settings Updated', description: 'AI evidence assessment configuration saved.', variant: 'success' });
+    } catch (error) {
+      console.error('Error saving AI config:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to save AI settings.', variant: 'error' });
+    }
+    setSavingAiConfig(false);
+  };
+
   if (loading) return <LoadingState />;
 
   return (
@@ -1843,6 +1895,112 @@ function SystemSettingsTab() {
           <span>⚙️ Managing settings for: <span className="text-gray-900 font-bold">{activeCompany.name}</span></span>
         </div>
       )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-purple-100 rounded-lg">
+              <BrainCircuit className="w-5 h-5 text-purple-700" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">AI Evidence Assessment</h3>
+              <p className="text-sm text-gray-500 mt-0.5">Manage tunnel URL and model settings. API key stays in Supabase secrets.</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-5 space-y-5">
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50">
+            <div>
+              <p className="font-semibold text-gray-800">Enable AI Analysis</p>
+              <p className="text-xs text-gray-500 mt-0.5">When off, scoring modal will return a clear disabled message.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleAiConfigChange('enabled', !aiConfig.enabled)}
+              className={`p-1 rounded-lg transition-colors ${aiConfig.enabled ? 'text-purple-700 hover:bg-purple-50' : 'text-gray-400 hover:bg-gray-100'}`}
+            >
+              {aiConfig.enabled ? <ToggleRight className="w-9 h-9" /> : <ToggleLeft className="w-9 h-9" />}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="lg:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Proxy / Tunnel URL</label>
+              <input
+                type="url"
+                value={aiConfig.proxy_url}
+                onChange={(e) => handleAiConfigChange('proxy_url', e.target.value)}
+                placeholder="https://your-tunnel.example.com/v1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave empty to use Supabase secret AI_PROXY_URL.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Fast Model</label>
+              <input
+                type="text"
+                value={aiConfig.model_fast}
+                onChange={(e) => handleAiConfigChange('model_fast', e.target.value)}
+                placeholder="kr/glm-5"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Reasoning Model</label>
+              <input
+                type="text"
+                value={aiConfig.model_reasoning}
+                onChange={(e) => handleAiConfigChange('model_reasoning', e.target.value)}
+                placeholder="kr/claude-opus-4.7"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Timeout (ms)</label>
+              <input
+                type="number"
+                min="5000"
+                max="300000"
+                step="1000"
+                value={aiConfig.timeout_ms}
+                onChange={(e) => handleAiConfigChange('timeout_ms', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-gray-100">
+              <div>
+                <p className="font-medium text-gray-800">Vision Mode</p>
+                <p className="text-xs text-gray-500 mt-0.5">Sends vision flag to 9router-compatible proxy.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleAiConfigChange('vision', !aiConfig.vision)}
+                className={`p-1 rounded-lg transition-colors ${aiConfig.vision ? 'text-purple-700 hover:bg-purple-50' : 'text-gray-400 hover:bg-gray-100'}`}
+              >
+                {aiConfig.vision ? <ToggleRight className="w-9 h-9" /> : <ToggleLeft className="w-9 h-9" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 pt-2">
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              API key is not stored here. Keep AI_PROXY_KEY / NINEROUTER_API_KEY in Supabase secrets.
+            </p>
+            <button
+              onClick={handleSaveAiConfig}
+              disabled={savingAiConfig}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-700 text-white rounded-lg hover:bg-purple-800 disabled:opacity-50"
+            >
+              {savingAiConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save AI Settings
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Auto-Lock Control Center */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

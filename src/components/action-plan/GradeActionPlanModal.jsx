@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel, Link2, Image, FileSpreadsheet } from 'lucide-react';
+import { X, Star, CheckCircle, RotateCcw, Loader2, ExternalLink, FileText, AlertTriangle, Building2, Calendar, User, Clock, FileCheck, Info, Pencil, Flame, Target, XCircle, CircleArrowRight, Ban, Gavel, Link2, Image, FileSpreadsheet, Sparkles, Copy, BrainCircuit } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +8,7 @@ import { usePicProfiles } from '../../hooks/usePicProfiles';
 import CarryOverHistorySection from './CarryOverHistorySection';
 import { fetchCarryOverSettings } from '../../utils/resolutionWizardUtils';
 import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
+import { useAiAssessments } from '../../hooks/useAiAssessments';
 
 // Helper function for priority badge styling
 const getPriorityStyle = (priority) => {
@@ -55,7 +56,7 @@ const isUrl = (string) => {
   try {
     new URL(string);
     return true;
-  } catch (_) {
+  } catch {
     return false;
   }
 };
@@ -78,12 +79,32 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const formatTokenCount = (value) => {
+  if (value == null) return '—';
+  return Number(value).toLocaleString();
+};
+
+const verdictLabel = {
+  approve: 'Approve',
+  revision: 'Request Revision',
+  carry_over: 'Carry Over',
+  fail: 'Fail / Drop',
+};
+
 export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan }) {
   const { profile } = useAuth();
   const { activeCompanyId } = useCompanyContext();
   const [score, setScore] = useState(85);
   const [feedback, setFeedback] = useState('');
   const [loading, setLoading] = useState(false);
+  const {
+    analyzeEvidence,
+    latestAssessment,
+    cached: aiCached,
+    loading: aiLoading,
+    error: aiError,
+    reset: resetAiAssessment,
+  } = useAiAssessments();
 
   // Resolve PIC display name from UUIDs
   const { profileMap } = usePicProfiles(plan ? [plan] : []);
@@ -154,13 +175,14 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       setLoading(false);
       setDuplicateWarning(null);
       setCheckingDuplicate(false);
+      resetAiAssessment();
 
       // Fetch carry-over settings for isFinal detection
       fetchCarryOverSettings()
         .then(setCarryOverSettings)
         .catch(() => setCarryOverSettings(null));
     }
-  }, [isOpen, plan?.id]);
+  }, [isOpen, plan?.id, resetAiAssessment]);
 
   if (!isOpen || !plan) return null;
 
@@ -218,6 +240,41 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
   // Derived: will this score result in "Not Achieved"?
   const willFail = gradingConfig.strict ? strictNotAchieved : false;
+  const aiResult = latestAssessment?.analysis_result || null;
+  const estimatedPromptTokens = Math.ceil(JSON.stringify({
+    goal_strategy: plan.goal_strategy,
+    action_plan: plan.action_plan,
+    indicator: plan.indicator,
+    target_evidence: plan.evidence,
+    outcome_link: plan.outcome_link,
+    remark: plan.remark,
+    attachments: Array.isArray(plan.attachments) ? plan.attachments.slice(0, 3).map((item) => ({
+      type: item.type,
+      name: item.name || item.title,
+      mime: item.mime,
+      size: item.size,
+      url: item.type === 'link' ? item.url : undefined,
+    })) : [],
+  }).length / 4);
+
+  const handleAnalyzeEvidence = (force = false) => {
+    analyzeEvidence(plan.id, { force });
+  };
+
+  const handleCopyAiFeedback = () => {
+    if (!aiResult) return;
+    const notes = [
+      aiResult.summary,
+      aiResult.rationale && `Rationale: ${aiResult.rationale}`,
+      Array.isArray(aiResult.missing_evidence) && aiResult.missing_evidence.length > 0
+        ? `Missing evidence: ${aiResult.missing_evidence.join('; ')}`
+        : null,
+      Array.isArray(aiResult.risks_or_inconsistencies) && aiResult.risks_or_inconsistencies.length > 0
+        ? `Risks: ${aiResult.risks_or_inconsistencies.join('; ')}`
+        : null,
+    ].filter(Boolean).join('\n\n');
+    setFeedback((prev) => prev ? `${prev}\n\n${notes}` : notes);
+  };
 
   const handleApprove = async () => {
     const clampedScore = Math.min(score, scoreLimit);
@@ -553,6 +610,147 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                     <div className="mt-3">
                       <p className="text-xs text-gray-600 mb-1 font-medium">Staff Remarks:</p>
                       <p className="text-gray-800 text-sm bg-gray-50 rounded-lg p-3 border border-gray-100">{plan.remark}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* AI Evidence Assessment */}
+                <div className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                        <BrainCircuit className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                          AI Evidence Assessment
+                          {aiCached && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Cached</span>}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">AI compares target evidence with submitted proof. Advisory only.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleAnalyzeEvidence(false)}
+                        disabled={aiLoading}
+                        className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {latestAssessment ? 'Analyze' : 'Analyze Evidence'}
+                      </button>
+                      {latestAssessment && (
+                        <button
+                          type="button"
+                          onClick={() => handleAnalyzeEvidence(true)}
+                          disabled={aiLoading}
+                          className="px-3 py-2 border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-colors text-sm font-medium disabled:opacity-50"
+                        >
+                          Re-analyze
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div className="bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                      <p className="text-gray-400">Pre-call estimate</p>
+                      <p className="font-bold text-gray-800">~{formatTokenCount(estimatedPromptTokens)}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                      <p className="text-gray-400">Input tokens</p>
+                      <p className="font-bold text-gray-800">{latestAssessment?.is_estimate ? '~' : ''}{formatTokenCount(latestAssessment?.input_tokens)}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                      <p className="text-gray-400">Output tokens</p>
+                      <p className="font-bold text-gray-800">{latestAssessment?.is_estimate ? '~' : ''}{formatTokenCount(latestAssessment?.output_tokens)}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                      <p className="text-gray-400">Total tokens</p>
+                      <p className="font-bold text-gray-800">{latestAssessment?.is_estimate ? '~' : ''}{formatTokenCount(latestAssessment?.total_tokens)}</p>
+                    </div>
+                  </div>
+
+                  {aiError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                      <span>{aiError}</span>
+                    </div>
+                  )}
+
+                  {aiResult && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="bg-white rounded-lg border border-gray-100 p-3">
+                          <p className="text-xs text-gray-400 mb-1">Evidence Match</p>
+                          <p className="text-2xl font-bold text-indigo-700">{aiResult.evidence_match_score ?? '—'}%</p>
+                        </div>
+                        <div className="bg-white rounded-lg border border-gray-100 p-3">
+                          <p className="text-xs text-gray-400 mb-1">Suggested Score</p>
+                          <p className="text-2xl font-bold text-gray-800">
+                            {aiResult.recommended_score_min != null && aiResult.recommended_score_max != null
+                              ? `${aiResult.recommended_score_min}–${aiResult.recommended_score_max}`
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="bg-white rounded-lg border border-gray-100 p-3">
+                          <p className="text-xs text-gray-400 mb-1">Suggested Verdict</p>
+                          <p className="text-sm font-bold text-gray-800">{verdictLabel[aiResult.recommended_verdict] || '—'}</p>
+                          <p className="text-xs text-gray-500 mt-1">Confidence: {aiResult.confidence || 'low'}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-lg border border-gray-100 p-3">
+                        <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Summary</p>
+                        <p className="text-sm text-gray-700">{aiResult.summary}</p>
+                        {aiResult.rationale && <p className="text-xs text-gray-500 mt-2">{aiResult.rationale}</p>}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {Array.isArray(aiResult.missing_evidence) && aiResult.missing_evidence.length > 0 && (
+                          <div className="bg-amber-50 rounded-lg border border-amber-100 p-3">
+                            <p className="text-xs font-semibold text-amber-700 uppercase mb-2">Missing Evidence</p>
+                            <ul className="list-disc pl-4 text-sm text-amber-800 space-y-1">
+                              {aiResult.missing_evidence.map((item, idx) => <li key={idx}>{item}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {Array.isArray(aiResult.risks_or_inconsistencies) && aiResult.risks_or_inconsistencies.length > 0 && (
+                          <div className="bg-rose-50 rounded-lg border border-rose-100 p-3">
+                            <p className="text-xs font-semibold text-rose-700 uppercase mb-2">Risks / Inconsistencies</p>
+                            <ul className="list-disc pl-4 text-sm text-rose-800 space-y-1">
+                              {aiResult.risks_or_inconsistencies.map((item, idx) => <li key={idx}>{item}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {Array.isArray(aiResult.follow_up_questions) && aiResult.follow_up_questions.length > 0 && (
+                        <div className="bg-blue-50 rounded-lg border border-blue-100 p-3">
+                          <p className="text-xs font-semibold text-blue-700 uppercase mb-2">Follow-up Questions</p>
+                          <ul className="list-disc pl-4 text-sm text-blue-800 space-y-1">
+                            {aiResult.follow_up_questions.map((item, idx) => <li key={idx}>{item}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {Array.isArray(aiResult.limitations) && aiResult.limitations.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                          <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Limitations</p>
+                          <ul className="list-disc pl-4 text-xs text-gray-600 space-y-1">
+                            {aiResult.limitations.map((item, idx) => <li key={idx}>{item}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleCopyAiFeedback}
+                        className="px-3 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium flex items-center gap-2"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copy AI note to review
+                      </button>
                     </div>
                   )}
                 </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -213,6 +213,7 @@ export default function Sidebar() {
     if (path === '/action-center') return location.pathname === '/action-center';
     if (path === '/audit-log') return location.pathname === '/audit-log';
     if (path === '/bulk-operations') return location.pathname === '/bulk-operations';
+    if (path === '/reports/monthly-executive') return location.pathname === '/reports/monthly-executive';
     if (path === '/holding') return location.pathname === '/holding';
     // Department routes
     if (path.startsWith('/dept/')) {
@@ -335,7 +336,7 @@ export default function Sidebar() {
 
             <button
               onClick={() => navigate('/action-center')}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/action-center') ? theme.navActive : `${theme.navText} ${theme.navHover}`
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/action-center') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Gavel className="w-4 h-4" />
@@ -345,6 +346,15 @@ export default function Sidebar() {
                   {(() => { const total = pendingDropCount + (isAdmin ? pendingCount : 0); return total > 99 ? '99+' : total; })()}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => navigate('/reports/monthly-executive')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/reports/monthly-executive') ? theme.navActive : `${theme.navText} ${theme.navHover}`
+                }`}
+            >
+              <Presentation className="w-4 h-4" />
+              <span className="text-sm">Executive Report</span>
             </button>
 
             <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Departments</p>

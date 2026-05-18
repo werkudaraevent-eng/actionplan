@@ -24,6 +24,7 @@ import UserProfile from './pages/UserProfile';
 import ChangelogPage from './pages/ChangelogPage';
 import HoldingManagement from './pages/HoldingManagement';
 import BulkOperationsPage from './pages/BulkOperationsPage';
+import MonthlyExecutiveReport from './pages/MonthlyExecutiveReport';
 import { supabase } from './lib/supabase';
 import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical, Info, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 
@@ -450,6 +451,12 @@ function AppRoutes() {
           <Route path="/bulk-operations" element={
             <ProtectedRoute adminOnly>
               <BulkOperationsPage />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/reports/monthly-executive" element={
+            <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
+              <MonthlyExecutiveReport />
             </ProtectedRoute>
           } />
 

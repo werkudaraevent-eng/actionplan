@@ -122,6 +122,63 @@ html, body {
   background: #94a3b8;
 }
 
+@media print {
+  @page {
+    size: 13.333in 7.5in;
+    margin: 0;
+  }
+
+  html,
+  body,
+  #root {
+    width: 13.333in;
+    min-height: 7.5in;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .monthly-report-page,
+  .monthly-report-page * {
+    visibility: visible;
+  }
+
+  .monthly-report-page {
+    position: absolute;
+    inset: 0;
+    width: 13.333in !important;
+    background: white !important;
+  }
+
+  .report-toolbar {
+    display: none !important;
+  }
+
+  .report-slides {
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  .report-slide {
+    width: 13.333in !important;
+    height: 7.5in !important;
+    max-width: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .report-slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
+
 /* Toast Animation */
 @keyframes slide-in {
   from {

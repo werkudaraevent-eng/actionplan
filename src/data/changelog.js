@@ -13,6 +13,19 @@
 
 export const CHANGELOG = [
   {
+    version: '1.10.0',
+    date: '2026-05-15',
+    title: 'Monthly Executive Report Generator',
+    changes: [
+      { type: 'feature', description: 'Monthly Executive Report Generator — report HTML berukuran slide 16:9 untuk review executive dan konversi ke PPT/PDF' },
+      { type: 'feature', description: 'Report berisi KPI snapshot, department performance, risk/bottleneck analysis, evidence quality, carry-over watchlist, dan action agenda' },
+      { type: 'feature', description: 'AI Narrative untuk executive summary, risks, recommendations, dan next actions menggunakan Edge Function server-side' },
+      { type: 'improvement', description: 'AI Narrative sekarang tampil per slide sebagai Management Insight: diagnosis, implication, decision needed, dan recommended action' },
+      { type: 'improvement', description: 'Final slide report menjadi Executive Decision Agenda berisi board memo, top decisions, dan board questions' },
+      { type: 'improvement', description: 'Print mode khusus report: sidebar/filter disembunyikan dan tiap slide dicetak sebagai halaman 16:9 terpisah' },
+    ],
+  },
+  {
     version: '1.9.0',
     date: '2026-05-13',
     title: 'AI Evidence Assessment',

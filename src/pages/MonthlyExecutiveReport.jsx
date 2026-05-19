@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, Download, FileText, Loader2, ShieldAlert, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useCompanyContext } from '../context/CompanyContext';
@@ -31,6 +31,50 @@ function avg(values) {
 function parseCause(plan) {
   const match = plan.remark?.match(/\[Cause: (.*?)\]/);
   return match?.[1]?.trim() || null;
+}
+
+function getFailureReason(plan) {
+  if (plan.gap_category === 'Other' && plan.specify_reason) return String(plan.specify_reason).trim();
+  if (plan.gap_category) return String(plan.gap_category).trim();
+  return parseCause(plan) || 'Unspecified';
+}
+
+function getPriority(plan) {
+  const raw = String(plan.category || '').trim().toLowerCase();
+  if (raw.includes('ultra') || raw === 'uh') return 'Ultra High';
+  if (raw === 'high' || raw === 'h') return 'High';
+  if (raw === 'medium' || raw === 'm') return 'Medium';
+  if (raw === 'low' || raw === 'l') return 'Low';
+  return 'Uncategorized';
+}
+
+function getPreviousPeriod(month, year) {
+  const index = MONTHS.indexOf(month);
+  if (index <= 0) return { month: MONTHS[11], year: year - 1 };
+  return { month: MONTHS[index - 1], year };
+}
+
+function buildBreakdownRows(rows, getKey, labels = {}) {
+  const grouped = new Map();
+  rows.forEach((plan) => {
+    const key = getKey(plan);
+    const current = grouped.get(key) || { key, label: labels[key] || key, total: 0, achieved: 0, scores: [] };
+    current.total += 1;
+    if (plan.status === 'Achieved') current.achieved += 1;
+    if (typeof plan.quality_score === 'number' && Number.isFinite(plan.quality_score)) current.scores.push(plan.quality_score);
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).map((row) => ({
+    ...row,
+    completionRate: row.total ? (row.achieved / row.total) * 100 : 0,
+    avgScore: avg(row.scores),
+  }));
+}
+
+function formatRows(rows, labelKey = 'label') {
+  if (!rows.length) return 'No data';
+  return rows.map((row) => `${row[labelKey]} | ${row.total} | ${row.achieved} | ${Math.round(row.completionRate)}% | ${Math.round(row.avgScore) || 0}`).join('\n');
 }
 
 function isEvidenceWeak(plan) {
@@ -161,6 +205,32 @@ export default function MonthlyExecutiveReport() {
   const [aiError, setAiError] = useState(null);
   const [aiNarrative, setAiNarrative] = useState(null);
   const [slideInsights, setSlideInsights] = useState({});
+  const [annualTargetRate, setAnnualTargetRate] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAnnualTarget() {
+      if (!supabase || !activeCompanyId) {
+        setAnnualTargetRate(null);
+        return;
+      }
+
+      const query = supabase
+        .from('annual_targets')
+        .select('target_percentage')
+        .eq('year', selectedYear)
+        .eq('company_id', activeCompanyId)
+        .maybeSingle();
+
+      const { data, error } = await query;
+      if (cancelled) return;
+      setAnnualTargetRate(error ? null : (typeof data?.target_percentage === 'number' ? data.target_percentage : null));
+    }
+
+    loadAnnualTarget();
+    return () => { cancelled = true; };
+  }, [activeCompanyId, selectedYear]);
 
   const report = useMemo(() => {
     const periodPlans = plans.filter((plan) => {
@@ -198,15 +268,37 @@ export default function MonthlyExecutiveReport() {
       };
     }).filter((row) => row.total > 0).sort((a, b) => b.completionRate - a.completionRate || b.avgScore - a.avgScore);
 
+    const failedPlans = periodPlans.filter((plan) => plan.status === 'Not Achieved');
     const causeCounts = new Map();
-    periodPlans.forEach((plan) => {
-      const cause = parseCause(plan) || (plan.status === 'Blocked' ? 'Blocked without cause tag' : null);
-      if (cause) causeCounts.set(cause, (causeCounts.get(cause) || 0) + 1);
+    failedPlans.forEach((plan) => {
+      const cause = getFailureReason(plan);
+      causeCounts.set(cause, (causeCounts.get(cause) || 0) + 1);
+    });
+    periodPlans.filter((plan) => plan.status === 'Blocked' || plan.is_blocked).forEach((plan) => {
+      const cause = plan.blocker_category || parseCause(plan) || 'Blocked without cause tag';
+      causeCounts.set(cause, (causeCounts.get(cause) || 0) + 1);
     });
     const bottlenecks = Array.from(causeCounts.entries())
       .map(([cause, count]) => ({ cause, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 6);
+
+    const failureRows = Array.from(causeCounts.entries())
+      .map(([reason, count]) => ({ reason, count, percentage: failedPlans.length ? (count / failedPlans.length) * 100 : 0 }))
+      .sort((a, b) => b.count - a.count);
+
+    const priorityOrder = ['Ultra High', 'High', 'Medium', 'Low', 'Uncategorized'];
+    const priorityRows = buildBreakdownRows(periodPlans, getPriority)
+      .sort((a, b) => priorityOrder.indexOf(a.label) - priorityOrder.indexOf(b.label));
+
+    const previousPeriod = getPreviousPeriod(selectedMonth, selectedYear);
+    const previousPlans = plans.filter((plan) => {
+      const planYear = plan.year || CURRENT_YEAR;
+      const deptMatch = selectedDept === 'All' || plan.department_code === selectedDept;
+      return plan.month === previousPeriod.month && planYear === previousPeriod.year && deptMatch;
+    });
+    const previousAchieved = previousPlans.filter((plan) => plan.status === 'Achieved').length;
+    const previousRate = previousPlans.length ? (previousAchieved / previousPlans.length) * 100 : null;
 
     const actionItems = periodPlans
       .filter((plan) => plan.status !== 'Achieved')
@@ -235,6 +327,10 @@ export default function MonthlyExecutiveReport() {
       carryOver,
       revision,
       departmentRows,
+      priorityRows,
+      failureRows,
+      previousPeriod,
+      previousRate,
       bottlenecks,
       actionItems,
       topDept,
@@ -290,52 +386,101 @@ export default function MonthlyExecutiveReport() {
 
   const getSlideInsight = (key) => slideInsights?.[key] || fallbackInsights[key];
 
-  const reportPayload = useMemo(() => ({
-    company_id: effectiveCompanyId || activeCompanyId,
-    period: { month: selectedMonth, year: selectedYear, department: selectedDept },
-    overview: {
-      total: report.total,
-      achieved: report.achieved,
-      completion_rate: Math.round(report.completionRate),
-      average_score: Math.round(report.averageScore),
-      risk_tone: report.riskTone,
-      at_risk: report.blocked + report.notAchieved,
-    },
-    kpi_snapshot: {
-      open: report.open,
-      in_progress: report.inProgress,
-      blocked: report.blocked,
-      not_achieved: report.notAchieved,
-      carry_over: report.carryOver,
-      revision: report.revision,
-      weak_evidence: report.weakEvidence,
-      link_only_evidence: report.linkOnlyEvidence,
-    },
-    department_performance: report.departmentRows.slice(0, 8).map((row) => ({
-      code: row.code,
+  const reportPayload = useMemo(() => {
+    const departmentLabel = selectedDept === 'All'
+      ? 'All Departments'
+      : `${selectedDept} — ${departments.find((dept) => dept.code === selectedDept)?.name || selectedDept}`;
+    const departmentRows = report.departmentRows.slice(0, 12).map((row) => ({
+      dept: row.code,
       name: row.name,
       total: row.total,
-      completion_rate: Math.round(row.completionRate),
-      average_score: Math.round(row.avgScore),
-      at_risk: row.atRisk,
-    })),
-    risk_bottleneck: report.bottlenecks,
-    evidence_quality: {
-      empty_evidence: report.weakEvidence,
-      link_only_evidence: report.linkOnlyEvidence,
-      evidence_ready: Math.max(report.total - report.weakEvidence - report.linkOnlyEvidence, 0),
-    },
-    carry_over_revision: { carry_over: report.carryOver, revision: report.revision },
-    action_agenda: report.actionItems.slice(0, 8).map((plan) => ({
-      department_code: plan.department_code,
-      status: plan.status,
-      category: plan.category,
-      decision_type: decisionType(plan),
-      severity: actionSeverity(plan),
-      action_plan: String(plan.action_plan || '').slice(0, 180),
-      issue: parseCause(plan) || String(plan.remark || '').slice(0, 140),
-    })),
-  }), [activeCompanyId, effectiveCompanyId, report, selectedDept, selectedMonth, selectedYear]);
+      achieved: row.achieved,
+      rate: Math.round(row.completionRate),
+      avg_score: Math.round(row.avgScore) || 0,
+    }));
+    const priorityRows = report.priorityRows.map((row) => ({
+      priority: row.label,
+      total: row.total,
+      achieved: row.achieved,
+      rate: Math.round(row.completionRate),
+      avg_score: Math.round(row.avgScore) || 0,
+    }));
+    const failureReasonRows = report.failureRows.map((row) => ({
+      reason: row.reason,
+      count: row.count,
+      percentage: Math.round(row.percentage),
+    }));
+
+    return {
+      company_id: effectiveCompanyId || activeCompanyId,
+      period: { month: selectedMonth, year: selectedYear, label: `${selectedMonth} ${selectedYear}` },
+      department_filter: departmentLabel,
+      performance_data: {
+        total_plans: report.total,
+        achieved: report.achieved,
+        completion_rate: Math.round(report.completionRate),
+        in_progress: report.inProgress,
+        open_plans: report.open,
+        not_achieved: report.notAchieved,
+        avg_score: Math.round(report.averageScore) || 0,
+        prev_rate: report.previousRate == null ? null : Math.round(report.previousRate),
+        target_rate: annualTargetRate == null ? null : Math.round(annualTargetRate),
+      },
+      department_rows: departmentRows,
+      department_rows_text: departmentRows.length ? departmentRows.map((row) => `${row.dept} | ${row.total} | ${row.achieved} | ${row.rate}% | ${row.avg_score}`).join('\n') : 'No department data',
+      priority_rows: priorityRows,
+      priority_rows_text: priorityRows.length ? priorityRows.map((row) => `${row.priority} | ${row.total} | ${row.achieved} | ${row.rate}% | ${row.avg_score}`).join('\n') : 'No priority data',
+      failure_reason_rows: failureReasonRows,
+      failure_reason_rows_text: failureReasonRows.length ? failureReasonRows.map((row) => `${row.reason} | ${row.count} | ${row.percentage}%`).join('\n') : 'No failure reasons',
+      previous_period: report.previousRate == null ? null : {
+        month: report.previousPeriod.month,
+        year: report.previousPeriod.year,
+        completion_rate: Math.round(report.previousRate),
+      },
+      overview: {
+        total: report.total,
+        achieved: report.achieved,
+        completion_rate: Math.round(report.completionRate),
+        average_score: Math.round(report.averageScore),
+        risk_tone: report.riskTone,
+        at_risk: report.blocked + report.notAchieved,
+      },
+      kpi_snapshot: {
+        open: report.open,
+        in_progress: report.inProgress,
+        blocked: report.blocked,
+        not_achieved: report.notAchieved,
+        carry_over: report.carryOver,
+        revision: report.revision,
+        weak_evidence: report.weakEvidence,
+        link_only_evidence: report.linkOnlyEvidence,
+      },
+      department_performance: report.departmentRows.slice(0, 8).map((row) => ({
+        code: row.code,
+        name: row.name,
+        total: row.total,
+        completion_rate: Math.round(row.completionRate),
+        average_score: Math.round(row.avgScore),
+        at_risk: row.atRisk,
+      })),
+      risk_bottleneck: report.bottlenecks,
+      evidence_quality: {
+        empty_evidence: report.weakEvidence,
+        link_only_evidence: report.linkOnlyEvidence,
+        evidence_ready: Math.max(report.total - report.weakEvidence - report.linkOnlyEvidence, 0),
+      },
+      carry_over_revision: { carry_over: report.carryOver, revision: report.revision },
+      action_agenda: report.actionItems.slice(0, 8).map((plan) => ({
+        department_code: plan.department_code,
+        status: plan.status,
+        category: plan.category,
+        decision_type: decisionType(plan),
+        severity: actionSeverity(plan),
+        action_plan: String(plan.action_plan || '').slice(0, 180),
+        issue: getFailureReason(plan) || String(plan.remark || '').slice(0, 140),
+      })),
+    };
+  }, [activeCompanyId, annualTargetRate, departments, effectiveCompanyId, report, selectedDept, selectedMonth, selectedYear]);
 
   const generateAiNarrative = async () => {
     setAiLoading(true);
@@ -428,7 +573,7 @@ export default function MonthlyExecutiveReport() {
             <div className={`rounded-3xl border p-6 ${statusTone[report.riskTone]}`}>
               <p className="text-sm font-bold uppercase tracking-widest opacity-70">Performance posture</p>
               <p className="mt-5 text-6xl font-black">{pct(report.completionRate)}</p>
-              <p className="mt-4 text-lg font-bold">{report.riskTone === 'strong' ? 'On track' : report.riskTone === 'watch' ? 'Needs management attention' : 'High risk month'}</p>
+              <p className="mt-4 text-lg font-bold">{report.riskTone === 'strong' ? 'On track' : report.riskTone === 'watch' ? 'Execution risk elevated' : 'High risk month'}</p>
               <p className="mt-2 text-sm opacity-80">Average verification score: {Math.round(report.averageScore) || 0}. At-risk plans: {report.blocked + report.notAchieved}.</p>
             </div>
             <div className="grid grid-rows-3 gap-3">
@@ -552,7 +697,7 @@ export default function MonthlyExecutiveReport() {
                 { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
                 { key: 'decision', label: 'Decision', render: (row) => decisionType(row) },
                 { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 70) },
-                { key: 'issue', label: 'Issue', render: (row) => parseCause(row) || String(row.remark || 'Needs follow-up').slice(0, 60) },
+                { key: 'issue', label: 'Issue', render: (row) => getFailureReason(row).slice(0, 60) },
               ]}
               empty="No unresolved action items for selected period."
             />
@@ -563,17 +708,17 @@ export default function MonthlyExecutiveReport() {
         <Slide eyebrow="Executive decision agenda" title="AI board memo and management questions">
           {aiError && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{aiError}</div>}
           {aiNarrative ? (
-            <div className="grid h-full grid-cols-[0.9fr_1.1fr] gap-5 text-sm">
-              <div className="rounded-3xl border border-slate-200 p-6">
-                <p className="text-xs font-bold uppercase tracking-widest text-[#02378D]">Board memo</p>
-                <p className="mt-3 text-lg font-semibold leading-relaxed text-slate-800">{aiNarrative.executive_memo?.summary || aiNarrative.summary}</p>
+            <div className="h-full overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+                <p className="text-xs font-bold uppercase tracking-widest text-[#02378D]">Headline Insight</p>
+                <p className="mt-2 text-lg font-black leading-snug text-slate-950">{aiNarrative.headline_insight || aiNarrative.executive_memo?.summary || aiNarrative.summary}</p>
               </div>
-              <div className="space-y-4">
-                {['top_decisions', 'board_questions'].map((key) => (
-                  <div key={key} className="rounded-2xl border border-slate-200 p-4">
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-500">{key.replaceAll('_', ' ')}</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-700">
-                      {(Array.isArray(aiNarrative.executive_memo?.[key]) ? aiNarrative.executive_memo[key] : []).slice(0, 5).map((item, idx) => <li key={idx}>{item}</li>)}
+              <div className="grid max-h-[430px] grid-cols-2 gap-4 overflow-y-auto p-5 text-sm">
+                {(Array.isArray(aiNarrative.executive_memo?.sections) ? aiNarrative.executive_memo.sections : []).map((section) => (
+                  <div key={`${section.number}-${section.title}`} className="rounded-2xl border border-slate-200 p-4">
+                    <p className="text-xs font-black uppercase tracking-widest text-[#02378D]">{section.number}. {section.title}</p>
+                    <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-700">
+                      {(Array.isArray(section.items) ? section.items : []).map((item, idx) => <li key={idx}>{item}</li>)}
                     </ul>
                   </div>
                 ))}

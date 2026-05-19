@@ -96,10 +96,36 @@ async function getAiConfig(supabaseAdmin: ReturnType<typeof createClient>, compa
 function normalizeInsight(value: any, fallback = 'No AI insight available for this slide.') {
   return {
     diagnosis: String(value?.diagnosis || fallback),
-    implication: String(value?.implication || 'Management should review this signal against monthly priorities.'),
-    decision_needed: String(value?.decision_needed || 'Decide whether escalation, resource support, or monitoring is required.'),
+    implication: String(value?.implication || 'Review this signal against monthly operating priorities.'),
+    decision_needed: String(value?.decision_needed || 'Decide escalation owner, deadline, and resource support.'),
     recommended_action: String(value?.recommended_action || 'Assign owner follow-up and review progress in next operating meeting.'),
   }
+}
+
+function normalizeItems(value: any) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean)
+  if (typeof value === 'string' && value.trim()) return [value.trim()]
+  return []
+}
+
+function normalizeSections(parsed: any, legacySummary: string, legacyFindings: string[], legacyRisks: string[], legacyRecommendations: string[], legacyActions: string[]) {
+  const sections = Array.isArray(parsed?.sections) ? parsed.sections : Array.isArray(parsed?.executive_memo?.sections) ? parsed.executive_memo.sections : null
+  if (sections?.length) {
+    return sections.map((section: any, index: number) => ({
+      number: Number(section?.number || index + 1),
+      title: String(section?.title || `Section ${index + 1}`),
+      items: normalizeItems(section?.items || section?.bullets || section?.content),
+    }))
+  }
+
+  return [
+    { number: 1, title: 'Headline Insight', items: normalizeItems(parsed?.headline_insight || legacySummary) },
+    { number: 2, title: 'Key Findings', items: legacyFindings },
+    { number: 3, title: 'Anomalies & Paradoxes', items: normalizeItems(parsed?.anomalies || parsed?.anomalies_paradoxes) },
+    { number: 4, title: 'Department Spotlight', items: normalizeItems(parsed?.department_spotlight) },
+    { number: 5, title: 'Hidden Risks', items: legacyRisks },
+    { number: 6, title: 'Action Recommendations', items: legacyActions.length ? legacyActions : legacyRecommendations },
+  ]
 }
 
 function normalizeReport(providerResponse: any) {
@@ -112,34 +138,122 @@ function normalizeReport(providerResponse: any) {
   const candidate = source?.choices?.[0]?.message?.content || source?.choices?.[0]?.text || source?.report || source
   const parsed = typeof candidate === 'string' ? extractJsonFromText(candidate) : candidate
   const slides = parsed?.slides || {}
-  const legacySummary = parsed?.summary || 'AI narrative could not be parsed. Review deterministic report sections.'
+  const legacySummary = parsed?.summary || parsed?.headline_insight || 'AI narrative could not be parsed. Review deterministic report sections.'
   const legacyFindings = Array.isArray(parsed?.key_findings) ? parsed.key_findings : []
   const legacyRisks = Array.isArray(parsed?.risks) ? parsed.risks : []
   const legacyRecommendations = Array.isArray(parsed?.recommendations) ? parsed.recommendations : []
   const legacyActions = Array.isArray(parsed?.executive_actions) ? parsed.executive_actions : []
+  const sections = normalizeSections(parsed, legacySummary, legacyFindings, legacyRisks, legacyRecommendations, legacyActions)
 
   return {
     summary: legacySummary,
+    headline_insight: String(parsed?.headline_insight || legacySummary),
+    sections,
     key_findings: legacyFindings,
     risks: legacyRisks,
     recommendations: legacyRecommendations,
     executive_actions: legacyActions,
     executive_memo: {
       summary: String(parsed?.executive_memo?.summary || legacySummary),
+      sections,
       top_decisions: Array.isArray(parsed?.executive_memo?.top_decisions) ? parsed.executive_memo.top_decisions : legacyActions,
       board_questions: Array.isArray(parsed?.executive_memo?.board_questions) ? parsed.executive_memo.board_questions : legacyRecommendations,
     },
     slides: {
-      executive_summary: normalizeInsight(slides.executive_summary, legacyFindings[0] || legacySummary),
-      kpi_snapshot: normalizeInsight(slides.kpi_snapshot, legacyFindings[1] || legacySummary),
-      department_performance: normalizeInsight(slides.department_performance, legacyFindings[2] || legacySummary),
-      risk_bottleneck: normalizeInsight(slides.risk_bottleneck, legacyRisks[0] || legacySummary),
-      evidence_quality: normalizeInsight(slides.evidence_quality, legacyRisks[1] || legacySummary),
-      carry_over_revision: normalizeInsight(slides.carry_over_revision, legacyRisks[2] || legacySummary),
-      action_agenda: normalizeInsight(slides.action_agenda, legacyActions[0] || legacySummary),
+      executive_summary: normalizeInsight(slides.executive_summary, sections[0]?.items?.[0] || legacySummary),
+      kpi_snapshot: normalizeInsight(slides.kpi_snapshot, sections[1]?.items?.[0] || legacySummary),
+      department_performance: normalizeInsight(slides.department_performance, sections[3]?.items?.[0] || legacySummary),
+      risk_bottleneck: normalizeInsight(slides.risk_bottleneck, sections[4]?.items?.[0] || legacySummary),
+      evidence_quality: normalizeInsight(slides.evidence_quality, sections[4]?.items?.[1] || legacySummary),
+      carry_over_revision: normalizeInsight(slides.carry_over_revision, sections[2]?.items?.[0] || legacySummary),
+      action_agenda: normalizeInsight(slides.action_agenda, sections[5]?.items?.[0] || legacySummary),
     },
   }
 }
+
+function buildExecutivePrompt(payload: any) {
+  const data = payload?.performance_data || {}
+  const period = payload?.period?.label || `${payload?.period?.month || '-'} ${payload?.period?.year || ''}`.trim()
+  const department = payload?.department_filter || payload?.period?.department || 'All Departments'
+  const prevRate = data.prev_rate == null ? 'null' : `${data.prev_rate}`
+  const targetRate = data.target_rate == null ? 'null' : `${data.target_rate}`
+  const trendInstruction = data.prev_rate == null ? 'Previous period completion rate is unavailable. Skip trend analysis and do not infer trend.' : 'Compare current completion rate against previous period completion rate.'
+  const targetInstruction = data.target_rate == null ? 'Org target completion rate is unavailable. Skip target comparison and do not infer target.' : 'Compare current completion rate against org target completion rate.'
+
+  return [
+    `Generate executive report for period: ${period}`,
+    `Department filter: ${department}`,
+    '',
+    'PERFORMANCE DATA:',
+    `- Total Plans: ${data.total_plans ?? 0}`,
+    `- Achieved: ${data.achieved ?? 0} (${data.completion_rate ?? 0}%)`,
+    `- In Progress: ${data.in_progress ?? 0}`,
+    `- Open: ${data.open_plans ?? 0}`,
+    `- Not Achieved: ${data.not_achieved ?? 0}`,
+    `- Avg Verification Score: ${data.avg_score ?? 0}`,
+    '',
+    'DEPARTMENT BREAKDOWN:',
+    payload?.department_rows_text || 'No department data',
+    'format: Dept | Total | Achieved | Rate% | Avg Score',
+    '',
+    'PRIORITY BREAKDOWN:',
+    payload?.priority_rows_text || 'No priority data',
+    'format: Priority | Total | Achieved | Rate% | Avg Score',
+    '',
+    `FAILURE ANALYSIS (${data.not_achieved ?? 0} plans):`,
+    payload?.failure_reason_rows_text || 'No failure reasons',
+    'format: Reason | Count | Percentage',
+    '',
+    'CONTEXT:',
+    `- Previous period completion rate: ${prevRate}% (null if unavailable)`,
+    `- Org target completion rate: ${targetRate}% (null if unavailable)`,
+    `- ${trendInstruction}`,
+    `- ${targetInstruction}`,
+    '',
+    'Return JSON only with this schema:',
+    '{',
+    '  "headline_insight": "one sentence, single most critical finding",',
+    '  "sections": [',
+    '    { "number": 1, "title": "Headline Insight", "items": ["one sentence"] },',
+    '    { "number": 2, "title": "Key Findings", "items": ["[Fact] → [What it means] → [Business implication]"] },',
+    '    { "number": 3, "title": "Anomalies & Paradoxes", "items": ["unexpected pattern needing explanation"] },',
+    '    { "number": 4, "title": "Department Spotlight", "items": ["top and bottom performer with specific reasons"] },',
+    '    { "number": 5, "title": "Hidden Risks", "items": ["non-obvious risk from data"] },',
+    '    { "number": 6, "title": "Action Recommendations", "items": ["what; owner; by when"] }',
+    '  ],',
+    '  "slides": {',
+    '    "executive_summary": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "kpi_snapshot": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "department_performance": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "risk_bottleneck": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "evidence_quality": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "carry_over_revision": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
+    '    "action_agenda": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" }',
+    '  }',
+    '}',
+    '',
+    'Analyze the patterns, not just the numbers.',
+  ].join('\n')
+}
+
+const systemPrompt = [
+  'You are a senior executive analyst for Werkudara Group. Analyze the action plan data and produce sharp, decision-ready insights for management.',
+  'REQUIRED OUTPUT STRUCTURE:',
+  '1. HEADLINE INSIGHT — one sentence, the single most critical finding',
+  '2. KEY FINDINGS — 3-5 points, each formatted as: [Fact] → [What it means] → [Business implication]',
+  '3. ANOMALIES & PARADOXES — unexpected patterns that need explanation',
+  '4. DEPARTMENT SPOTLIGHT — top and bottom performer with specific reasons',
+  '5. HIDDEN RISKS — non-obvious risks from the data',
+  '6. ACTION RECOMMENDATIONS — 3-5 items, each with: what, who owns it, by when',
+  'STRICT RULES:',
+  'Never write vague phrases like "needs management attention".',
+  'Always analyze completion rate AND verification score together.',
+  'If >30% of failure reasons are unspecified, flag it as a data blind spot.',
+  'Compare departments against each other, not just against average.',
+  'If Ultra High priority has lower completion than High priority, call it out explicitly as a priority calibration issue.',
+  'Use only supplied data. If previous period data is unavailable, skip trend analysis. If target rate is unavailable, skip target comparison.',
+  'Return valid JSON only. No markdown.',
+].join('\n')
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -194,37 +308,17 @@ serve(async (req) => {
 
     if (!aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
 
-    const prompt = [
-      'You are a management consultant preparing a monthly corporate action-plan decision deck.',
-      'Use aggregate metrics only. Identify operational patterns, separate signal from noise, and translate every slide into decisions.',
-      'Do not invent facts beyond the payload. If evidence is weak, say what management should verify.',
-      'Return JSON only with this exact shape:',
-      '{',
-      '  "executive_memo": { "summary": "string", "top_decisions": ["string"], "board_questions": ["string"] },',
-      '  "slides": {',
-      '    "executive_summary": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "kpi_snapshot": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "department_performance": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "risk_bottleneck": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "evidence_quality": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "carry_over_revision": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-      '    "action_agenda": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" }',
-      '  }',
-      '}',
-      'Keep each insight concise: diagnosis 1 sentence, implication 1 sentence, decision_needed 1 sentence, recommended_action 1 sentence.',
-      '',
-      'Monthly report payload:',
-      JSON.stringify(payload, null, 2),
-    ].join('\n')
+    const prompt = buildExecutivePrompt(payload)
 
     const providerPayload = {
       model: aiModel || undefined,
       vision: aiVision,
       messages: [
-        { role: 'system', content: 'Return valid JSON only. No markdown.' },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
       ],
       temperature: 0.2,
+      max_tokens: 1500,
       response_format: { type: 'json_object' },
     }
 

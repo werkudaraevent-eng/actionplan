@@ -22,6 +22,7 @@ export const CHANGELOG = [
       { type: 'feature', description: 'AI Narrative untuk executive summary, risks, recommendations, dan next actions menggunakan Edge Function server-side' },
       { type: 'improvement', description: 'AI Narrative sekarang tampil per slide sebagai Management Insight: diagnosis, implication, decision needed, dan recommended action' },
       { type: 'improvement', description: 'Final slide report menjadi Executive Decision Agenda berisi board memo, top decisions, dan board questions' },
+      { type: 'improvement', description: 'Generate AI Insights sekarang memakai prompt analisa management yang lebih tajam dengan headline insight, anomalies, department spotlight, hidden risks, dan action recommendations' },
       { type: 'improvement', description: 'Print mode khusus report: sidebar/filter disembunyikan dan tiap slide dicetak sebagai halaman 16:9 terpisah' },
     ],
   },

@@ -138,9 +138,15 @@ export default function ExecutiveActionCenter() {
     const selectedPriority = searchParams.get('priority') || 'All';
     const setSelectedPriority = useCallback((v) => setParam('priority', v, 'All'), [setParam]);
 
-    // ── Grading Department Filter ──
+    // ── Grading Filters ──
     const gradingDeptFilter = searchParams.get('gradeDept') || 'all';
     const setGradingDeptFilter = useCallback((v) => setParam('gradeDept', v, 'all'), [setParam]);
+    const gradingSearch = searchParams.get('gradeQ') || '';
+    const setGradingSearch = useCallback((v) => setParam('gradeQ', v, ''), [setParam]);
+    const gradingMonthFilter = searchParams.get('gradeMonth') || 'all';
+    const setGradingMonthFilter = useCallback((v) => setParam('gradeMonth', v, 'all'), [setParam]);
+    const gradingPriorityFilter = searchParams.get('gradePriority') || 'all';
+    const setGradingPriorityFilter = useCallback((v) => setParam('gradePriority', v, 'all'), [setParam]);
 
     // ── Escalation Department Filter ──
     const escalationDeptFilter = searchParams.get('escDept') || 'all';
@@ -321,6 +327,7 @@ export default function ExecutiveActionCenter() {
     }, [plans]);
 
     const needsGradingPlans = useMemo(() => {
+        const search = gradingSearch.trim().toLowerCase();
         return plans
             .filter(p => {
                 if (p.submission_status !== 'submitted' || p.quality_score != null) return false;
@@ -328,6 +335,18 @@ export default function ExecutiveActionCenter() {
                     const filterCode = gradingDeptFilter.trim().toUpperCase();
                     const planCode = (p.department_code || '').trim().toUpperCase();
                     if (planCode !== filterCode) return false;
+                }
+                if (gradingMonthFilter && gradingMonthFilter !== 'all' && p.month !== gradingMonthFilter) return false;
+                if (gradingPriorityFilter && gradingPriorityFilter !== 'all') {
+                    if (getPriorityCode(p.category) !== gradingPriorityFilter) return false;
+                }
+                if (search) {
+                    const picName = getPicDisplayName(p, profileMap) || '';
+                    const haystack = [
+                        p.action_plan, p.goal_strategy, p.indicator,
+                        p.department_code, p.month, picName,
+                    ].join(' ').toLowerCase();
+                    if (!haystack.includes(search)) return false;
                 }
                 return true;
             })
@@ -337,7 +356,7 @@ export default function ExecutiveActionCenter() {
                 }
                 return MONTHS.indexOf(a.month) - MONTHS.indexOf(b.month);
             });
-    }, [plans, gradingDeptFilter]);
+    }, [plans, gradingDeptFilter, gradingMonthFilter, gradingPriorityFilter, gradingSearch, profileMap]);
 
     // ─── Escalation data ───
     const escalationPlans = useMemo(() => {
@@ -754,9 +773,19 @@ export default function ExecutiveActionCenter() {
                 {/* ═══ NEEDS GRADING TAB ═══ */}
                 {activeTab === 'needs_grading' && (
                     <>
-                        {/* Department filter for grading */}
+                        {/* Filter toolbar for grading */}
                         {needsGradingCount > 0 && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <div className="relative flex-1 min-w-[220px] max-w-sm">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={gradingSearch}
+                                        onChange={(e) => setGradingSearch(e.target.value)}
+                                        placeholder="Search plan, goal, PIC..."
+                                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-200"
+                                    />
+                                </div>
                                 <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
                                     <Building2 className="w-4 h-4 text-purple-500" />
                                     <select
@@ -770,8 +799,34 @@ export default function ExecutiveActionCenter() {
                                         ))}
                                     </select>
                                 </div>
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+                                    <Calendar className="w-4 h-4 text-purple-500" />
+                                    <select
+                                        value={gradingMonthFilter}
+                                        onChange={(e) => setGradingMonthFilter(e.target.value)}
+                                        className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+                                    >
+                                        <option value="all">All Months</option>
+                                        {MONTHS.map((m) => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+                                    <Star className="w-4 h-4 text-purple-500" />
+                                    <select
+                                        value={gradingPriorityFilter}
+                                        onChange={(e) => setGradingPriorityFilter(e.target.value)}
+                                        className="bg-transparent text-sm text-gray-700 focus:outline-none cursor-pointer"
+                                    >
+                                        <option value="all">All Priority</option>
+                                        {Object.entries(PRIORITY_CONFIG).map(([code, cfg]) => (
+                                            <option key={code} value={code}>{cfg.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <span className="text-sm text-gray-400">
-                                    {needsGradingPlans.length} plan{needsGradingPlans.length !== 1 ? 's' : ''} to grade
+                                    {needsGradingPlans.length} plan{needsGradingPlans.length !== 1 ? 's' : ''}
                                 </span>
                             </div>
                         )}
@@ -791,82 +846,98 @@ export default function ExecutiveActionCenter() {
                                     <p className="text-sm text-gray-500 max-w-sm">No pending items to grade. All submitted plans have been reviewed.</p>
                                 </div>
                             </div>
+                        ) : needsGradingPlans.length === 0 ? (
+                            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+                                <p className="text-sm text-gray-500">No plans match current filters.</p>
+                            </div>
                         ) : (
-                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
-                                {needsGradingPlans.map((item) => {
-                                    const priorityCode = getPriorityCode(item?.category);
-                                    const pStyle = getPriorityStyle(priorityCode);
-                                    const statusBadge = item.status || 'Open';
-                                    const picName = getPicDisplayName(item, profileMap);
+                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500 border-b border-gray-200">
+                                            <tr>
+                                                <th className="px-4 py-3 font-bold">Action Plan</th>
+                                                <th className="px-3 py-3 font-bold">Dept</th>
+                                                <th className="px-3 py-3 font-bold">Priority</th>
+                                                <th className="px-3 py-3 font-bold">Period</th>
+                                                <th className="px-3 py-3 font-bold">Status</th>
+                                                <th className="px-3 py-3 font-bold">PIC</th>
+                                                <th className="px-3 py-3 font-bold text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {needsGradingPlans.map((item) => {
+                                                const priorityCode = getPriorityCode(item?.category);
+                                                const pStyle = getPriorityStyle(priorityCode);
+                                                const statusBadge = item.status || 'Open';
+                                                const picName = getPicDisplayName(item, profileMap);
 
-                                    return (
-                                        <div
-                                            key={item.id}
-                                            className="flex items-center gap-5 px-5 py-3.5 hover:bg-gray-50/60 transition-colors group"
-                                        >
-                                            {/* Primary: Plan Title + Metadata */}
-                                            <div className="flex-1 min-w-0">
-                                                {/* Row 1: Title */}
-                                                <p className="text-[13.5px] font-semibold text-gray-900 truncate leading-snug">
-                                                    {item.action_plan || 'Untitled Plan'}
-                                                </p>
-                                                {/* Row 2: Metadata badges */}
-                                                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide ${pStyle.bg} ${pStyle.text}`}>
-                                                        {priorityCode}
-                                                    </span>
-                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
-                                                        {item.department_code}
-                                                    </span>
-                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
-                                                        {item.month} {item.year}
-                                                    </span>
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusBadge === 'Achieved' ? 'bg-emerald-50 text-emerald-600'
-                                                        : statusBadge === 'Not Achieved' ? 'bg-red-50 text-red-600'
-                                                            : statusBadge === 'On Progress' ? 'bg-blue-50 text-blue-600'
-                                                                : 'bg-gray-100 text-gray-500'
-                                                        }`}>
-                                                        {statusBadge}
-                                                    </span>
-                                                    {item.goal_strategy && (
-                                                        <>
-                                                            <span className="text-gray-300 text-[10px]">·</span>
-                                                            <span className="text-[11px] text-gray-400 truncate max-w-[180px]" title={item.goal_strategy}>
-                                                                {item.goal_strategy}
+                                                return (
+                                                    <tr key={item.id} className="hover:bg-gray-50/60 transition-colors align-top">
+                                                        <td className="px-4 py-3 max-w-[360px]">
+                                                            <p className="text-[13px] font-semibold text-gray-900 truncate" title={item.action_plan || 'Untitled Plan'}>
+                                                                {item.action_plan || 'Untitled Plan'}
+                                                            </p>
+                                                            {item.goal_strategy && (
+                                                                <p className="text-[11px] text-gray-400 truncate mt-0.5" title={item.goal_strategy}>
+                                                                    {item.goal_strategy}
+                                                                </p>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                                                                {item.department_code}
                                                             </span>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Secondary: PIC (subdued) */}
-                                            <div className="flex items-center gap-2 flex-shrink-0 min-w-[130px]">
-                                                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
-                                                    {(picName || 'U').charAt(0).toUpperCase()}
-                                                </div>
-                                                <span className="text-xs text-gray-500 truncate">{picName}</span>
-                                            </div>
-
-                                            {/* Actions */}
-                                            <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    onClick={() => setViewPlan(item)}
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-200 rounded-md text-xs font-medium hover:bg-gray-100 hover:text-gray-700 transition-colors"
-                                                >
-                                                    <Eye className="w-3.5 h-3.5" />
-                                                    View
-                                                </button>
-                                                <button
-                                                    onClick={() => handleOpenGradeModal(item)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-700 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition-colors"
-                                                >
-                                                    <Star className="w-3.5 h-3.5" />
-                                                    Grade
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide ${pStyle.bg} ${pStyle.text}`}>
+                                                                {priorityCode}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-3 text-[11px] text-gray-500 whitespace-nowrap">
+                                                            {item.month} {item.year}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusBadge === 'Achieved' ? 'bg-emerald-50 text-emerald-600'
+                                                                : statusBadge === 'Not Achieved' ? 'bg-red-50 text-red-600'
+                                                                    : statusBadge === 'On Progress' ? 'bg-blue-50 text-blue-600'
+                                                                        : 'bg-gray-100 text-gray-500'
+                                                                }`}>
+                                                                {statusBadge}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="flex items-center gap-2 min-w-[120px]">
+                                                                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
+                                                                    {(picName || 'U').charAt(0).toUpperCase()}
+                                                                </div>
+                                                                <span className="text-xs text-gray-500 truncate">{picName}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                                <button
+                                                                    onClick={() => setViewPlan(item)}
+                                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-gray-500 border border-gray-200 rounded-md text-xs font-medium hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                                                                >
+                                                                    <Eye className="w-3.5 h-3.5" />
+                                                                    View
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleOpenGradeModal(item)}
+                                                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-700 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition-colors"
+                                                                >
+                                                                    <Star className="w-3.5 h-3.5" />
+                                                                    Grade
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         )}
                     </>

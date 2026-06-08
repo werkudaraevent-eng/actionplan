@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, Download, FileText, Loader2, ShieldAlert, Target, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, Download, FileText, Loader2, ShieldAlert, TrendingUp } from 'lucide-react';
+import { Bar, BarChart, Cell, LabelList, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useDepartments } from '../hooks/useDepartments';
@@ -132,31 +133,98 @@ function insightToneClass(tone = 'neutral') {
   return tones[tone] || tones.neutral;
 }
 
-function InsightPanel({ insight, tone = 'neutral' }) {
-  const rows = [
-    ['Diagnosis', insight?.diagnosis],
-    ['Management implication', insight?.implication],
-    ['Decision needed', insight?.decision_needed],
-    ['Recommended action', insight?.recommended_action],
-  ];
-
+function VerdictLine({ tone = 'neutral', children }) {
   return (
-    <div className={`rounded-3xl border p-5 text-sm ${insightToneClass(tone)}`}>
-      <div className="mb-3 flex items-center gap-2">
-        <BrainCircuit className="h-5 w-5" />
-        <p className="text-xs font-black uppercase tracking-[0.22em] opacity-70">Management Insight</p>
-      </div>
-      <div className="space-y-3">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-55">{label}</p>
-            <p className="mt-1 font-semibold leading-snug">{value}</p>
-          </div>
-        ))}
-      </div>
+    <div className={`flex items-start gap-3 rounded-2xl border px-5 py-3.5 text-sm font-semibold ${insightToneClass(tone)}`}>
+      <BrainCircuit className="mt-0.5 h-4 w-4 flex-shrink-0 opacity-70" />
+      <span className="leading-snug">{children}</span>
     </div>
   );
 }
+
+const CHART_BLUE = '#02378D';
+const CHART_RED = '#e11d48';
+const CHART_AMBER = '#d97706';
+const CHART_EMERALD = '#059669';
+
+function ChartFrame({ children, height = 260 }) {
+  return (
+    <div style={{ width: '100%', height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function CompletionTrendChart({ data, target }) {
+  return (
+    <ChartFrame height={300}>
+      <BarChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+        <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={32} />
+        {Number.isFinite(target) && (
+          <ReferenceLine y={target} stroke={CHART_AMBER} strokeDasharray="5 4" label={{ value: `Target ${target}%`, position: 'right', fill: CHART_AMBER, fontSize: 11 }} />
+        )}
+        <Bar dataKey="completionRate" radius={[6, 6, 0, 0]} barSize={34} isAnimationActive={false}>
+          {data.map((row) => (
+            <Cell key={row.month} fill={row.isCurrent ? CHART_BLUE : '#cbd5e1'} />
+          ))}
+          <LabelList dataKey="completionRate" position="top" formatter={(v) => (v ? `${v}%` : '')} style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+        </Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function DepartmentRankingChart({ data }) {
+  return (
+    <ChartFrame height={320}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }}>
+        <XAxis type="number" domain={[0, 100]} hide />
+        <YAxis type="category" dataKey="code" tick={{ fontSize: 12, fill: '#475569', fontWeight: 700 }} axisLine={false} tickLine={false} width={56} />
+        <Bar dataKey="completionRate" radius={[0, 6, 6, 0]} barSize={20} isAnimationActive={false}>
+          {data.map((row) => (
+            <Cell key={row.code} fill={row.completionRate >= 85 ? CHART_EMERALD : row.completionRate >= 65 ? CHART_BLUE : CHART_RED} />
+          ))}
+          <LabelList dataKey="completionRate" position="right" formatter={(v) => `${v}%`} style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+        </Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function PriorityBar({ data, calibrationFlag }) {
+  return (
+    <ChartFrame height={300}>
+      <BarChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569', fontWeight: 700 }} axisLine={false} tickLine={false} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={32} />
+        <Bar dataKey="completionRate" radius={[6, 6, 0, 0]} barSize={48} isAnimationActive={false}>
+          {data.map((row) => (
+            <Cell key={row.label} fill={calibrationFlag && row.label === 'Ultra High' ? CHART_RED : CHART_BLUE} />
+          ))}
+          <LabelList dataKey="completionRate" position="top" formatter={(v) => `${v}%`} style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+        </Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
+function FailureBar({ data }) {
+  return (
+    <ChartFrame height={300}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 4 }}>
+        <XAxis type="number" hide />
+        <YAxis type="category" dataKey="reason" tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} axisLine={false} tickLine={false} width={130} />
+        <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={18} fill={CHART_RED} isAnimationActive={false}>
+          <LabelList dataKey="label" position="right" style={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
+        </Bar>
+      </BarChart>
+    </ChartFrame>
+  );
+}
+
 
 function actionSeverity(plan) {
   if (plan.status === 'Not Achieved') return 'Escalate';
@@ -204,7 +272,6 @@ export default function MonthlyExecutiveReport() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [aiNarrative, setAiNarrative] = useState(null);
-  const [slideInsights, setSlideInsights] = useState({});
   const [annualTargetRate, setAnnualTargetRate] = useState(null);
 
   useEffect(() => {
@@ -312,6 +379,30 @@ export default function MonthlyExecutiveReport() {
     const lowestDept = departmentRows[departmentRows.length - 1];
     const riskTone = completionRate >= 85 ? 'strong' : completionRate >= 65 ? 'watch' : 'danger';
 
+    const monthlyTrend = MONTHS.map((m) => {
+      const rows = plans.filter((plan) => {
+        const planYear = plan.year || CURRENT_YEAR;
+        const deptMatch = selectedDept === 'All' || plan.department_code === selectedDept;
+        return plan.month === m && planYear === selectedYear && deptMatch;
+      });
+      const mAchieved = rows.filter((plan) => plan.status === 'Achieved').length;
+      return {
+        month: m,
+        total: rows.length,
+        achieved: mAchieved,
+        completionRate: rows.length ? Math.round((mAchieved / rows.length) * 100) : 0,
+        avgScore: Math.round(avg(rows.map((plan) => plan.quality_score))) || 0,
+        isCurrent: m === selectedMonth,
+      };
+    });
+
+    const uhRow = priorityRows.find((row) => row.label === 'Ultra High');
+    const hRow = priorityRows.find((row) => row.label === 'High');
+    const priorityCalibrationFlag = !!(uhRow && hRow && uhRow.total > 0 && hRow.total > 0 && uhRow.completionRate < hRow.completionRate);
+
+    const unspecified = failureRows.find((row) => row.reason === 'Unspecified');
+    const blindSpot = !!(failedPlans.length > 0 && unspecified && (unspecified.count / failedPlans.length) > 0.3);
+
     return {
       periodPlans,
       total,
@@ -336,55 +427,11 @@ export default function MonthlyExecutiveReport() {
       topDept,
       lowestDept,
       riskTone,
+      monthlyTrend,
+      priorityCalibrationFlag,
+      blindSpot,
     };
   }, [plans, departments, selectedMonth, selectedYear, selectedDept]);
-
-  const fallbackInsights = useMemo(() => ({
-    executive_summary: {
-      diagnosis: `Monthly completion is ${pct(report.completionRate)} with ${report.blocked + report.notAchieved} at-risk plans.`,
-      implication: report.riskTone === 'strong' ? 'Performance is broadly on track, but quality signals still need review.' : 'Management attention is needed because execution risk can affect monthly outcomes.',
-      decision_needed: 'Decide whether current at-risk plans need escalation or routine monitoring.',
-      recommended_action: `Prioritize ${report.actionItems.length} unresolved items and review weak evidence count of ${report.weakEvidence + report.linkOnlyEvidence}.`,
-    },
-    kpi_snapshot: {
-      diagnosis: `${report.achieved} of ${report.total} plans are achieved; average score is ${Math.round(report.averageScore) || 0}.`,
-      implication: 'KPI mix shows whether delivery volume and verification quality are moving together.',
-      decision_needed: 'Decide if KPI gap is execution capacity, evidence quality, or department follow-through.',
-      recommended_action: 'Use scorecard gaps to assign owner-level follow-up before next month closes.',
-    },
-    department_performance: {
-      diagnosis: report.lowestDept ? `${report.lowestDept.code} is lowest at ${pct(report.lowestDept.completionRate)} while ${report.topDept?.code || 'top department'} leads.` : 'No department ranking is available for this period.',
-      implication: 'Department spread indicates where leadership coaching or resource balancing may be needed.',
-      decision_needed: 'Decide which low-performing department needs escalation in operating rhythm.',
-      recommended_action: 'Ask bottom department owner for recovery plan and top department for repeatable practice.',
-    },
-    risk_bottleneck: {
-      diagnosis: `${report.blocked + report.notAchieved} plans are at risk and ${report.bottlenecks.length} bottleneck pattern(s) were detected.`,
-      implication: 'Repeated bottlenecks can become structural blockers if not owned above PIC level.',
-      decision_needed: 'Decide which bottleneck requires cross-department intervention.',
-      recommended_action: 'Assign executive sponsor for top bottleneck and require dated unblock action.',
-    },
-    evidence_quality: {
-      diagnosis: `${report.weakEvidence + report.linkOnlyEvidence} submissions have weak or link-only evidence signals.`,
-      implication: 'Weak evidence lowers audit confidence even when status claims look positive.',
-      decision_needed: 'Decide whether evidence standard needs stricter enforcement this month.',
-      recommended_action: 'Require direct file upload or clear evidence notes for weak submissions before final review.',
-    },
-    carry_over_revision: {
-      diagnosis: `${report.carryOver} carry-over and ${report.revision} revision signals show late-cycle quality pressure.`,
-      implication: 'Carry-over and revision load can hide recurring execution debt.',
-      decision_needed: 'Decide which repeated items should be reset, escalated, or closed as failed.',
-      recommended_action: 'Review carry-over chains and cap repeated revision loops with owner commitment.',
-    },
-    action_agenda: {
-      diagnosis: `${report.actionItems.length} unresolved items need next-month agenda ownership.`,
-      implication: 'Unowned follow-up turns reporting into documentation instead of management action.',
-      decision_needed: 'Decide owner, deadline, and escalation route for each priority item.',
-      recommended_action: 'Convert agenda rows into action commitments before publishing final report.',
-    },
-  }), [report]);
-
-  const getSlideInsight = (key) => slideInsights?.[key] || fallbackInsights[key];
 
   const reportPayload = useMemo(() => {
     const departmentLabel = selectedDept === 'All'
@@ -505,7 +552,6 @@ export default function MonthlyExecutiveReport() {
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.error) throw new Error(data?.error || `AI insights failed (${response.status})`);
       setAiNarrative(data?.report || null);
-      setSlideInsights(data?.report?.slides || {});
     } catch (error) {
       setAiError(error.message || 'Failed to generate AI insights');
     } finally {
@@ -568,171 +614,140 @@ export default function MonthlyExecutiveReport() {
           </div>
         </Slide>
 
-        <Slide eyebrow="Executive summary" title="What management needs to know">
-          <div className="grid h-full grid-cols-[0.8fr_0.95fr_0.85fr] gap-5">
-            <div className={`rounded-3xl border p-6 ${statusTone[report.riskTone]}`}>
-              <p className="text-sm font-bold uppercase tracking-widest opacity-70">Performance posture</p>
-              <p className="mt-5 text-6xl font-black">{pct(report.completionRate)}</p>
-              <p className="mt-4 text-lg font-bold">{report.riskTone === 'strong' ? 'On track' : report.riskTone === 'watch' ? 'Execution risk elevated' : 'High risk month'}</p>
-              <p className="mt-2 text-sm opacity-80">Average verification score: {Math.round(report.averageScore) || 0}. At-risk plans: {report.blocked + report.notAchieved}.</p>
-            </div>
-            <div className="grid grid-rows-3 gap-3">
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Best performing area</p>
-                <p className="mt-2 text-xl font-black text-slate-950">{report.topDept ? `${report.topDept.code} — ${pct(report.topDept.completionRate)}` : 'No department data'}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Lowest performing area</p>
-                <p className="mt-2 text-xl font-black text-slate-950">{report.lowestDept ? `${report.lowestDept.code} — ${pct(report.lowestDept.completionRate)}` : 'No department data'}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Decision focus</p>
-                <p className="mt-2 text-base font-bold text-slate-950">Resolve {report.actionItems.length} priority items; validate {report.weakEvidence + report.linkOnlyEvidence} weak evidence submissions.</p>
-              </div>
-            </div>
-            <InsightPanel insight={getSlideInsight('executive_summary')} tone={report.riskTone} />
-          </div>
-        </Slide>
-
         <Slide eyebrow="KPI snapshot" title="Monthly operating scorecard">
-          <div className="grid h-full grid-cols-[1.45fr_0.75fr] gap-5">
-            <div>
-              <div className="grid grid-cols-4 gap-3">
-                <KpiCard icon={ClipboardList} label="Total Plans" value={report.total} detail={`${report.open} open, ${report.inProgress} in progress`} />
-                <KpiCard icon={CheckCircle2} label="Achieved" value={report.achieved} detail={`${pct(report.completionRate)} completion rate`} tone="strong" />
-                <KpiCard icon={BarChart3} label="Avg Score" value={Math.round(report.averageScore) || 0} detail="Verification score average" tone="neutral" />
-                <KpiCard icon={ShieldAlert} label="At Risk" value={report.blocked + report.notAchieved} detail={`${report.blocked} blocked, ${report.notAchieved} not achieved`} tone={report.blocked + report.notAchieved > 0 ? 'danger' : 'strong'} />
+          <div className="flex h-full flex-col gap-5">
+            <div className="grid grid-cols-4 gap-3">
+              <KpiCard icon={ClipboardList} label="Total Plans" value={report.total} detail={`${report.open} open, ${report.inProgress} in progress`} />
+              <KpiCard icon={CheckCircle2} label="Achieved" value={report.achieved} detail={`${pct(report.completionRate)} completion rate`} tone="strong" />
+              <KpiCard icon={BarChart3} label="Avg Score" value={Math.round(report.averageScore) || 0} detail="Verification score average" tone="neutral" />
+              <KpiCard icon={ShieldAlert} label="At Risk" value={report.blocked + report.notAchieved} detail={`${report.blocked} blocked, ${report.notAchieved} not achieved`} tone={report.blocked + report.notAchieved > 0 ? 'danger' : 'strong'} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <KpiCard icon={TrendingUp} label="Carry-over Watch" value={report.carryOver} detail="Plans linked to carry-over flow" tone={report.carryOver ? 'watch' : 'strong'} />
+              <KpiCard icon={AlertTriangle} label="Revision Signal" value={report.revision} detail="Revision-related submissions" tone={report.revision ? 'watch' : 'neutral'} />
+              <KpiCard icon={FileText} label="Weak Evidence" value={report.weakEvidence + report.linkOnlyEvidence} detail={`${report.weakEvidence} empty, ${report.linkOnlyEvidence} link-only`} tone={report.weakEvidence + report.linkOnlyEvidence ? 'watch' : 'strong'} />
+            </div>
+            <VerdictLine tone={report.riskTone}>
+              {report.achieved}/{report.total} achieved ({pct(report.completionRate)}), avg score {Math.round(report.averageScore) || 0}.{' '}
+              {report.riskTone === 'strong' ? 'On track — protect quality discipline.' : report.riskTone === 'watch' ? `Execution risk elevated — ${report.blocked + report.notAchieved} plans at risk need owners.` : `High risk month — ${report.blocked + report.notAchieved} plans at risk demand escalation.`}
+            </VerdictLine>
+          </div>
+        </Slide>
+
+        <Slide eyebrow="Completion trend" title={`Monthly completion across ${selectedYear}`}>
+          <div className="flex h-full flex-col gap-4">
+            <CompletionTrendChart data={report.monthlyTrend} target={annualTargetRate} />
+            <VerdictLine tone={report.previousRate == null ? 'neutral' : report.completionRate >= report.previousRate ? 'strong' : 'watch'}>
+              {report.previousRate == null
+                ? `No prior-month baseline for ${report.previousPeriod.month}; treat ${pct(report.completionRate)} as this period's reference.`
+                : report.completionRate >= report.previousRate
+                  ? `Completion rose from ${pct(report.previousRate)} (${report.previousPeriod.month}) to ${pct(report.completionRate)} — momentum positive.`
+                  : `Completion dropped from ${pct(report.previousRate)} (${report.previousPeriod.month}) to ${pct(report.completionRate)} — investigate the decline.`}
+              {Number.isFinite(annualTargetRate) ? ` Target ${annualTargetRate}%.` : ''}
+            </VerdictLine>
+          </div>
+        </Slide>
+
+        <Slide eyebrow="Department performance" title="Completion ranking by department">
+          <div className="grid h-full grid-cols-[1fr_0.85fr] gap-5">
+            <DepartmentRankingChart data={report.departmentRows.slice(0, 8).map((row) => ({ code: row.code, completionRate: Math.round(row.completionRate) }))} />
+            <div className="flex flex-col gap-3">
+              <SmallTable
+                rows={report.departmentRows.slice(0, 6)}
+                columns={[
+                  { key: 'code', label: 'Dept' },
+                  { key: 'total', label: 'Plans' },
+                  { key: 'completionRate', label: 'Rate', render: (row) => pct(row.completionRate) },
+                  { key: 'atRisk', label: 'At Risk' },
+                ]}
+              />
+              <VerdictLine tone={report.lowestDept?.completionRate < 65 ? 'danger' : 'neutral'}>
+                {report.topDept && report.lowestDept && report.topDept.code !== report.lowestDept.code
+                  ? `${report.topDept.code} leads at ${pct(report.topDept.completionRate)}; ${report.lowestDept.code} trails at ${pct(report.lowestDept.completionRate)} — ask ${report.lowestDept.code} for a recovery plan.`
+                  : 'Insufficient department spread to compare this period.'}
+              </VerdictLine>
+            </div>
+          </div>
+        </Slide>
+
+        <Slide eyebrow="Priority calibration" title="Completion by priority tier">
+          <div className="flex h-full flex-col gap-4">
+            <PriorityBar data={report.priorityRows.filter((row) => row.total > 0).map((row) => ({ label: row.label, completionRate: Math.round(row.completionRate) }))} calibrationFlag={report.priorityCalibrationFlag} />
+            <VerdictLine tone={report.priorityCalibrationFlag ? 'danger' : 'strong'}>
+              {report.priorityCalibrationFlag
+                ? 'Priority calibration issue: Ultra High plans complete slower than High — teams may be clearing easy wins first. Re-sequence effort toward Ultra High.'
+                : 'Priority order holds: higher-priority tiers are not lagging lower tiers.'}
+            </VerdictLine>
+          </div>
+        </Slide>
+
+        <Slide eyebrow="Failure & risk" title="Why plans fail this period">
+          <div className="grid h-full grid-cols-[1.1fr_0.7fr] gap-5">
+            <FailureBar data={report.failureRows.slice(0, 6).map((row) => ({ reason: row.reason, count: row.count, label: `${row.count} (${Math.round(row.percentage)}%)` }))} />
+            <div className="flex flex-col gap-3">
+              <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-800">
+                <AlertTriangle className="h-8 w-8" />
+                <p className="mt-3 text-4xl font-black">{report.blocked + report.notAchieved}</p>
+                <p className="mt-1 text-sm font-bold">At-risk plans (blocked + not achieved)</p>
               </div>
-              <div className="mt-5 grid grid-cols-3 gap-3">
-                <KpiCard icon={TrendingUp} label="Carry-over Watch" value={report.carryOver} detail="Plans linked to carry-over flow" tone={report.carryOver ? 'watch' : 'strong'} />
-                <KpiCard icon={AlertTriangle} label="Revision Signal" value={report.revision} detail="Revision-related submissions" tone={report.revision ? 'watch' : 'neutral'} />
-                <KpiCard icon={FileText} label="Weak Evidence" value={report.weakEvidence + report.linkOnlyEvidence} detail={`${report.weakEvidence} empty, ${report.linkOnlyEvidence} link-only`} tone={report.weakEvidence + report.linkOnlyEvidence ? 'watch' : 'strong'} />
+              <VerdictLine tone={report.blindSpot ? 'danger' : report.failureRows.length ? 'watch' : 'strong'}>
+                {report.failureRows.length === 0
+                  ? 'No recorded failure reasons this period.'
+                  : report.blindSpot
+                    ? 'Data blind spot: over 30% of failures are Unspecified — enforce gap-cause tagging before next review.'
+                    : `Top blocker: ${report.failureRows[0].reason} (${report.failureRows[0].count}). Assign an owner to remove it.`}
+              </VerdictLine>
+            </div>
+          </div>
+        </Slide>
+
+        <Slide eyebrow="Decision agenda" title="Action items & AI board memo">
+          <div className="grid h-full grid-cols-[1fr_1fr] gap-5">
+            <div className="flex min-h-0 flex-col gap-3">
+              <p className="text-xs font-black uppercase tracking-widest text-[#02378D]">Priority action items</p>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <SmallTable
+                  rows={report.actionItems}
+                  columns={[
+                    { key: 'department_code', label: 'Dept' },
+                    { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
+                    { key: 'decision', label: 'Decision', render: (row) => decisionType(row) },
+                    { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 60) },
+                  ]}
+                  empty="No unresolved action items for selected period."
+                />
               </div>
             </div>
-            <InsightPanel insight={getSlideInsight('kpi_snapshot')} tone={report.riskTone} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Department performance" title="Ranking by completion and quality">
-          <div className="grid h-full grid-cols-[1.45fr_0.75fr] gap-5">
-            <SmallTable
-              rows={report.departmentRows.slice(0, 9)}
-              columns={[
-                { key: 'rank', label: '#', render: (_, index) => index + 1 },
-                { key: 'code', label: 'Dept' },
-                { key: 'name', label: 'Name' },
-                { key: 'total', label: 'Plans' },
-                { key: 'completionRate', label: 'Completion', render: (row) => pct(row.completionRate) },
-                { key: 'avgScore', label: 'Avg Score', render: (row) => Math.round(row.avgScore) || '—' },
-                { key: 'atRisk', label: 'At Risk' },
-              ]}
-            />
-            <InsightPanel insight={getSlideInsight('department_performance')} tone={report.lowestDept?.completionRate < 65 ? 'watch' : 'neutral'} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Risk analysis" title="Bottlenecks requiring intervention">
-          <div className="grid h-full grid-cols-[0.65fr_0.95fr_0.8fr] gap-5">
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-800">
-              <AlertTriangle className="h-9 w-9" />
-              <p className="mt-5 text-5xl font-black">{report.blocked + report.notAchieved}</p>
-              <p className="mt-2 text-lg font-bold">At-risk plans</p>
-              <p className="mt-3 text-sm opacity-80">Focus on plans with blocked/not achieved status and repeated cause tags.</p>
-            </div>
-            <SmallTable
-              rows={report.bottlenecks}
-              columns={[
-                { key: 'cause', label: 'Bottleneck' },
-                { key: 'count', label: 'Count' },
-              ]}
-              empty="No bottleneck tags found for this period."
-            />
-            <InsightPanel insight={getSlideInsight('risk_bottleneck')} tone={report.blocked + report.notAchieved > 0 ? 'danger' : 'strong'} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Evidence quality" title="Submission strength and verification risk">
-          <div className="grid h-full grid-cols-[1.35fr_0.85fr] gap-5">
-            <div>
-              <div className="grid grid-cols-3 gap-4">
-                <KpiCard icon={FileText} label="Empty Evidence" value={report.weakEvidence} detail="No link, remark, or attachments" tone={report.weakEvidence ? 'danger' : 'strong'} />
-                <KpiCard icon={Target} label="Link-only Evidence" value={report.linkOnlyEvidence} detail="Needs verification discipline" tone={report.linkOnlyEvidence ? 'watch' : 'strong'} />
-                <KpiCard icon={CheckCircle2} label="Evidence-ready" value={Math.max(report.total - report.weakEvidence - report.linkOnlyEvidence, 0)} detail="Has attachment/remark/link context" tone="strong" />
-              </div>
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
-                Evidence review note: link-only submissions can support traceability, but direct uploaded files are stronger for AI-assisted verification and audit readiness.
-              </div>
-            </div>
-            <InsightPanel insight={getSlideInsight('evidence_quality')} tone={report.weakEvidence + report.linkOnlyEvidence ? 'watch' : 'strong'} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Carry-over & revision" title="Late-cycle quality watchlist">
-          <div className="grid h-full grid-cols-[1.25fr_0.75fr] gap-5">
-            <div className="grid grid-cols-2 gap-5">
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
-                <TrendingDown className="h-9 w-9" />
-                <p className="mt-5 text-5xl font-black">{report.carryOver}</p>
-                <p className="mt-2 text-lg font-bold">Carry-over signals</p>
-                <p className="mt-3 text-sm opacity-80">Plan continuity risk; check repeated items and delayed execution patterns.</p>
-              </div>
-              <div className="rounded-3xl border border-sky-200 bg-sky-50 p-6 text-sky-800">
-                <AlertTriangle className="h-9 w-9" />
-                <p className="mt-5 text-5xl font-black">{report.revision}</p>
-                <p className="mt-2 text-lg font-bold">Revision signals</p>
-                <p className="mt-3 text-sm opacity-80">Quality correction needed before final scoring or closure.</p>
-              </div>
-            </div>
-            <InsightPanel insight={getSlideInsight('carry_over_revision')} tone={report.carryOver + report.revision ? 'watch' : 'strong'} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Next month action agenda" title="Priority action items">
-          <div className="grid h-full grid-cols-[1.45fr_0.75fr] gap-5">
-            <SmallTable
-              rows={report.actionItems}
-              columns={[
-                { key: 'department_code', label: 'Dept' },
-                { key: 'status', label: 'Status' },
-                { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
-                { key: 'decision', label: 'Decision', render: (row) => decisionType(row) },
-                { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 70) },
-                { key: 'issue', label: 'Issue', render: (row) => getFailureReason(row).slice(0, 60) },
-              ]}
-              empty="No unresolved action items for selected period."
-            />
-            <InsightPanel insight={getSlideInsight('action_agenda')} tone={report.actionItems.length ? 'watch' : 'strong'} />
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Executive decision agenda" title="AI board memo and management questions">
-          {aiError && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{aiError}</div>}
-          {aiNarrative ? (
-            <div className="h-full overflow-hidden rounded-3xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-                <p className="text-xs font-bold uppercase tracking-widest text-[#02378D]">Headline Insight</p>
-                <p className="mt-2 text-lg font-black leading-snug text-slate-950">{aiNarrative.headline_insight || aiNarrative.executive_memo?.summary || aiNarrative.summary}</p>
-              </div>
-              <div className="grid max-h-[430px] grid-cols-2 gap-4 overflow-y-auto p-5 text-sm">
-                {(Array.isArray(aiNarrative.executive_memo?.sections) ? aiNarrative.executive_memo.sections : []).map((section) => (
-                  <div key={`${section.number}-${section.title}`} className="rounded-2xl border border-slate-200 p-4">
-                    <p className="text-xs font-black uppercase tracking-widest text-[#02378D]">{section.number}. {section.title}</p>
-                    <ul className="mt-3 list-disc space-y-2 pl-5 text-slate-700">
-                      {(Array.isArray(section.items) ? section.items : []).map((item, idx) => <li key={idx}>{item}</li>)}
-                    </ul>
+            <div className="flex min-h-0 flex-col">
+              {aiError && <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{aiError}</div>}
+              {aiNarrative ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#02378D]">AI Headline</p>
+                    <p className="mt-1 text-sm font-black leading-snug text-slate-950">{aiNarrative.headline_insight || aiNarrative.executive_memo?.summary || aiNarrative.summary}</p>
                   </div>
-                ))}
-              </div>
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-xs">
+                    {(Array.isArray(aiNarrative.executive_memo?.sections) ? aiNarrative.executive_memo.sections : []).map((section) => (
+                      <div key={`${section.number}-${section.title}`} className="rounded-xl border border-slate-200 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#02378D]">{section.number}. {section.title}</p>
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-700">
+                          {(Array.isArray(section.items) ? section.items : []).map((item, idx) => <li key={idx}>{item}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-1 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-center">
+                  <div>
+                    <BrainCircuit className="mx-auto h-10 w-10 text-slate-400" />
+                    <p className="mt-3 text-base font-bold text-slate-700">Generate AI Insights</p>
+                    <p className="mt-1 max-w-xs text-xs text-slate-500">Click the toolbar button to add an AI board memo from sanitized aggregate metrics.</p>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-center">
-              <div>
-                <BrainCircuit className="mx-auto h-12 w-12 text-slate-400" />
-                <p className="mt-4 text-lg font-bold text-slate-700">Generate AI Insights</p>
-                <p className="mt-2 max-w-md text-sm text-slate-500">Click toolbar button to create per-slide management insights, top decisions, and board questions from sanitized aggregate metrics.</p>
-              </div>
-            </div>
-          )}
+          </div>
         </Slide>
       </main>
     </div>

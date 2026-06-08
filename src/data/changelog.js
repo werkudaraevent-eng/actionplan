@@ -13,6 +13,20 @@
 
 export const CHANGELOG = [
   {
+    version: '1.11.0',
+    date: '2026-06-08',
+    title: 'Visual Executive Report',
+    changes: [
+      { type: 'improvement', description: 'Monthly Executive Report dirombak jadi visual deck: chart completion trend, department ranking, priority calibration, dan failure analysis (Recharts)' },
+      { type: 'improvement', description: 'Insight per slide dipadatkan jadi satu Verdict Line ringkas — report tidak lagi text-heavy' },
+      { type: 'improvement', description: 'Priority calibration otomatis flag merah saat Ultra High completion lebih rendah dari High' },
+      { type: 'improvement', description: 'Failure slide flag data blind spot saat alasan Unspecified melebihi 30%' },
+      { type: 'improvement', description: 'AI insight difokuskan ke headline + board memo di slide Decision Agenda; report tetap lengkap walau AI tidak digenerate' },
+      { type: 'feature', description: 'Needs Grading di Action Center sekarang tabel dengan filter: search (plan/goal/PIC), department, month, dan priority' },
+      { type: 'fix', description: 'Confirm Resolution pada escalation tidak lagi gagal — update memakai kolom attention_level yang benar dan auto-clear blocker' },
+    ],
+  },
+  {
     version: '1.10.0',
     date: '2026-05-15',
     title: 'Monthly Executive Report Generator',

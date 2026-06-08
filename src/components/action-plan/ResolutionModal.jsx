@@ -54,9 +54,9 @@ export default function ResolutionModal({
       remark: item.remark 
         ? `${item.remark}\n\n[MANAGEMENT RESOLVED - ${new Date().toLocaleDateString()}]\n${resolutionNote.trim()}`
         : `[MANAGEMENT RESOLVED - ${new Date().toLocaleDateString()}]\n${resolutionNote.trim()}`,
-      // Clear alert status fields
-      alert_status: null,
-      alert_status_at: null,
+      // Clear escalation/blocker fields (column is attention_level, not alert_status)
+      attention_level: 'Standard',
+      is_blocked: false,
       blocker_reason: null,
     };
     

@@ -366,18 +366,28 @@ export default function GlobalStatsGrid({
         isActive={isCardActive('achieved')}
         onClick={onCardClick ? () => handleCardClick('achieved') : undefined}
         footerContent={(
-          <div className="flex items-center gap-1 text-xs">
-            <PieChart className="w-2.5 h-2.5 text-emerald-200" />
-            <span className="font-bold text-white/90">
-              {stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : '0'}%
-            </span>
-            <span className="text-[8px] uppercase text-white/50">of Total</span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 text-xs">
+              <PieChart className="w-2.5 h-2.5 text-emerald-200" />
+              <span className="font-bold text-white/90">
+                {stats.total > 0 ? ((stats.achieved / stats.total) * 100).toFixed(1) : '0'}%
+              </span>
+              <span className="text-[8px] uppercase text-white/50">of Total</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide">
+              <span className="text-emerald-100">{stats.verifiedAchieved} verified</span>
+              {stats.pendingVerification > 0 && (
+                <span className="text-amber-100">{stats.pendingVerification} pending</span>
+              )}
+            </div>
           </div>
         )}
         tooltipContent={
           <div className="space-y-1">
             <p className="font-medium border-b border-gray-600 pb-1 mb-1">{labels.achieved}</p>
-            <p><span className="font-bold text-emerald-400">{stats.achieved}</span> successfully completed</p>
+            <p><span className="font-bold text-emerald-400">{stats.achieved}</span> marked achieved by user</p>
+            <p className="text-xs text-gray-300">{stats.verifiedAchieved} verified by admin{stats.pendingVerification > 0 ? `, ${stats.pendingVerification} awaiting verification` : ''}</p>
+            <p className="text-xs text-gray-500">Only verified achievements count toward completion rate.</p>
             {stats.total > 0 && (
               <p className="text-xs text-gray-400">
                 {((stats.achieved / stats.total) * 100).toFixed(1)}% of total

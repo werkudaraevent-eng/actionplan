@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDepartmentContext } from '../context/DepartmentContext';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useActionPlans } from '../hooks/useActionPlans';
+import { isVerifiedAchieved } from '../utils/completionUtils';
 import { useDepartments } from '../hooks/useDepartments';
 import DataTable, { useColumnVisibility } from '../components/action-plan/DataTable';
 import ActionPlanModal from '../components/action-plan/ActionPlanModal';
@@ -299,8 +300,9 @@ export default function StaffWorkspace() {
     const pending = filteredPlans.filter((p) => p.status === 'Open').length;
     const notAchieved = filteredPlans.filter((p) => p.status === 'Not Achieved').length;
 
-    // Completion rate based on filtered data
-    const completionRate = total > 0 ? Number(((achieved / total) * 100).toFixed(1)) : 0;
+    // Completion rate based on filtered data (verified achievements only)
+    const verifiedAchieved = filteredPlans.filter(isVerifiedAchieved).length;
+    const completionRate = total > 0 ? Number(((verifiedAchieved / total) * 100).toFixed(1)) : 0;
 
     // Verification Score calculation based on filtered data
     const gradedPlans = filteredPlans.filter((p) => p.quality_score != null && p.quality_score > 0);

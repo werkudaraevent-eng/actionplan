@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
 import { checkLockStatusServerSide } from '../utils/lockUtils';
+import { isVerifiedAchieved } from '../utils/completionUtils';
 
 // NOTE: Manual audit logging has been REMOVED from frontend.
 // The database trigger `log_action_plan_changes()` now handles ALL audit logging automatically.
@@ -1623,7 +1624,7 @@ export function useAggregatedStats() {
             deptMap[plan.department_code] = { total: 0, achieved: 0 };
           }
           deptMap[plan.department_code].total++;
-          if (plan.status === 'Achieved') {
+          if (isVerifiedAchieved(plan)) {
             deptMap[plan.department_code].achieved++;
           }
         });

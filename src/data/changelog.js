@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.15.0',
+    date: '2026-06-22',
+    title: 'Verified Completion Rate',
+    changes: [
+      { type: 'improvement', description: 'Completion rate dan semua grafik completion sekarang hanya menghitung plan yang sudah diverifikasi admin (Achieved + sudah diberi score)' },
+      { type: 'improvement', description: 'Plan yang di-mark Achieved oleh user tapi belum diverifikasi tidak lagi menggelembungkan completion rate — tampil sebagai "+N pending verify" di card' },
+      { type: 'improvement', description: 'Tooltip completion rate menampilkan estimasi rate jika semua plan pending diverifikasi, agar dept tetap punya gambaran pencapaian' },
+    ],
+  },
+  {
     version: '1.14.0',
     date: '2026-06-22',
     title: 'AI Executive Report — Per-Topic Analysis',

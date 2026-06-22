@@ -7,6 +7,7 @@ import { useDepartmentContext } from '../context/DepartmentContext';
 import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, getPicDisplayName } from '../utils/picUtils';
+import { isVerifiedAchieved } from '../utils/completionUtils';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import PriorityFocusWidget from '../components/dashboard/PriorityFocusWidget';
@@ -319,10 +320,11 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     if (yearFilteredPlans.length > 0) {
       const total = yearFilteredPlans.length;
       const achieved = yearFilteredPlans.filter((p) => p.status === 'Achieved').length;
+      const verifiedAchieved = yearFilteredPlans.filter(isVerifiedAchieved).length;
       const inProgress = yearFilteredPlans.filter((p) => p.status === 'On Progress').length;
       const pending = yearFilteredPlans.filter((p) => p.status === 'Open').length;
       const notAchieved = yearFilteredPlans.filter((p) => p.status === 'Not Achieved').length;
-      const rate = total > 0 ? parseFloat(((achieved / total) * 100).toFixed(1)) : 0;
+      const rate = total > 0 ? parseFloat(((verifiedAchieved / total) * 100).toFixed(1)) : 0;
 
       // FILTER MODE LOGIC:
       // - YTD Mode (FY + Current Year): Only count plans where month <= current month
@@ -511,8 +513,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
           dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: key };
         }
         dataMap[shortName].total++;
-        // Track achieved count for completion metric
-        if (plan.status === 'Achieved') {
+        // Track achieved count for completion metric (verified achievements only)
+        if (isVerifiedAchieved(plan)) {
           dataMap[shortName].achieved++;
         }
         // Track quality scores for graded items (score metric)
@@ -574,8 +576,8 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
         }
         dataMap[key].total++;
 
-        // Track achieved count for completion metric
-        if (plan.status === 'Achieved') {
+        // Track achieved count for completion metric (verified achievements only)
+        if (isVerifiedAchieved(plan)) {
           dataMap[key].achieved++;
         }
 
@@ -675,7 +677,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const month = plan.month || 'Unknown';
       if (!currentMap[month]) currentMap[month] = { total: 0, achieved: 0, scores: [] };
       currentMap[month].total++;
-      if (plan.status === 'Achieved') currentMap[month].achieved++;
+      if (isVerifiedAchieved(plan)) currentMap[month].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         currentMap[month].scores.push(plan.quality_score);
       }
@@ -694,7 +696,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const month = plan.month || 'Unknown';
       if (!compMap[month]) compMap[month] = { total: 0, achieved: 0, scores: [] };
       compMap[month].total++;
-      if (plan.status === 'Achieved') compMap[month].achieved++;
+      if (isVerifiedAchieved(plan)) compMap[month].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         compMap[month].scores.push(plan.quality_score);
       }
@@ -811,7 +813,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const quarter = getQuarter(plan.month);
       if (!currentMap[quarter]) currentMap[quarter] = { total: 0, achieved: 0, scores: [] };
       currentMap[quarter].total++;
-      if (plan.status === 'Achieved') currentMap[quarter].achieved++;
+      if (isVerifiedAchieved(plan)) currentMap[quarter].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         currentMap[quarter].scores.push(plan.quality_score);
       }
@@ -832,7 +834,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       const quarter = getQuarter(plan.month);
       if (!compMap[quarter]) compMap[quarter] = { total: 0, achieved: 0, scores: [] };
       compMap[quarter].total++;
-      if (plan.status === 'Achieved') compMap[quarter].achieved++;
+      if (isVerifiedAchieved(plan)) compMap[quarter].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         compMap[quarter].scores.push(plan.quality_score);
       }

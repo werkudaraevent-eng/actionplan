@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle, CircleDashed } from 'lucide-react';
 import KPICard from './KPICard';
+import { isVerifiedAchieved, isPendingVerification } from '../../utils/completionUtils';
 
 // Constants
 // NOTE: Both completion and verification targets are now driven by the dynamic
@@ -77,6 +78,8 @@ export default function GlobalStatsGrid({
       return {
         total: 0,
         achieved: 0,
+        verifiedAchieved: 0,
+        pendingVerification: 0,
         inProgress: 0,
         open: 0,
         notAchieved: 0,
@@ -90,6 +93,8 @@ export default function GlobalStatsGrid({
     // RAW COUNTS - Respect the parent's filter for all status cards
     const total = plans.length;
     const achieved = plans.filter(p => p.status === 'Achieved').length;
+    const verifiedAchieved = plans.filter(isVerifiedAchieved).length;
+    const pendingVerification = plans.filter(isPendingVerification).length;
     const inProgress = plans.filter(p => p.status === 'On Progress').length;
     const open = plans.filter(p => p.status === 'Open').length;
     const notAchieved = plans.filter(p => p.status === 'Not Achieved').length;
@@ -108,9 +113,15 @@ export default function GlobalStatsGrid({
       return !isFuture || isResolved;
     });
 
-    // Completion Rate: Achieved / Assessable Plans (fair denominator)
+    // Completion Rate: VERIFIED Achieved / Assessable Plans (fair denominator)
+    // Only admin-verified achievements (quality_score != null) count toward the official rate;
+    // plans claimed Achieved but not yet scored are surfaced separately as pendingVerification.
     const assessableCount = assessablePlans.length;
-    const completionRate = assessableCount > 0 ? Number(((achieved / assessableCount) * 100).toFixed(1)) : 0;
+    const assessableVerifiedAchieved = assessablePlans.filter(isVerifiedAchieved).length;
+    const assessablePending = assessablePlans.filter(isPendingVerification).length;
+    const completionRate = assessableCount > 0 ? Number(((assessableVerifiedAchieved / assessableCount) * 100).toFixed(1)) : 0;
+    // Provisional rate if all currently-pending claims were verified — shown in the badge/tooltip.
+    const claimedCompletionRate = assessableCount > 0 ? Number((((assessableVerifiedAchieved + assessablePending) / assessableCount) * 100).toFixed(1)) : 0;
 
     // Verification Score: Average quality_score of all GRADED finalized items
     // Include: plans with quality_score != null (both Achieved and Not Achieved)
@@ -135,10 +146,14 @@ export default function GlobalStatsGrid({
     return {
       total,
       achieved,
+      verifiedAchieved,
+      pendingVerification,
       inProgress,
       open,
       notAchieved,
       completionRate,
+      claimedCompletionRate,
+      assessablePending,
       qualityScore,
       gradedCount,
       assessableCount
@@ -235,7 +250,11 @@ export default function GlobalStatsGrid({
                 />
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-[8px] uppercase text-white/50">Target: {TARGET}%</span>
+                {stats.assessablePending > 0 ? (
+                  <span className="text-[8px] uppercase text-white/70 font-bold">+{stats.assessablePending} pending verify</span>
+                ) : (
+                  <span className="text-[8px] uppercase text-white/50">Target: {TARGET}%</span>
+                )}
                 <div className={`flex items-center gap-0.5 font-bold ${isCompletionPositive ? 'text-emerald-100' : 'text-rose-100'}`}>
                   {isCompletionPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
                   <span>{isCompletionPositive ? '+' : ''}{completionGap.toFixed(1)}%</span>
@@ -248,9 +267,12 @@ export default function GlobalStatsGrid({
         tooltipContent={
           <div className="space-y-1">
             <p className="font-medium border-b border-gray-600 pb-1 mb-1">{labels.completion}</p>
-            <p><span className="font-bold text-green-400">{stats.achieved} of {stats.assessableCount}</span> assessable {scope === 'personal' ? 'tasks' : 'plans'} achieved</p>
-            <p className="text-xs text-gray-400">Company Target: {TARGET}%</p>
-            <p className="text-xs text-gray-500 mt-1">Formula: {stats.achieved} ÷ {stats.assessableCount} × 100</p>
+            <p><span className="font-bold text-green-400">{stats.verifiedAchieved} of {stats.assessableCount}</span> assessable {scope === 'personal' ? 'tasks' : 'plans'} verified achieved</p>
+            <p className="text-xs text-gray-400">Only admin-verified achievements count toward this rate.</p>
+            {stats.assessablePending > 0 && (
+              <p className="text-xs text-amber-300">{stats.assessablePending} claimed but awaiting verification → up to {stats.claimedCompletionRate}% if all approved</p>
+            )}
+            <p className="text-xs text-gray-500 mt-1">Formula: {stats.verifiedAchieved} ÷ {stats.assessableCount} × 100</p>
             {stats.assessableCount < stats.total && (
               <p className="text-xs text-gray-500">({stats.total - stats.assessableCount} future open plans excluded from rate)</p>
             )}

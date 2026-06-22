@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { Target, Star, CheckCircle2, ChevronDown } from 'lucide-react';
+import { isVerifiedAchieved } from '../../utils/completionUtils';
 
 // Sort dropdown for charts
 function SortDropdown({ value, onChange }) {
@@ -32,7 +33,7 @@ export default function StrategyComboChart({ plans, isCompletionView = true, sor
         strategyMap[strategy] = { total: 0, achieved: 0, scores: [], submitted: 0 };
       }
       strategyMap[strategy].total++;
-      if (plan.status === 'Achieved') {
+      if (isVerifiedAchieved(plan)) {
         strategyMap[strategy].achieved++;
       }
       // Track quality scores for submitted items

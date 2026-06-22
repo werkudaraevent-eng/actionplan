@@ -8,6 +8,7 @@ import { useActionPlans } from '../hooks/useActionPlans';
 import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, getPicDisplayName } from '../utils/picUtils';
+import { isVerifiedAchieved } from '../utils/completionUtils';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import StrategyComboChart from '../components/dashboard/StrategyComboChart';
@@ -566,7 +567,8 @@ export default function AdminDashboard({ onNavigate }) {
       const deptKey = (plan.department_code || '').trim().toUpperCase();
       if (!deptMap[deptKey]) deptMap[deptKey] = { total: 0, achieved: 0, scores: [] };
       deptMap[deptKey].total++;
-      if (plan.status === 'Achieved') deptMap[deptKey].achieved++;
+      // Completion counts only admin-verified achievements (status Achieved AND scored)
+      if (isVerifiedAchieved(plan)) deptMap[deptKey].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         deptMap[deptKey].scores.push(plan.quality_score);
@@ -680,8 +682,8 @@ export default function AdminDashboard({ onNavigate }) {
   const qualityStats = useMemo(() => {
     const currentYear = new Date().getFullYear();
 
-    // --- 1. COMPLETION RATE ---
-    const achieved = effectivePlans.filter(p => p.status === 'Achieved').length;
+    // --- 1. COMPLETION RATE (verified achievements only) ---
+    const achieved = effectivePlans.filter(isVerifiedAchieved).length;
     const statsTotal = effectivePlans.length;
     let completionRate = statsTotal > 0
       ? Number(((achieved / statsTotal) * 100).toFixed(1))
@@ -748,7 +750,7 @@ export default function AdminDashboard({ onNavigate }) {
       const month = plan.month;
       if (!currentYearMap[month]) currentYearMap[month] = { total: 0, achieved: 0, scores: [] };
       currentYearMap[month].total++;
-      if (plan.status === 'Achieved') currentYearMap[month].achieved++;
+      if (isVerifiedAchieved(plan)) currentYearMap[month].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         currentYearMap[month].scores.push(plan.quality_score);
@@ -761,7 +763,7 @@ export default function AdminDashboard({ onNavigate }) {
       const month = plan.month;
       if (!comparisonMap[month]) comparisonMap[month] = { total: 0, achieved: 0, scores: [] };
       comparisonMap[month].total++;
-      if (plan.status === 'Achieved') comparisonMap[month].achieved++;
+      if (isVerifiedAchieved(plan)) comparisonMap[month].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         comparisonMap[month].scores.push(plan.quality_score);
@@ -877,7 +879,7 @@ export default function AdminDashboard({ onNavigate }) {
         const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
         if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: orgMetric === 'department_code' ? getDeptName(key) : key };
         dataMap[shortName].total++;
-        if (plan.status === 'Achieved') dataMap[shortName].achieved++;
+        if (isVerifiedAchieved(plan)) dataMap[shortName].achieved++;
         // Track quality scores for graded items
         if (plan.submission_status === 'submitted' && plan.quality_score != null) {
           dataMap[shortName].scores.push(plan.quality_score);
@@ -949,7 +951,7 @@ export default function AdminDashboard({ onNavigate }) {
       const shortName = key.length > 20 ? key.substring(0, 17) + '...' : key;
       if (!dataMap[shortName]) dataMap[shortName] = { total: 0, achieved: 0, scores: [], fullName: key };
       dataMap[shortName].total++;
-      if (plan.status === 'Achieved') dataMap[shortName].achieved++;
+      if (isVerifiedAchieved(plan)) dataMap[shortName].achieved++;
       // Track quality scores for graded items
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         dataMap[shortName].scores.push(plan.quality_score);
@@ -980,7 +982,7 @@ export default function AdminDashboard({ onNavigate }) {
       const area = plan.area_focus?.trim() || 'Unspecified';
       if (!areaMap[area]) areaMap[area] = { total: 0, achieved: 0, scores: [] };
       areaMap[area].total++;
-      if (plan.status === 'Achieved') areaMap[area].achieved++;
+      if (isVerifiedAchieved(plan)) areaMap[area].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         areaMap[area].scores.push(plan.quality_score);
       }
@@ -1025,7 +1027,7 @@ export default function AdminDashboard({ onNavigate }) {
 
       if (!catMap[cat]) catMap[cat] = { total: 0, achieved: 0, scores: [] };
       catMap[cat].total++;
-      if (plan.status === 'Achieved') catMap[cat].achieved++;
+      if (isVerifiedAchieved(plan)) catMap[cat].achieved++;
       if (plan.submission_status === 'submitted' && plan.quality_score != null) {
         catMap[cat].scores.push(plan.quality_score);
       }

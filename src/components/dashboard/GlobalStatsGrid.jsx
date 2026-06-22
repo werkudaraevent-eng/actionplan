@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle } from 'lucide-react';
+import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle, CircleDashed } from 'lucide-react';
 import KPICard from './KPICard';
 
 // Constants
@@ -53,7 +53,8 @@ export default function GlobalStatsGrid({
   showBadgeOnStatusCards = false,
   onCardClick,
   activeFilter = null,
-  targetPercentage = null // Dynamic target from annual_targets table
+  targetPercentage = null, // Dynamic target from annual_targets table
+  withStatusPanel = false // Enhanced 2+5 layout with Open card + status distribution panel
 }) {
   // Inventory badge - shows the filter context (FY 2026, Q1, Jan - Mar, etc.)
   const inventoryBadge = dateContext || (periodLabel ? periodLabel.trim().replace(/^\(|\)$/g, '') : '');
@@ -209,9 +210,7 @@ export default function GlobalStatsGrid({
   const completionGap = stats.completionRate - TARGET;
   const isCompletionPositive = completionGap >= 0;
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-      {/* 1. Completion Rate (YTD) */}
+  const completionCard = (
       <KPICard
         gradient="from-emerald-500 to-green-600"
         icon={CheckCircle2}
@@ -258,8 +257,9 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
 
-      {/* 2. Verification Score (YTD) */}
+  const verificationCard = (
       <KPICard
         gradient={stats.qualityScore === null ? 'from-gray-400 to-gray-500' :
           stats.qualityScore >= TARGET ? 'from-purple-500 to-purple-600' :
@@ -291,8 +291,9 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
 
-      {/* 3. Total Plans/Tasks - Uses FULL YEAR data */}
+  const totalCard = (
       <KPICard
         key="total-plans-card"
         icon={Target}
@@ -329,8 +330,9 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
 
-      {/* 4. Achieved */}
+  const achievedCard = (
       <KPICard
         gradient="from-emerald-500 to-emerald-600"
         icon={CheckCircle2}
@@ -362,8 +364,9 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
 
-      {/* 5. In Progress - ONLY 'On Progress' status, NOT 'Open' */}
+  const inProgressCard = (
       <KPICard
         gradient="from-amber-500 to-orange-600"
         icon={Clock}
@@ -396,8 +399,9 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
 
-      {/* 6. Not Achieved */}
+  const notAchievedCard = (
       <KPICard
         gradient="from-red-500 to-red-600"
         icon={XCircle}
@@ -429,6 +433,123 @@ export default function GlobalStatsGrid({
           </div>
         }
       />
+  );
+
+  const openCard = (
+      <KPICard
+        gradient="from-slate-500 to-slate-600"
+        icon={CircleDashed}
+        value={stats.open}
+        label="Open"
+        labelColor="text-slate-100"
+        size="compact"
+        badge={showBadgeOnStatusCards ? inventoryBadge : undefined}
+        isActive={isCardActive('open')}
+        onClick={onCardClick ? () => handleCardClick('open') : undefined}
+        footerContent={(
+          <div className="flex items-center gap-1 text-xs">
+            <PieChart className="w-2.5 h-2.5 text-slate-200" />
+            <span className="font-bold text-white/90">
+              {stats.total > 0 ? ((stats.open / stats.total) * 100).toFixed(1) : '0'}%
+            </span>
+            <span className="text-[8px] uppercase text-white/50">of Total</span>
+          </div>
+        )}
+        tooltipContent={
+          <div className="space-y-1">
+            <p className="font-medium border-b border-gray-600 pb-1 mb-1">Open</p>
+            <p><span className="font-bold text-slate-300">{stats.open}</span> not started yet</p>
+            <p className="text-xs text-gray-400 mt-1">Status: "Open" (no update)</p>
+            {stats.total > 0 && (
+              <p className="text-xs text-gray-400">
+                {((stats.open / stats.total) * 100).toFixed(1)}% of total
+              </p>
+            )}
+          </div>
+        }
+      />
+  );
+
+  // Status distribution stacked bar (fills the top-right space in enhanced layout)
+  const distTotal = stats.open + stats.inProgress + stats.achieved + stats.notAchieved;
+  const distSegments = [
+    { key: 'open', label: 'Open', count: stats.open, bar: 'bg-slate-400', dot: 'bg-slate-400', filter: 'open' },
+    { key: 'in-progress', label: 'In Progress', count: stats.inProgress, bar: 'bg-amber-400', dot: 'bg-amber-400', filter: 'in-progress' },
+    { key: 'achieved', label: 'Achieved', count: stats.achieved, bar: 'bg-emerald-500', dot: 'bg-emerald-500', filter: 'achieved' },
+    { key: 'not-achieved', label: 'Not Achieved', count: stats.notAchieved, bar: 'bg-red-500', dot: 'bg-red-500', filter: 'not-achieved' },
+  ];
+
+  const statusPanel = (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-bold text-gray-700">Status Distribution</p>
+        <span className="text-xs text-gray-400">{distTotal} {scope === 'personal' ? 'tasks' : 'plans'}</span>
+      </div>
+      <div className="flex h-3 w-full rounded-full overflow-hidden bg-gray-100 mb-3">
+        {distTotal > 0 && distSegments.map(seg => (
+          seg.count > 0 ? (
+            <div
+              key={seg.key}
+              className={`${seg.bar} h-full`}
+              style={{ width: `${(seg.count / distTotal) * 100}%` }}
+              title={`${seg.label}: ${seg.count}`}
+            />
+          ) : null
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-auto">
+        {distSegments.map(seg => (
+          <button
+            key={seg.key}
+            type="button"
+            onClick={onCardClick ? () => handleCardClick(seg.filter) : undefined}
+            className={`flex items-center justify-between text-left transition-opacity ${onCardClick ? 'cursor-pointer hover:opacity-70' : 'cursor-default'} ${isCardActive(seg.filter) ? 'font-bold' : ''}`}
+          >
+            <span className="flex items-center gap-1.5 text-xs text-gray-600">
+              <span className={`w-2.5 h-2.5 rounded-sm ${seg.dot}`} />
+              {seg.label}
+            </span>
+            <span className="text-xs font-semibold text-gray-800">
+              {seg.count}
+              <span className="text-gray-400 font-normal ml-1">
+                {distTotal > 0 ? `${((seg.count / distTotal) * 100).toFixed(0)}%` : '0%'}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Enhanced layout: 2 scoring cards + status panel on top, 5 status cards below
+  if (withStatusPanel) {
+    return (
+      <div className="space-y-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {completionCard}
+          {verificationCard}
+          <div className="md:col-span-2">{statusPanel}</div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+          {totalCard}
+          {openCard}
+          {inProgressCard}
+          {achievedCard}
+          {notAchievedCard}
+        </div>
+      </div>
+    );
+  }
+
+  // Default layout: original 6-card grid (unchanged for other dashboards)
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      {completionCard}
+      {verificationCard}
+      {totalCard}
+      {achievedCard}
+      {inProgressCard}
+      {notAchievedCard}
     </div>
   );
 }

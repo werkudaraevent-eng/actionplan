@@ -942,6 +942,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           plans={filteredPlans}
           scope="company"
           loading={loading}
+          withStatusPanel={true}
           targetPercentage={annualTarget}
           dateContext={startMonth === 'Jan' && endMonth === 'Dec' ? `FY ${CURRENT_YEAR}` : (startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`)}
           periodLabel={startMonth === 'Jan' && endMonth === 'Dec' ? '' : ` (${startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`})`}

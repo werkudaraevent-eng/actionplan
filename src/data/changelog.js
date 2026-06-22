@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.13.0',
+    date: '2026-06-22',
+    title: 'Open Card & Status Distribution',
+    changes: [
+      { type: 'feature', description: 'Card "Open" baru di halaman All Action Plans untuk plan yang masih Open (belum ada update) — memudahkan capture untuk report' },
+      { type: 'feature', description: 'Panel Status Distribution dengan stacked-bar (Open, In Progress, Achieved, Not Achieved) plus persentase, bisa diklik untuk filter tabel' },
+      { type: 'improvement', description: 'Header All Action Plans memakai layout 2+5: 2 card scoring + panel distribusi di atas, 5 card count status di bawah' },
+    ],
+  },
+  {
     version: '1.12.0',
     date: '2026-06-22',
     title: 'Monthly Submission Matrix',

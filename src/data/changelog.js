@@ -13,6 +13,17 @@
 
 export const CHANGELOG = [
   {
+    version: '1.14.0',
+    date: '2026-06-22',
+    title: 'AI Executive Report — Per-Topic Analysis',
+    changes: [
+      { type: 'feature', description: 'Generate AI Report sekarang menganalisa per topik per slide secara sekuensial — satu slide gagal/timeout tidak menghapus slide lain' },
+      { type: 'feature', description: 'Tiap slide AI menampilkan headline, highlight angka (dipilih AI), dan poin analisa spesifik dengan retry per slide' },
+      { type: 'improvement', description: 'AI memakai reasoning model dan diberi data spesifik per topik (judul plan at-risk, PIC, blocker, carry-over) agar analisa tajam, bukan generik' },
+      { type: 'improvement', description: 'Render progresif: status AI per slide (pending/loading/done/error) terlihat saat generate berjalan' },
+    ],
+  },
+  {
     version: '1.13.0',
     date: '2026-06-22',
     title: 'Open Card & Status Distribution',

@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, Download, FileText, Loader2, ShieldAlert, TrendingUp } from 'lucide-react';
+import { AlertTriangle, BarChart3, BrainCircuit, CheckCircle2, ClipboardList, Download, FileText, Loader2, RefreshCw, ShieldAlert, Sparkles, TrendingUp } from 'lucide-react';
 import { Bar, BarChart, Cell, LabelList, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useDepartments } from '../hooks/useDepartments';
+import { usePicProfiles } from '../hooks/usePicProfiles';
+import { getPicDisplayName } from '../utils/picUtils';
 import { supabase } from '../lib/supabase';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
 const CURRENT_YEAR = new Date().getFullYear();
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+// Topics map 1:1 to slides. Generated sequentially so one timeout/failure never loses the rest.
+const TOPICS = [
+  { key: 'executive_summary', label: 'Executive Summary' },
+  { key: 'performance_trend', label: 'Performance & Trend' },
+  { key: 'department_spotlight', label: 'Department Spotlight' },
+  { key: 'priority_calibration', label: 'Priority Calibration' },
+  { key: 'failure_risk', label: 'Failure & Risk' },
+  { key: 'decision_agenda', label: 'Decision Agenda' },
+];
 
 const statusTone = {
   strong: 'text-emerald-700 bg-emerald-50 border-emerald-200',
@@ -55,11 +67,11 @@ function getPreviousPeriod(month, year) {
   return { month: MONTHS[index - 1], year };
 }
 
-function buildBreakdownRows(rows, getKey, labels = {}) {
+function buildBreakdownRows(rows, getKey) {
   const grouped = new Map();
   rows.forEach((plan) => {
     const key = getKey(plan);
-    const current = grouped.get(key) || { key, label: labels[key] || key, total: 0, achieved: 0, scores: [] };
+    const current = grouped.get(key) || { key, label: key, total: 0, achieved: 0, scores: [] };
     current.total += 1;
     if (plan.status === 'Achieved') current.achieved += 1;
     if (typeof plan.quality_score === 'number' && Number.isFinite(plan.quality_score)) current.scores.push(plan.quality_score);
@@ -71,11 +83,6 @@ function buildBreakdownRows(rows, getKey, labels = {}) {
     completionRate: row.total ? (row.achieved / row.total) * 100 : 0,
     avgScore: avg(row.scores),
   }));
-}
-
-function formatRows(rows, labelKey = 'label') {
-  if (!rows.length) return 'No data';
-  return rows.map((row) => `${row[labelKey]} | ${row.total} | ${row.achieved} | ${Math.round(row.completionRate)}% | ${Math.round(row.avgScore) || 0}`).join('\n');
 }
 
 function isEvidenceWeak(plan) {
@@ -90,7 +97,7 @@ function hasLinkOnlyEvidence(plan) {
   return !!String(plan.outcome_link || '').trim() && attachmentCount === 0;
 }
 
-function Slide({ eyebrow, title, children, className = '' }) {
+function Slide({ eyebrow, title, badge, children, className = '' }) {
   return (
     <section className={`report-slide relative mx-auto aspect-video w-full max-w-[1280px] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.12)] ${className}`}>
       <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#02378D] via-sky-400 to-emerald-400" />
@@ -101,7 +108,7 @@ function Slide({ eyebrow, title, children, className = '' }) {
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#02378D]/70">{eyebrow}</p>
             <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">{title}</h2>
           </div>
-          <div className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500">Monthly Executive Report</div>
+          {badge || <div className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-500">Monthly Executive Report</div>}
         </div>
         <div className="min-h-0 flex-1">{children}</div>
       </div>
@@ -123,25 +130,6 @@ function KpiCard({ icon: Icon, label, value, detail, tone = 'neutral' }) {
   );
 }
 
-function insightToneClass(tone = 'neutral') {
-  const tones = {
-    strong: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-    watch: 'border-amber-200 bg-amber-50 text-amber-900',
-    danger: 'border-rose-200 bg-rose-50 text-rose-900',
-    neutral: 'border-sky-200 bg-sky-50 text-sky-900',
-  };
-  return tones[tone] || tones.neutral;
-}
-
-function VerdictLine({ tone = 'neutral', children }) {
-  return (
-    <div className={`flex items-start gap-3 rounded-2xl border px-5 py-3.5 text-sm font-semibold ${insightToneClass(tone)}`}>
-      <BrainCircuit className="mt-0.5 h-4 w-4 flex-shrink-0 opacity-70" />
-      <span className="leading-snug">{children}</span>
-    </div>
-  );
-}
-
 const CHART_BLUE = '#02378D';
 const CHART_RED = '#e11d48';
 const CHART_AMBER = '#d97706';
@@ -159,14 +147,14 @@ function ChartFrame({ children, height = 260 }) {
 
 function CompletionTrendChart({ data, target }) {
   return (
-    <ChartFrame height={300}>
+    <ChartFrame height={280}>
       <BarChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
         <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={32} />
         {Number.isFinite(target) && (
           <ReferenceLine y={target} stroke={CHART_AMBER} strokeDasharray="5 4" label={{ value: `Target ${target}%`, position: 'right', fill: CHART_AMBER, fontSize: 11 }} />
         )}
-        <Bar dataKey="completionRate" radius={[6, 6, 0, 0]} barSize={34} isAnimationActive={false}>
+        <Bar dataKey="completionRate" radius={[6, 6, 0, 0]} barSize={30} isAnimationActive={false}>
           {data.map((row) => (
             <Cell key={row.month} fill={row.isCurrent ? CHART_BLUE : '#cbd5e1'} />
           ))}
@@ -196,7 +184,7 @@ function DepartmentRankingChart({ data }) {
 
 function PriorityBar({ data, calibrationFlag }) {
   return (
-    <ChartFrame height={300}>
+    <ChartFrame height={280}>
       <BarChart data={data} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
         <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#475569', fontWeight: 700 }} axisLine={false} tickLine={false} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={32} />
@@ -213,8 +201,8 @@ function PriorityBar({ data, calibrationFlag }) {
 
 function FailureBar({ data }) {
   return (
-    <ChartFrame height={300}>
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 4 }}>
+    <ChartFrame height={280}>
+      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 56, left: 8, bottom: 4 }}>
         <XAxis type="number" hide />
         <YAxis type="category" dataKey="reason" tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} axisLine={false} tickLine={false} width={130} />
         <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={18} fill={CHART_RED} isAnimationActive={false}>
@@ -225,19 +213,11 @@ function FailureBar({ data }) {
   );
 }
 
-
 function actionSeverity(plan) {
   if (plan.status === 'Not Achieved') return 'Escalate';
   if (plan.status === 'Blocked' || plan.is_blocked) return 'Unblock';
   if (plan.status === 'On Progress') return 'Monitor';
   return 'Clarify';
-}
-
-function decisionType(plan) {
-  if (plan.status === 'Not Achieved') return 'Recovery decision';
-  if (plan.status === 'Blocked' || plan.is_blocked) return 'Resource decision';
-  if (String(plan.submission_status || '').includes('revision')) return 'Quality decision';
-  return 'Execution follow-up';
 }
 
 function SmallTable({ rows, columns, empty = 'No data for selected period.' }) {
@@ -260,44 +240,132 @@ function SmallTable({ rows, columns, empty = 'No data for selected period.' }) {
   );
 }
 
+const HIGHLIGHT_TONE = {
+  positive: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  negative: 'border-rose-200 bg-rose-50 text-rose-800',
+  warning: 'border-amber-200 bg-amber-50 text-amber-800',
+  neutral: 'border-slate-200 bg-slate-50 text-slate-700',
+};
+
+function HighlightChips({ highlights }) {
+  if (!highlights?.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {highlights.map((h, i) => (
+        <div key={i} className={`min-w-[96px] rounded-xl border px-3 py-2 ${HIGHLIGHT_TONE[h.tone] || HIGHLIGHT_TONE.neutral}`}>
+          <p className="text-xl font-black leading-none">{h.value}</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wide opacity-70">{h.label}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Renders the AI analysis for one topic, with explicit pending/loading/error/done states.
+function AiTopicPanel({ state, onRetry, dense = false }) {
+  if (!state || state.status === 'pending') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+        <Sparkles className="h-8 w-8 text-slate-300" />
+        <p className="mt-3 text-sm font-bold text-slate-500">AI analysis not generated yet</p>
+        <p className="mt-1 text-xs text-slate-400">Click "Generate AI Report" to analyze this slide.</p>
+      </div>
+    );
+  }
+  if (state.status === 'loading') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-sky-200 bg-sky-50 p-6 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
+        <p className="mt-3 text-sm font-bold text-sky-700">Analyzing this slide…</p>
+      </div>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-rose-200 bg-rose-50 p-6 text-center">
+        <AlertTriangle className="h-8 w-8 text-rose-500" />
+        <p className="mt-3 text-xs font-semibold text-rose-700">{state.error}</p>
+        {onRetry && (
+          <button onClick={onRetry} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100">
+            <RefreshCw className="h-3.5 w-3.5" /> Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const { result } = state;
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-hidden rounded-3xl border border-[#02378D]/15 bg-gradient-to-br from-[#02378D]/[0.03] to-white p-5">
+      <div className="flex items-center gap-2">
+        <BrainCircuit className="h-4 w-4 text-[#02378D]" />
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#02378D]">AI Analysis</p>
+      </div>
+      <p className={`font-black leading-snug text-slate-950 ${dense ? 'text-base' : 'text-lg'}`}>{result.headline}</p>
+      <HighlightChips highlights={result.highlights} />
+      <ul className="mt-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 text-sm leading-snug text-slate-700">
+        {result.narrative.map((item, idx) => (
+          <li key={idx} className="flex gap-2">
+            <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#02378D]/60" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function planDetail(plan, profileMap) {
+  return {
+    title: String(plan.action_plan || 'Untitled').slice(0, 120),
+    department: plan.department_code,
+    pic: getPicDisplayName(plan, profileMap),
+    priority: getPriority(plan),
+    status: plan.status,
+    blocker: plan.blocker_reason || plan.blocker_category || null,
+    failure_reason: plan.status === 'Not Achieved' ? getFailureReason(plan) : null,
+    carry_over_count: plan.carry_over_count || 0,
+  };
+}
+
 export default function MonthlyExecutiveReport() {
   const { activeCompanyId, activeCompany, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
   const { departments } = useDepartments(effectiveCompanyId);
+  const { profileMap } = usePicProfiles(plans);
 
   const [selectedMonth, setSelectedMonth] = useState(MONTHS[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedDept, setSelectedDept] = useState('All');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState(null);
-  const [aiNarrative, setAiNarrative] = useState(null);
   const [annualTargetRate, setAnnualTargetRate] = useState(null);
+  const [topicResults, setTopicResults] = useState({}); // key -> { status, result, error }
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
     async function loadAnnualTarget() {
       if (!supabase || !activeCompanyId) {
         setAnnualTargetRate(null);
         return;
       }
-
-      const query = supabase
+      const { data, error } = await supabase
         .from('annual_targets')
         .select('target_percentage')
         .eq('year', selectedYear)
         .eq('company_id', activeCompanyId)
         .maybeSingle();
-
-      const { data, error } = await query;
       if (cancelled) return;
       setAnnualTargetRate(error ? null : (typeof data?.target_percentage === 'number' ? data.target_percentage : null));
     }
-
     loadAnnualTarget();
     return () => { cancelled = true; };
   }, [activeCompanyId, selectedYear]);
+
+  // Reset AI results whenever the period/scope changes — stale analysis must not linger.
+  useEffect(() => {
+    setTopicResults({});
+  }, [selectedMonth, selectedYear, selectedDept, activeCompanyId]);
 
   const report = useMemo(() => {
     const periodPlans = plans.filter((plan) => {
@@ -336,19 +404,16 @@ export default function MonthlyExecutiveReport() {
     }).filter((row) => row.total > 0).sort((a, b) => b.completionRate - a.completionRate || b.avgScore - a.avgScore);
 
     const failedPlans = periodPlans.filter((plan) => plan.status === 'Not Achieved');
+    const blockedPlans = periodPlans.filter((plan) => plan.status === 'Blocked' || plan.is_blocked);
     const causeCounts = new Map();
     failedPlans.forEach((plan) => {
       const cause = getFailureReason(plan);
       causeCounts.set(cause, (causeCounts.get(cause) || 0) + 1);
     });
-    periodPlans.filter((plan) => plan.status === 'Blocked' || plan.is_blocked).forEach((plan) => {
+    blockedPlans.forEach((plan) => {
       const cause = plan.blocker_category || parseCause(plan) || 'Blocked without cause tag';
       causeCounts.set(cause, (causeCounts.get(cause) || 0) + 1);
     });
-    const bottlenecks = Array.from(causeCounts.entries())
-      .map(([cause, count]) => ({ cause, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
 
     const failureRows = Array.from(causeCounts.entries())
       .map(([reason, count]) => ({ reason, count, percentage: failedPlans.length ? (count / failedPlans.length) * 100 : 0 }))
@@ -372,8 +437,7 @@ export default function MonthlyExecutiveReport() {
       .sort((a, b) => {
         const severity = { 'Not Achieved': 3, Blocked: 2, 'On Progress': 1, Open: 0 };
         return (severity[b.status] || 0) - (severity[a.status] || 0);
-      })
-      .slice(0, 8);
+      });
 
     const topDept = departmentRows[0];
     const lowestDept = departmentRows[departmentRows.length - 1];
@@ -389,9 +453,7 @@ export default function MonthlyExecutiveReport() {
       return {
         month: m,
         total: rows.length,
-        achieved: mAchieved,
         completionRate: rows.length ? Math.round((mAchieved / rows.length) * 100) : 0,
-        avgScore: Math.round(avg(rows.map((plan) => plan.quality_score))) || 0,
         isCurrent: m === selectedMonth,
       };
     });
@@ -404,163 +466,155 @@ export default function MonthlyExecutiveReport() {
     const blindSpot = !!(failedPlans.length > 0 && unspecified && (unspecified.count / failedPlans.length) > 0.3);
 
     return {
-      periodPlans,
-      total,
-      achieved,
-      notAchieved,
-      blocked,
-      inProgress,
-      open,
-      completionRate,
-      averageScore,
-      weakEvidence,
-      linkOnlyEvidence,
-      carryOver,
-      revision,
-      departmentRows,
-      priorityRows,
-      failureRows,
-      previousPeriod,
-      previousRate,
-      bottlenecks,
-      actionItems,
-      topDept,
-      lowestDept,
-      riskTone,
-      monthlyTrend,
-      priorityCalibrationFlag,
-      blindSpot,
+      total, achieved, notAchieved, blocked, inProgress, open, completionRate, averageScore,
+      weakEvidence, linkOnlyEvidence, carryOver, revision,
+      departmentRows, failedPlans, blockedPlans, failureRows, priorityRows,
+      previousPeriod, previousRate, actionItems, topDept, lowestDept, riskTone,
+      monthlyTrend, priorityCalibrationFlag, blindSpot,
     };
   }, [plans, departments, selectedMonth, selectedYear, selectedDept]);
 
-  const reportPayload = useMemo(() => {
-    const departmentLabel = selectedDept === 'All'
-      ? 'All Departments'
-      : `${selectedDept} — ${departments.find((dept) => dept.code === selectedDept)?.name || selectedDept}`;
-    const departmentRows = report.departmentRows.slice(0, 12).map((row) => ({
-      dept: row.code,
-      name: row.name,
-      total: row.total,
-      achieved: row.achieved,
-      rate: Math.round(row.completionRate),
-      avg_score: Math.round(row.avgScore) || 0,
-    }));
-    const priorityRows = report.priorityRows.map((row) => ({
-      priority: row.label,
-      total: row.total,
-      achieved: row.achieved,
-      rate: Math.round(row.completionRate),
-      avg_score: Math.round(row.avgScore) || 0,
-    }));
-    const failureReasonRows = report.failureRows.map((row) => ({
-      reason: row.reason,
-      count: row.count,
-      percentage: Math.round(row.percentage),
-    }));
+  // Topic-specific payloads — each slide gets exactly the data its analysis needs, including
+  // plan-level detail (titles, PIC, blockers, carry-over) so the AI can be specific, not generic.
+  const buildTopicData = useMemo(() => {
+    const atRisk = report.blocked + report.notAchieved;
+    return (topic) => {
+      switch (topic) {
+        case 'executive_summary':
+          return {
+            total_plans: report.total,
+            achieved: report.achieved,
+            completion_rate: Math.round(report.completionRate),
+            avg_verification_score: Math.round(report.averageScore) || 0,
+            in_progress: report.inProgress,
+            open: report.open,
+            not_achieved: report.notAchieved,
+            at_risk: atRisk,
+            previous_period_rate: report.previousRate == null ? null : Math.round(report.previousRate),
+            target_rate: annualTargetRate == null ? null : Math.round(annualTargetRate),
+            top_department: report.topDept ? { code: report.topDept.code, rate: Math.round(report.topDept.completionRate) } : null,
+            bottom_department: report.lowestDept ? { code: report.lowestDept.code, rate: Math.round(report.lowestDept.completionRate) } : null,
+            weak_evidence: report.weakEvidence + report.linkOnlyEvidence,
+          };
+        case 'performance_trend':
+          return {
+            completion_rate: Math.round(report.completionRate),
+            previous_period: report.previousRate == null ? null : { month: report.previousPeriod.month, rate: Math.round(report.previousRate) },
+            target_rate: annualTargetRate == null ? null : Math.round(annualTargetRate),
+            monthly_trend: report.monthlyTrend.map((m) => ({ month: m.month, rate: m.completionRate, plans: m.total })),
+          };
+        case 'department_spotlight': {
+          const top = report.topDept;
+          const bottom = report.lowestDept;
+          const bottomRisk = bottom
+            ? report.failedPlans.concat(report.blockedPlans)
+                .filter((p) => p.department_code === bottom.code)
+                .slice(0, 5)
+                .map((p) => planDetail(p, profileMap))
+            : [];
+          return {
+            departments: report.departmentRows.slice(0, 12).map((r) => ({
+              code: r.code, name: r.name, total: r.total, achieved: r.achieved,
+              rate: Math.round(r.completionRate), avg_score: Math.round(r.avgScore) || 0, at_risk: r.atRisk,
+            })),
+            top_department: top ? { code: top.code, name: top.name, rate: Math.round(top.completionRate), avg_score: Math.round(top.avgScore) || 0 } : null,
+            bottom_department: bottom ? { code: bottom.code, name: bottom.name, rate: Math.round(bottom.completionRate), avg_score: Math.round(bottom.avgScore) || 0 } : null,
+            bottom_department_at_risk_plans: bottomRisk,
+          };
+        }
+        case 'priority_calibration':
+          return {
+            priorities: report.priorityRows.filter((r) => r.total > 0).map((r) => ({
+              priority: r.label, total: r.total, achieved: r.achieved,
+              rate: Math.round(r.completionRate), avg_score: Math.round(r.avgScore) || 0,
+            })),
+            ultra_high_trails_high: report.priorityCalibrationFlag,
+          };
+        case 'failure_risk':
+          return {
+            total_failed: report.notAchieved,
+            total_blocked: report.blocked,
+            failure_reasons: report.failureRows.map((r) => ({ reason: r.reason, count: r.count, percentage: Math.round(r.percentage) })),
+            unspecified_blind_spot: report.blindSpot,
+            at_risk_plans: report.failedPlans.concat(report.blockedPlans).slice(0, 10).map((p) => planDetail(p, profileMap)),
+          };
+        case 'decision_agenda':
+          return {
+            unresolved_count: report.actionItems.length,
+            unresolved_plans: report.actionItems.slice(0, 12).map((p) => ({ ...planDetail(p, profileMap), severity: actionSeverity(p) })),
+          };
+        default:
+          return {};
+      }
+    };
+  }, [report, annualTargetRate, profileMap]);
 
-    return {
+  const departmentLabel = selectedDept === 'All'
+    ? 'All Departments'
+    : `${selectedDept} — ${departments.find((dept) => dept.code === selectedDept)?.name || selectedDept}`;
+
+  async function callTopic(topic) {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    const accessToken = sessionData?.session?.access_token;
+    if (!accessToken) throw new Error('Missing active session');
+
+    const payload = {
       company_id: effectiveCompanyId || activeCompanyId,
       period: { month: selectedMonth, year: selectedYear, label: `${selectedMonth} ${selectedYear}` },
       department_filter: departmentLabel,
-      performance_data: {
-        total_plans: report.total,
-        achieved: report.achieved,
-        completion_rate: Math.round(report.completionRate),
-        in_progress: report.inProgress,
-        open_plans: report.open,
-        not_achieved: report.notAchieved,
-        avg_score: Math.round(report.averageScore) || 0,
-        prev_rate: report.previousRate == null ? null : Math.round(report.previousRate),
-        target_rate: annualTargetRate == null ? null : Math.round(annualTargetRate),
-      },
-      department_rows: departmentRows,
-      department_rows_text: departmentRows.length ? departmentRows.map((row) => `${row.dept} | ${row.total} | ${row.achieved} | ${row.rate}% | ${row.avg_score}`).join('\n') : 'No department data',
-      priority_rows: priorityRows,
-      priority_rows_text: priorityRows.length ? priorityRows.map((row) => `${row.priority} | ${row.total} | ${row.achieved} | ${row.rate}% | ${row.avg_score}`).join('\n') : 'No priority data',
-      failure_reason_rows: failureReasonRows,
-      failure_reason_rows_text: failureReasonRows.length ? failureReasonRows.map((row) => `${row.reason} | ${row.count} | ${row.percentage}%`).join('\n') : 'No failure reasons',
-      previous_period: report.previousRate == null ? null : {
-        month: report.previousPeriod.month,
-        year: report.previousPeriod.year,
-        completion_rate: Math.round(report.previousRate),
-      },
-      overview: {
-        total: report.total,
-        achieved: report.achieved,
-        completion_rate: Math.round(report.completionRate),
-        average_score: Math.round(report.averageScore),
-        risk_tone: report.riskTone,
-        at_risk: report.blocked + report.notAchieved,
-      },
-      kpi_snapshot: {
-        open: report.open,
-        in_progress: report.inProgress,
-        blocked: report.blocked,
-        not_achieved: report.notAchieved,
-        carry_over: report.carryOver,
-        revision: report.revision,
-        weak_evidence: report.weakEvidence,
-        link_only_evidence: report.linkOnlyEvidence,
-      },
-      department_performance: report.departmentRows.slice(0, 8).map((row) => ({
-        code: row.code,
-        name: row.name,
-        total: row.total,
-        completion_rate: Math.round(row.completionRate),
-        average_score: Math.round(row.avgScore),
-        at_risk: row.atRisk,
-      })),
-      risk_bottleneck: report.bottlenecks,
-      evidence_quality: {
-        empty_evidence: report.weakEvidence,
-        link_only_evidence: report.linkOnlyEvidence,
-        evidence_ready: Math.max(report.total - report.weakEvidence - report.linkOnlyEvidence, 0),
-      },
-      carry_over_revision: { carry_over: report.carryOver, revision: report.revision },
-      action_agenda: report.actionItems.slice(0, 8).map((plan) => ({
-        department_code: plan.department_code,
-        status: plan.status,
-        category: plan.category,
-        decision_type: decisionType(plan),
-        severity: actionSeverity(plan),
-        action_plan: String(plan.action_plan || '').slice(0, 180),
-        issue: getFailureReason(plan) || String(plan.remark || '').slice(0, 140),
-      })),
+      topic,
+      data: buildTopicData(topic),
     };
-  }, [activeCompanyId, annualTargetRate, departments, effectiveCompanyId, report, selectedDept, selectedMonth, selectedYear]);
 
-  const generateAiNarrative = async () => {
-    setAiLoading(true);
-    setAiError(null);
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) throw new Error('Missing active session');
+    const response = await fetch(`${supabaseUrl}/functions/v1/generate-executive-report`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120000),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.error) throw new Error(data?.error || `AI failed (${response.status})`);
+    if (!data?.result) throw new Error('Empty AI response');
+    return data.result;
+  }
 
-      const payload = reportPayload;
-
-      const response = await fetch(`${supabaseUrl}/functions/v1/generate-executive-report`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(120000),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || data?.error) throw new Error(data?.error || `AI insights failed (${response.status})`);
-      setAiNarrative(data?.report || null);
-    } catch (error) {
-      setAiError(error.message || 'Failed to generate AI insights');
-    } finally {
-      setAiLoading(false);
+  async function generateReport() {
+    if (generating) return;
+    setGenerating(true);
+    setTopicResults(Object.fromEntries(TOPICS.map((t) => [t.key, { status: 'pending' }])));
+    for (const t of TOPICS) {
+      setTopicResults((prev) => ({ ...prev, [t.key]: { status: 'loading' } }));
+      try {
+        const result = await callTopic(t.key);
+        setTopicResults((prev) => ({ ...prev, [t.key]: { status: 'done', result } }));
+      } catch (err) {
+        setTopicResults((prev) => ({ ...prev, [t.key]: { status: 'error', error: err.message || 'Failed' } }));
+      }
     }
-  };
+    setGenerating(false);
+  }
+
+  async function regenerateTopic(topicKey) {
+    setTopicResults((prev) => ({ ...prev, [topicKey]: { status: 'loading' } }));
+    try {
+      const result = await callTopic(topicKey);
+      setTopicResults((prev) => ({ ...prev, [topicKey]: { status: 'done', result } }));
+    } catch (err) {
+      setTopicResults((prev) => ({ ...prev, [topicKey]: { status: 'error', error: err.message || 'Failed' } }));
+    }
+  }
 
   const companyName = isHoldingContext ? 'Werkudara Group Consolidated' : (activeCompany?.name || 'Company');
   const generatedAt = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+
+  const doneCount = TOPICS.filter((t) => topicResults[t.key]?.status === 'done').length;
+  const hasAnyResult = TOPICS.some((t) => topicResults[t.key]);
+  const slideBadge = (topicKey) => (
+    <div className="rounded-full border border-[#02378D]/20 bg-[#02378D]/5 px-3 py-1.5 text-[11px] font-bold text-[#02378D]">
+      {topicResults[topicKey]?.status === 'done' ? 'AI ✓' : topicResults[topicKey]?.status === 'loading' ? 'AI…' : 'AI —'}
+    </div>
+  );
 
   return (
     <div className="monthly-report-page min-h-screen bg-slate-100">
@@ -581,9 +635,9 @@ export default function MonthlyExecutiveReport() {
               <option value="All">All Departments</option>
               {departments.map((dept) => <option key={dept.code} value={dept.code}>{dept.code} — {dept.name}</option>)}
             </select>
-            <button onClick={generateAiNarrative} disabled={aiLoading || loading} className="inline-flex items-center gap-2 rounded-xl bg-[#02378D] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-900/20 hover:bg-blue-900 disabled:opacity-50">
-              {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrainCircuit className="h-4 w-4" />}
-              Generate AI Insights
+            <button onClick={generateReport} disabled={generating || loading} className="inline-flex items-center gap-2 rounded-xl bg-[#02378D] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-900/20 hover:bg-blue-900 disabled:opacity-50">
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrainCircuit className="h-4 w-4" />}
+              {generating ? `Generating ${doneCount}/${TOPICS.length}…` : hasAnyResult ? 'Regenerate AI Report' : 'Generate AI Report'}
             </button>
             <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
               <Download className="h-4 w-4" /> Print / Save PDF
@@ -593,12 +647,13 @@ export default function MonthlyExecutiveReport() {
       </div>
 
       <main className="report-slides space-y-8 px-6 py-8">
-        <Slide eyebrow={`${selectedMonth} ${selectedYear}`} title="Monthly Executive Report" className="bg-slate-950 text-white">
+        {/* 1 — Cover */}
+        <Slide eyebrow={`${selectedMonth} ${selectedYear}`} title="Monthly Executive Report" badge={<div className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold text-white/70">Board Deck</div>} className="bg-slate-950 text-white">
           <div className="grid h-full grid-cols-[1.2fr_0.8fr] gap-8">
             <div className="flex flex-col justify-end">
               <p className="text-6xl font-black tracking-tight text-white">{companyName}</p>
-              <p className="mt-5 max-w-2xl text-xl text-slate-300">Action plan performance, risk posture, evidence quality, and next-month decision agenda.</p>
-              <div className="mt-10 flex gap-3 text-sm font-semibold text-slate-300">
+              <p className="mt-5 max-w-2xl text-xl text-slate-300">Action plan performance, risk posture, and next-month decision agenda.</p>
+              <div className="mt-10 flex flex-wrap gap-3 text-sm font-semibold text-slate-300">
                 <span className="rounded-full border border-white/15 px-4 py-2">Period: {selectedMonth} {selectedYear}</span>
                 <span className="rounded-full border border-white/15 px-4 py-2">Scope: {selectedDept === 'All' ? 'All Departments' : selectedDept}</span>
                 <span className="rounded-full border border-white/15 px-4 py-2">Generated: {generatedAt}</span>
@@ -614,139 +669,69 @@ export default function MonthlyExecutiveReport() {
           </div>
         </Slide>
 
-        <Slide eyebrow="KPI snapshot" title="Monthly operating scorecard">
-          <div className="flex h-full flex-col gap-5">
-            <div className="grid grid-cols-4 gap-3">
-              <KpiCard icon={ClipboardList} label="Total Plans" value={report.total} detail={`${report.open} open, ${report.inProgress} in progress`} />
-              <KpiCard icon={CheckCircle2} label="Achieved" value={report.achieved} detail={`${pct(report.completionRate)} completion rate`} tone="strong" />
-              <KpiCard icon={BarChart3} label="Avg Score" value={Math.round(report.averageScore) || 0} detail="Verification score average" tone="neutral" />
-              <KpiCard icon={ShieldAlert} label="At Risk" value={report.blocked + report.notAchieved} detail={`${report.blocked} blocked, ${report.notAchieved} not achieved`} tone={report.blocked + report.notAchieved > 0 ? 'danger' : 'strong'} />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <KpiCard icon={TrendingUp} label="Carry-over Watch" value={report.carryOver} detail="Plans linked to carry-over flow" tone={report.carryOver ? 'watch' : 'strong'} />
-              <KpiCard icon={AlertTriangle} label="Revision Signal" value={report.revision} detail="Revision-related submissions" tone={report.revision ? 'watch' : 'neutral'} />
-              <KpiCard icon={FileText} label="Weak Evidence" value={report.weakEvidence + report.linkOnlyEvidence} detail={`${report.weakEvidence} empty, ${report.linkOnlyEvidence} link-only`} tone={report.weakEvidence + report.linkOnlyEvidence ? 'watch' : 'strong'} />
-            </div>
-            <VerdictLine tone={report.riskTone}>
-              {report.achieved}/{report.total} achieved ({pct(report.completionRate)}), avg score {Math.round(report.averageScore) || 0}.{' '}
-              {report.riskTone === 'strong' ? 'On track — protect quality discipline.' : report.riskTone === 'watch' ? `Execution risk elevated — ${report.blocked + report.notAchieved} plans at risk need owners.` : `High risk month — ${report.blocked + report.notAchieved} plans at risk demand escalation.`}
-            </VerdictLine>
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Completion trend" title={`Monthly completion across ${selectedYear}`}>
-          <div className="flex h-full flex-col gap-4">
-            <CompletionTrendChart data={report.monthlyTrend} target={annualTargetRate} />
-            <VerdictLine tone={report.previousRate == null ? 'neutral' : report.completionRate >= report.previousRate ? 'strong' : 'watch'}>
-              {report.previousRate == null
-                ? `No prior-month baseline for ${report.previousPeriod.month}; treat ${pct(report.completionRate)} as this period's reference.`
-                : report.completionRate >= report.previousRate
-                  ? `Completion rose from ${pct(report.previousRate)} (${report.previousPeriod.month}) to ${pct(report.completionRate)} — momentum positive.`
-                  : `Completion dropped from ${pct(report.previousRate)} (${report.previousPeriod.month}) to ${pct(report.completionRate)} — investigate the decline.`}
-              {Number.isFinite(annualTargetRate) ? ` Target ${annualTargetRate}%.` : ''}
-            </VerdictLine>
-          </div>
-        </Slide>
-
-        <Slide eyebrow="Department performance" title="Completion ranking by department">
+        {/* 2 — Executive Summary */}
+        <Slide eyebrow="Executive summary" title="What management needs to know" badge={slideBadge('executive_summary')}>
           <div className="grid h-full grid-cols-[1fr_0.85fr] gap-5">
+            <div className="grid grid-cols-2 grid-rows-2 gap-3">
+              <KpiCard icon={CheckCircle2} label="Completion" value={pct(report.completionRate)} detail={`${report.achieved} of ${report.total} achieved`} tone={report.riskTone} />
+              <KpiCard icon={BarChart3} label="Avg Score" value={Math.round(report.averageScore) || 0} detail="Verification average" tone="neutral" />
+              <KpiCard icon={ShieldAlert} label="At Risk" value={report.blocked + report.notAchieved} detail={`${report.blocked} blocked, ${report.notAchieved} not achieved`} tone={report.blocked + report.notAchieved > 0 ? 'danger' : 'strong'} />
+              <KpiCard icon={ClipboardList} label="Open / WIP" value={report.open + report.inProgress} detail={`${report.open} open, ${report.inProgress} in progress`} tone="watch" />
+            </div>
+            <AiTopicPanel state={topicResults.executive_summary} onRetry={() => regenerateTopic('executive_summary')} />
+          </div>
+        </Slide>
+
+        {/* 3 — Performance & Trend */}
+        <Slide eyebrow="Performance & trend" title={`Completion across ${selectedYear}`} badge={slideBadge('performance_trend')}>
+          <div className="grid h-full grid-cols-[1.1fr_0.9fr] gap-5">
+            <CompletionTrendChart data={report.monthlyTrend} target={annualTargetRate} />
+            <AiTopicPanel state={topicResults.performance_trend} onRetry={() => regenerateTopic('performance_trend')} />
+          </div>
+        </Slide>
+
+        {/* 4 — Department Spotlight */}
+        <Slide eyebrow="Department performance" title="Completion ranking by department" badge={slideBadge('department_spotlight')}>
+          <div className="grid h-full grid-cols-[1fr_0.9fr] gap-5">
             <DepartmentRankingChart data={report.departmentRows.slice(0, 8).map((row) => ({ code: row.code, completionRate: Math.round(row.completionRate) }))} />
-            <div className="flex flex-col gap-3">
-              <SmallTable
-                rows={report.departmentRows.slice(0, 6)}
-                columns={[
-                  { key: 'code', label: 'Dept' },
-                  { key: 'total', label: 'Plans' },
-                  { key: 'completionRate', label: 'Rate', render: (row) => pct(row.completionRate) },
-                  { key: 'atRisk', label: 'At Risk' },
-                ]}
-              />
-              <VerdictLine tone={report.lowestDept?.completionRate < 65 ? 'danger' : 'neutral'}>
-                {report.topDept && report.lowestDept && report.topDept.code !== report.lowestDept.code
-                  ? `${report.topDept.code} leads at ${pct(report.topDept.completionRate)}; ${report.lowestDept.code} trails at ${pct(report.lowestDept.completionRate)} — ask ${report.lowestDept.code} for a recovery plan.`
-                  : 'Insufficient department spread to compare this period.'}
-              </VerdictLine>
-            </div>
+            <AiTopicPanel state={topicResults.department_spotlight} onRetry={() => regenerateTopic('department_spotlight')} />
           </div>
         </Slide>
 
-        <Slide eyebrow="Priority calibration" title="Completion by priority tier">
-          <div className="flex h-full flex-col gap-4">
+        {/* 5 — Priority Calibration */}
+        <Slide eyebrow="Priority calibration" title="Completion by priority tier" badge={slideBadge('priority_calibration')}>
+          <div className="grid h-full grid-cols-[1.1fr_0.9fr] gap-5">
             <PriorityBar data={report.priorityRows.filter((row) => row.total > 0).map((row) => ({ label: row.label, completionRate: Math.round(row.completionRate) }))} calibrationFlag={report.priorityCalibrationFlag} />
-            <VerdictLine tone={report.priorityCalibrationFlag ? 'danger' : 'strong'}>
-              {report.priorityCalibrationFlag
-                ? 'Priority calibration issue: Ultra High plans complete slower than High — teams may be clearing easy wins first. Re-sequence effort toward Ultra High.'
-                : 'Priority order holds: higher-priority tiers are not lagging lower tiers.'}
-            </VerdictLine>
+            <AiTopicPanel state={topicResults.priority_calibration} onRetry={() => regenerateTopic('priority_calibration')} />
           </div>
         </Slide>
 
-        <Slide eyebrow="Failure & risk" title="Why plans fail this period">
-          <div className="grid h-full grid-cols-[1.1fr_0.7fr] gap-5">
+        {/* 6 — Failure & Risk */}
+        <Slide eyebrow="Failure & risk" title="Why plans fail this period" badge={slideBadge('failure_risk')}>
+          <div className="grid h-full grid-cols-[1fr_0.9fr] gap-5">
             <FailureBar data={report.failureRows.slice(0, 6).map((row) => ({ reason: row.reason, count: row.count, label: `${row.count} (${Math.round(row.percentage)}%)` }))} />
-            <div className="flex flex-col gap-3">
-              <div className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-800">
-                <AlertTriangle className="h-8 w-8" />
-                <p className="mt-3 text-4xl font-black">{report.blocked + report.notAchieved}</p>
-                <p className="mt-1 text-sm font-bold">At-risk plans (blocked + not achieved)</p>
-              </div>
-              <VerdictLine tone={report.blindSpot ? 'danger' : report.failureRows.length ? 'watch' : 'strong'}>
-                {report.failureRows.length === 0
-                  ? 'No recorded failure reasons this period.'
-                  : report.blindSpot
-                    ? 'Data blind spot: over 30% of failures are Unspecified — enforce gap-cause tagging before next review.'
-                    : `Top blocker: ${report.failureRows[0].reason} (${report.failureRows[0].count}). Assign an owner to remove it.`}
-              </VerdictLine>
-            </div>
+            <AiTopicPanel state={topicResults.failure_risk} onRetry={() => regenerateTopic('failure_risk')} />
           </div>
         </Slide>
 
-        <Slide eyebrow="Decision agenda" title="Action items & AI board memo">
+        {/* 7 — Decision Agenda */}
+        <Slide eyebrow="Decision agenda" title="Action items & recommendations" badge={slideBadge('decision_agenda')}>
           <div className="grid h-full grid-cols-[1fr_1fr] gap-5">
-            <div className="flex min-h-0 flex-col gap-3">
+            <div className="flex min-h-0 flex-col gap-2">
               <p className="text-xs font-black uppercase tracking-widest text-[#02378D]">Priority action items</p>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <SmallTable
-                  rows={report.actionItems}
+                  rows={report.actionItems.slice(0, 10)}
                   columns={[
                     { key: 'department_code', label: 'Dept' },
                     { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
-                    { key: 'decision', label: 'Decision', render: (row) => decisionType(row) },
-                    { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 60) },
+                    { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 56) },
                   ]}
                   empty="No unresolved action items for selected period."
                 />
               </div>
             </div>
-            <div className="flex min-h-0 flex-col">
-              {aiError && <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{aiError}</div>}
-              {aiNarrative ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white">
-                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#02378D]">AI Headline</p>
-                    <p className="mt-1 text-sm font-black leading-snug text-slate-950">{aiNarrative.headline_insight || aiNarrative.executive_memo?.summary || aiNarrative.summary}</p>
-                  </div>
-                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-xs">
-                    {(Array.isArray(aiNarrative.executive_memo?.sections) ? aiNarrative.executive_memo.sections : []).map((section) => (
-                      <div key={`${section.number}-${section.title}`} className="rounded-xl border border-slate-200 p-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-[#02378D]">{section.number}. {section.title}</p>
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-700">
-                          {(Array.isArray(section.items) ? section.items : []).map((item, idx) => <li key={idx}>{item}</li>)}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-1 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-center">
-                  <div>
-                    <BrainCircuit className="mx-auto h-10 w-10 text-slate-400" />
-                    <p className="mt-3 text-base font-bold text-slate-700">Generate AI Insights</p>
-                    <p className="mt-1 max-w-xs text-xs text-slate-500">Click the toolbar button to add an AI board memo from sanitized aggregate metrics.</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AiTopicPanel state={topicResults.decision_agenda} onRetry={() => regenerateTopic('decision_agenda')} dense />
           </div>
         </Slide>
       </main>

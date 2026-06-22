@@ -10,6 +10,7 @@ type AiConfig = {
   enabled?: boolean
   proxy_url?: string | null
   model_fast?: string | null
+  model_reasoning?: string | null
   timeout_ms?: number | string | null
   vision?: boolean
 }
@@ -93,167 +94,130 @@ async function getAiConfig(supabaseAdmin: ReturnType<typeof createClient>, compa
   return data?.ai_config || {}
 }
 
-function normalizeInsight(value: any, fallback = 'No AI insight available for this slide.') {
-  return {
-    diagnosis: String(value?.diagnosis || fallback),
-    implication: String(value?.implication || 'Review this signal against monthly operating priorities.'),
-    decision_needed: String(value?.decision_needed || 'Decide escalation owner, deadline, and resource support.'),
-    recommended_action: String(value?.recommended_action || 'Assign owner follow-up and review progress in next operating meeting.'),
-  }
+const TOPIC_CONFIG: Record<string, { title: string; focus: string }> = {
+  executive_summary: {
+    title: 'Executive Summary',
+    focus: [
+      'Deliver the single most important takeaway for leadership this month.',
+      'Synthesize completion, verification quality, risk posture, and trajectory into one clear verdict: on-track, at-risk, or off-track — and justify it with the numbers.',
+      'Name the biggest win and the biggest problem of the month specifically.',
+    ].join(' '),
+  },
+  performance_trend: {
+    title: 'Performance & Trend',
+    focus: [
+      'Analyze completion rate against target and against the previous period.',
+      'Explain the trajectory (improving / flat / declining) and what is driving it.',
+      'Quantify the gap to target in points and say what closing it would require.',
+      'If previous-period data is unavailable, say so and skip trend claims. If target is unavailable, skip target comparison.',
+    ].join(' '),
+  },
+  department_spotlight: {
+    title: 'Department Spotlight',
+    focus: [
+      'Compare departments against each other, not just against the average.',
+      'Name the top and bottom performers explicitly and explain what each is doing differently, referencing their specific plans/initiatives when provided.',
+      'Identify any department that is dragging the company result and what it would take to recover.',
+    ].join(' '),
+  },
+  priority_calibration: {
+    title: 'Priority Calibration',
+    focus: [
+      'Evaluate whether execution effort matches stated priority.',
+      'If Ultra High completion trails High or Medium, call out the calibration problem explicitly — the team may be clearing easy wins while critical work slips.',
+      'Recommend how to re-sequence effort.',
+    ].join(' '),
+  },
+  failure_risk: {
+    title: 'Failure & Risk',
+    focus: [
+      'Diagnose why plans failed or stalled this period.',
+      'Reference the specific at-risk plans by title, their blockers, owners (PIC), and how many cycles they have carried over when provided.',
+      'Group recurring blocker patterns. If more than 30% of failure reasons are Unspecified, flag it as a data blind spot that hides real risk.',
+    ].join(' '),
+  },
+  decision_agenda: {
+    title: 'Decision Agenda',
+    focus: [
+      'Produce the concrete decisions leadership must make next, ordered by impact.',
+      'Every recommendation must name WHAT to do, WHO owns it (use the PIC or department when provided), and a BY-WHEN deadline.',
+      'Do not restate metrics — convert them into commitments.',
+    ].join(' '),
+  },
 }
 
-function normalizeItems(value: any) {
-  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean)
-  if (typeof value === 'string' && value.trim()) return [value.trim()]
-  return []
-}
+const systemPrompt = [
+  'You are a senior executive performance analyst for Werkudara Group preparing one slide of a monthly board deck.',
+  'You write sharp, decision-ready analysis for a CEO and department heads. Every sentence must earn its place.',
+  'STRICT RULES:',
+  '- Be specific. Reference actual departments, plans, owners, and numbers from the supplied data. Never write vague filler like "needs management attention" or "should be monitored".',
+  '- Always interpret completion rate AND verification score together — high completion with low score is a quality problem, not a win.',
+  '- Use ONLY the supplied data. Never invent plans, names, departments, targets, or trends. If data for a comparison is missing, say so plainly and move on.',
+  '- Write for executives: lead with the implication, then the evidence. No hedging, no restating the obvious.',
+  'Return valid JSON only. No markdown, no prose outside the JSON object.',
+].join('\n')
 
-function normalizeSections(parsed: any, legacySummary: string, legacyFindings: string[], legacyRisks: string[], legacyRecommendations: string[], legacyActions: string[]) {
-  const sections = Array.isArray(parsed?.sections) ? parsed.sections : Array.isArray(parsed?.executive_memo?.sections) ? parsed.executive_memo.sections : null
-  if (sections?.length) {
-    return sections.map((section: any, index: number) => ({
-      number: Number(section?.number || index + 1),
-      title: String(section?.title || `Section ${index + 1}`),
-      items: normalizeItems(section?.items || section?.bullets || section?.content),
-    }))
-  }
+function buildTopicPrompt(topic: string, payload: any) {
+  const cfg = TOPIC_CONFIG[topic]
+  const period = payload?.period?.label || `${payload?.period?.month || '-'} ${payload?.period?.year || ''}`.trim()
+  const department = payload?.department_filter || 'All Departments'
+  const data = payload?.data || {}
 
   return [
-    { number: 1, title: 'Headline Insight', items: normalizeItems(parsed?.headline_insight || legacySummary) },
-    { number: 2, title: 'Key Findings', items: legacyFindings },
-    { number: 3, title: 'Anomalies & Paradoxes', items: normalizeItems(parsed?.anomalies || parsed?.anomalies_paradoxes) },
-    { number: 4, title: 'Department Spotlight', items: normalizeItems(parsed?.department_spotlight) },
-    { number: 5, title: 'Hidden Risks', items: legacyRisks },
-    { number: 6, title: 'Action Recommendations', items: legacyActions.length ? legacyActions : legacyRecommendations },
-  ]
+    `SLIDE TOPIC: ${cfg.title}`,
+    `PERIOD: ${period}`,
+    `SCOPE: ${department}`,
+    '',
+    'YOUR FOCUS FOR THIS SLIDE:',
+    cfg.focus,
+    '',
+    'DATA FOR THIS SLIDE (use only this — do not invent beyond it):',
+    JSON.stringify(data, null, 2),
+    '',
+    'Return JSON only with this exact schema:',
+    '{',
+    '  "headline": "one punchy executive sentence — the takeaway of this slide",',
+    '  "narrative": ["2 to 4 concise analytical points; each is a full sentence that states an implication backed by a specific number or name"],',
+    '  "highlights": [',
+    '    { "label": "short metric name", "value": "the number/string to spotlight", "tone": "positive | negative | warning | neutral" }',
+    '  ]',
+    '}',
+    'Provide 2 to 4 highlights — the numbers most worth spotlighting on this slide. Choose tone based on whether the number is good (positive), bad (negative), needs watching (warning), or informational (neutral).',
+  ].join('\n')
 }
 
-function normalizeReport(providerResponse: any) {
+function normalizeTopicResult(topic: string, providerResponse: any) {
   let source = providerResponse
   if (typeof providerResponse === 'string') {
     const stream = parseSseChatCompletion(providerResponse)
     source = stream ? extractJsonFromText(stream.content) : extractJsonFromText(providerResponse)
   }
 
-  const candidate = source?.choices?.[0]?.message?.content || source?.choices?.[0]?.text || source?.report || source
+  const candidate = source?.choices?.[0]?.message?.content || source?.choices?.[0]?.text || source
   const parsed = typeof candidate === 'string' ? extractJsonFromText(candidate) : candidate
-  const slides = parsed?.slides || {}
-  const legacySummary = parsed?.summary || parsed?.headline_insight || 'AI narrative could not be parsed. Review deterministic report sections.'
-  const legacyFindings = Array.isArray(parsed?.key_findings) ? parsed.key_findings : []
-  const legacyRisks = Array.isArray(parsed?.risks) ? parsed.risks : []
-  const legacyRecommendations = Array.isArray(parsed?.recommendations) ? parsed.recommendations : []
-  const legacyActions = Array.isArray(parsed?.executive_actions) ? parsed.executive_actions : []
-  const sections = normalizeSections(parsed, legacySummary, legacyFindings, legacyRisks, legacyRecommendations, legacyActions)
+
+  const narrative = Array.isArray(parsed?.narrative)
+    ? parsed.narrative.map((item: any) => String(item)).filter(Boolean)
+    : (typeof parsed?.narrative === 'string' && parsed.narrative.trim() ? [parsed.narrative.trim()] : [])
+
+  const highlights = Array.isArray(parsed?.highlights)
+    ? parsed.highlights
+        .map((h: any) => ({
+          label: String(h?.label || '').trim(),
+          value: String(h?.value ?? '').trim(),
+          tone: ['positive', 'negative', 'warning', 'neutral'].includes(h?.tone) ? h.tone : 'neutral',
+        }))
+        .filter((h: any) => h.label && h.value)
+    : []
 
   return {
-    summary: legacySummary,
-    headline_insight: String(parsed?.headline_insight || legacySummary),
-    sections,
-    key_findings: legacyFindings,
-    risks: legacyRisks,
-    recommendations: legacyRecommendations,
-    executive_actions: legacyActions,
-    executive_memo: {
-      summary: String(parsed?.executive_memo?.summary || legacySummary),
-      sections,
-      top_decisions: Array.isArray(parsed?.executive_memo?.top_decisions) ? parsed.executive_memo.top_decisions : legacyActions,
-      board_questions: Array.isArray(parsed?.executive_memo?.board_questions) ? parsed.executive_memo.board_questions : legacyRecommendations,
-    },
-    slides: {
-      executive_summary: normalizeInsight(slides.executive_summary, sections[0]?.items?.[0] || legacySummary),
-      kpi_snapshot: normalizeInsight(slides.kpi_snapshot, sections[1]?.items?.[0] || legacySummary),
-      department_performance: normalizeInsight(slides.department_performance, sections[3]?.items?.[0] || legacySummary),
-      risk_bottleneck: normalizeInsight(slides.risk_bottleneck, sections[4]?.items?.[0] || legacySummary),
-      evidence_quality: normalizeInsight(slides.evidence_quality, sections[4]?.items?.[1] || legacySummary),
-      carry_over_revision: normalizeInsight(slides.carry_over_revision, sections[2]?.items?.[0] || legacySummary),
-      action_agenda: normalizeInsight(slides.action_agenda, sections[5]?.items?.[0] || legacySummary),
-    },
+    topic,
+    title: TOPIC_CONFIG[topic]?.title || topic,
+    headline: String(parsed?.headline || '').trim() || 'AI analysis could not be parsed for this slide.',
+    narrative,
+    highlights,
   }
 }
-
-function buildExecutivePrompt(payload: any) {
-  const data = payload?.performance_data || {}
-  const period = payload?.period?.label || `${payload?.period?.month || '-'} ${payload?.period?.year || ''}`.trim()
-  const department = payload?.department_filter || payload?.period?.department || 'All Departments'
-  const prevRate = data.prev_rate == null ? 'null' : `${data.prev_rate}`
-  const targetRate = data.target_rate == null ? 'null' : `${data.target_rate}`
-  const trendInstruction = data.prev_rate == null ? 'Previous period completion rate is unavailable. Skip trend analysis and do not infer trend.' : 'Compare current completion rate against previous period completion rate.'
-  const targetInstruction = data.target_rate == null ? 'Org target completion rate is unavailable. Skip target comparison and do not infer target.' : 'Compare current completion rate against org target completion rate.'
-
-  return [
-    `Generate executive report for period: ${period}`,
-    `Department filter: ${department}`,
-    '',
-    'PERFORMANCE DATA:',
-    `- Total Plans: ${data.total_plans ?? 0}`,
-    `- Achieved: ${data.achieved ?? 0} (${data.completion_rate ?? 0}%)`,
-    `- In Progress: ${data.in_progress ?? 0}`,
-    `- Open: ${data.open_plans ?? 0}`,
-    `- Not Achieved: ${data.not_achieved ?? 0}`,
-    `- Avg Verification Score: ${data.avg_score ?? 0}`,
-    '',
-    'DEPARTMENT BREAKDOWN:',
-    payload?.department_rows_text || 'No department data',
-    'format: Dept | Total | Achieved | Rate% | Avg Score',
-    '',
-    'PRIORITY BREAKDOWN:',
-    payload?.priority_rows_text || 'No priority data',
-    'format: Priority | Total | Achieved | Rate% | Avg Score',
-    '',
-    `FAILURE ANALYSIS (${data.not_achieved ?? 0} plans):`,
-    payload?.failure_reason_rows_text || 'No failure reasons',
-    'format: Reason | Count | Percentage',
-    '',
-    'CONTEXT:',
-    `- Previous period completion rate: ${prevRate}% (null if unavailable)`,
-    `- Org target completion rate: ${targetRate}% (null if unavailable)`,
-    `- ${trendInstruction}`,
-    `- ${targetInstruction}`,
-    '',
-    'Return JSON only with this schema:',
-    '{',
-    '  "headline_insight": "one sentence, single most critical finding",',
-    '  "sections": [',
-    '    { "number": 1, "title": "Headline Insight", "items": ["one sentence"] },',
-    '    { "number": 2, "title": "Key Findings", "items": ["[Fact] → [What it means] → [Business implication]"] },',
-    '    { "number": 3, "title": "Anomalies & Paradoxes", "items": ["unexpected pattern needing explanation"] },',
-    '    { "number": 4, "title": "Department Spotlight", "items": ["top and bottom performer with specific reasons"] },',
-    '    { "number": 5, "title": "Hidden Risks", "items": ["non-obvious risk from data"] },',
-    '    { "number": 6, "title": "Action Recommendations", "items": ["what; owner; by when"] }',
-    '  ],',
-    '  "slides": {',
-    '    "executive_summary": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "kpi_snapshot": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "department_performance": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "risk_bottleneck": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "evidence_quality": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "carry_over_revision": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" },',
-    '    "action_agenda": { "diagnosis": "string", "implication": "string", "decision_needed": "string", "recommended_action": "string" }',
-    '  }',
-    '}',
-    '',
-    'Analyze the patterns, not just the numbers.',
-  ].join('\n')
-}
-
-const systemPrompt = [
-  'You are a senior executive analyst for Werkudara Group. Analyze the action plan data and produce sharp, decision-ready insights for management.',
-  'REQUIRED OUTPUT STRUCTURE:',
-  '1. HEADLINE INSIGHT — one sentence, the single most critical finding',
-  '2. KEY FINDINGS — 3-5 points, each formatted as: [Fact] → [What it means] → [Business implication]',
-  '3. ANOMALIES & PARADOXES — unexpected patterns that need explanation',
-  '4. DEPARTMENT SPOTLIGHT — top and bottom performer with specific reasons',
-  '5. HIDDEN RISKS — non-obvious risks from the data',
-  '6. ACTION RECOMMENDATIONS — 3-5 items, each with: what, who owns it, by when',
-  'STRICT RULES:',
-  'Never write vague phrases like "needs management attention".',
-  'Always analyze completion rate AND verification score together.',
-  'If >30% of failure reasons are unspecified, flag it as a data blind spot.',
-  'Compare departments against each other, not just against average.',
-  'If Ultra High priority has lower completion than High priority, call it out explicitly as a priority calibration issue.',
-  'Use only supplied data. If previous period data is unavailable, skip trend analysis. If target rate is unavailable, skip target comparison.',
-  'Return valid JSON only. No markdown.',
-].join('\n')
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -263,8 +227,8 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     const envAiUrl = Deno.env.get('AI_PROXY_URL') || Deno.env.get('NINEROUTER_API_URL') || ''
     const aiKey = Deno.env.get('AI_PROXY_KEY') || Deno.env.get('NINEROUTER_API_KEY') || ''
-    const envAiModel = Deno.env.get('AI_MODEL_FAST') || Deno.env.get('NINEROUTER_MODEL') || ''
-    const envTimeoutMs = Number(Deno.env.get('AI_TIMEOUT_MS') || '60000')
+    const envAiModel = Deno.env.get('AI_MODEL_REASONING') || Deno.env.get('AI_MODEL_FAST') || Deno.env.get('NINEROUTER_MODEL') || ''
+    const envTimeoutMs = Number(Deno.env.get('AI_TIMEOUT_MS') || '90000')
 
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Missing Supabase environment variables')
     if (!aiKey) throw new Error('Missing AI_PROXY_KEY or NINEROUTER_API_KEY Supabase secret')
@@ -293,6 +257,9 @@ serve(async (req) => {
     if (!allowed) throw new Error(`Forbidden: Role '${profile.role}' cannot generate executive report narrative`)
 
     const payload = await req.json()
+    const topic = String(payload.topic || '').trim()
+    if (!TOPIC_CONFIG[topic]) throw new Error(`Unknown report topic: '${topic}'`)
+
     const companyId = payload.company_id || profile.company_id || null
     if (role !== 'holding_admin' && companyId && profile.company_id !== companyId) {
       throw new Error('Forbidden: report belongs to another company')
@@ -302,13 +269,13 @@ serve(async (req) => {
     if (aiConfig.enabled === false) throw new Error('AI report narrative is disabled in system settings')
 
     const aiUrl = String(aiConfig.proxy_url || envAiUrl || '').trim()
-    const aiModel = String(aiConfig.model_fast || envAiModel || '').trim()
-    const timeoutMs = resolveTimeoutMs(aiConfig.timeout_ms, envTimeoutMs || 60000)
+    const aiModel = String(aiConfig.model_reasoning || aiConfig.model_fast || envAiModel || '').trim()
+    const timeoutMs = resolveTimeoutMs(aiConfig.timeout_ms, envTimeoutMs || 90000)
     const aiVision = aiConfig.vision ?? true
 
     if (!aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
 
-    const prompt = buildExecutivePrompt(payload)
+    const prompt = buildTopicPrompt(topic, payload)
 
     const providerPayload = {
       model: aiModel || undefined,
@@ -317,8 +284,8 @@ serve(async (req) => {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
       ],
-      temperature: 0.2,
-      max_tokens: 1500,
+      temperature: 0.3,
+      max_tokens: 1200,
       response_format: { type: 'json_object' },
     }
 
@@ -342,7 +309,7 @@ serve(async (req) => {
       }
 
       const providerResponse = extractJsonFromText(responseText) || responseText
-      return jsonResponse({ report: normalizeReport(providerResponse) })
+      return jsonResponse({ result: normalizeTopicResult(topic, providerResponse) })
     } finally {
       clearTimeout(timeoutId)
     }

@@ -13,6 +13,17 @@
 
 export const CHANGELOG = [
   {
+    version: '1.12.0',
+    date: '2026-06-22',
+    title: 'Monthly Submission Matrix',
+    changes: [
+      { type: 'feature', description: 'Submission Matrix — grid department × bulan untuk quick check dept mana yang sudah submit action plan bulanan dan yang belum' },
+      { type: 'feature', description: 'Status per sel: Finalized (semua submitted), Partial (sebagian, tampil x/y), Not submitted, dan N/A (tidak ada plan)' },
+      { type: 'feature', description: 'Footer persentase dept finalized per bulan, dan kolom persentase per department sepanjang tahun' },
+      { type: 'improvement', description: 'Filter tahun dan navigasi sidebar baru "Submission Matrix" di area Overview' },
+    ],
+  },
+  {
     version: '1.11.0',
     date: '2026-06-08',
     title: 'Visual Executive Report',

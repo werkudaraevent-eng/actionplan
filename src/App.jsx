@@ -25,6 +25,7 @@ import ChangelogPage from './pages/ChangelogPage';
 import HoldingManagement from './pages/HoldingManagement';
 import BulkOperationsPage from './pages/BulkOperationsPage';
 import MonthlyExecutiveReport from './pages/MonthlyExecutiveReport';
+import SubmissionMatrix from './pages/SubmissionMatrix';
 import { supabase } from './lib/supabase';
 import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical, Info, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 
@@ -457,6 +458,12 @@ function AppRoutes() {
           <Route path="/reports/monthly-executive" element={
             <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
               <MonthlyExecutiveReport />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/reports/submission-matrix" element={
+            <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
+              <SubmissionMatrix />
             </ProtectedRoute>
           } />
 

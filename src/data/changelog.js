@@ -20,6 +20,7 @@ export const CHANGELOG = [
       { type: 'improvement', description: 'Completion rate dan semua grafik completion sekarang hanya menghitung plan yang sudah diverifikasi admin (Achieved + sudah diberi score)' },
       { type: 'improvement', description: 'Plan yang di-mark Achieved oleh user tapi belum diverifikasi tidak lagi menggelembungkan completion rate — tampil sebagai "+N pending verify" di card' },
       { type: 'improvement', description: 'Tooltip completion rate menampilkan estimasi rate jika semua plan pending diverifikasi, agar dept tetap punya gambaran pencapaian' },
+      { type: 'improvement', description: 'Card Achieved tetap menghitung semua plan yang di-mark user, dengan sub-line "X verified · Y pending" agar gap verifikasi terlihat tanpa menyembunyikan angka status' },
     ],
   },
   {

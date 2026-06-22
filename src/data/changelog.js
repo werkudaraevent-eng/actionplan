@@ -21,6 +21,7 @@ export const CHANGELOG = [
       { type: 'feature', description: 'Tiap slide AI menampilkan headline, highlight angka (dipilih AI), dan poin analisa spesifik dengan retry per slide' },
       { type: 'improvement', description: 'AI memakai reasoning model dan diberi data spesifik per topik (judul plan at-risk, PIC, blocker, carry-over) agar analisa tajam, bukan generik' },
       { type: 'improvement', description: 'Render progresif: status AI per slide (pending/loading/done/error) terlihat saat generate berjalan' },
+      { type: 'improvement', description: 'Hasil AI per slide sekarang tersimpan ke database — slide yang sudah jadi tidak hilang saat pindah halaman dan otomatis dimuat ulang saat dibuka kembali' },
     ],
   },
   {

@@ -362,10 +362,39 @@ export default function MonthlyExecutiveReport() {
     return () => { cancelled = true; };
   }, [activeCompanyId, selectedYear]);
 
-  // Reset AI results whenever the period/scope changes — stale analysis must not linger.
+  // Load saved AI analysis for this period/scope so completed slides survive navigation.
   useEffect(() => {
+    let cancelled = false;
     setTopicResults({});
-  }, [selectedMonth, selectedYear, selectedDept, activeCompanyId]);
+    async function loadSaved() {
+      if (!supabase || !activeCompanyId || isHoldingContext) return;
+      const { data, error } = await supabase
+        .from('executive_report_insights')
+        .select('topic, headline, narrative, highlights')
+        .eq('company_id', activeCompanyId)
+        .eq('report_year', selectedYear)
+        .eq('report_month', selectedMonth)
+        .eq('department_scope', selectedDept);
+      if (cancelled || error || !data?.length) return;
+      const hydrated = {};
+      for (const row of data) {
+        if (!TOPICS.some((t) => t.key === row.topic)) continue;
+        hydrated[row.topic] = {
+          status: 'done',
+          result: {
+            topic: row.topic,
+            title: TOPICS.find((t) => t.key === row.topic)?.label || row.topic,
+            headline: row.headline || '',
+            narrative: Array.isArray(row.narrative) ? row.narrative : [],
+            highlights: Array.isArray(row.highlights) ? row.highlights : [],
+          },
+        };
+      }
+      if (Object.keys(hydrated).length) setTopicResults(hydrated);
+    }
+    loadSaved();
+    return () => { cancelled = true; };
+  }, [selectedMonth, selectedYear, selectedDept, activeCompanyId, isHoldingContext]);
 
   const report = useMemo(() => {
     const periodPlans = plans.filter((plan) => {
@@ -563,6 +592,7 @@ export default function MonthlyExecutiveReport() {
       company_id: effectiveCompanyId || activeCompanyId,
       period: { month: selectedMonth, year: selectedYear, label: `${selectedMonth} ${selectedYear}` },
       department_filter: departmentLabel,
+      department_scope: selectedDept,
       topic,
       data: buildTopicData(topic),
     };

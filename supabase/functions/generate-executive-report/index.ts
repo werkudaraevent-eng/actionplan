@@ -309,7 +309,28 @@ serve(async (req) => {
       }
 
       const providerResponse = extractJsonFromText(responseText) || responseText
-      return jsonResponse({ result: normalizeTopicResult(topic, providerResponse) })
+      const result = normalizeTopicResult(topic, providerResponse)
+
+      // Persist so completed slides survive page navigation and reloads.
+      if (companyId) {
+        await supabaseAdmin
+          .from('executive_report_insights')
+          .upsert({
+            company_id: companyId,
+            report_year: Number(payload?.period?.year) || new Date().getFullYear(),
+            report_month: String(payload?.period?.month || ''),
+            department_scope: String(payload?.department_scope || 'All'),
+            topic,
+            headline: result.headline,
+            narrative: result.narrative,
+            highlights: result.highlights,
+            model: aiModel || null,
+            generated_by: user.id,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'company_id,report_year,report_month,department_scope,topic' })
+      }
+
+      return jsonResponse({ result })
     } finally {
       clearTimeout(timeoutId)
     }

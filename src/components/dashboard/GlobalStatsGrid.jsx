@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle, CircleDashed } from 'lucide-react';
+import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle, CircleDashed, Layers } from 'lucide-react';
 import KPICard from './KPICard';
 import { isVerifiedAchieved, isPendingVerification } from '../../utils/completionUtils';
 
@@ -77,6 +77,7 @@ export default function GlobalStatsGrid({
     if (!plans || plans.length === 0) {
       return {
         total: 0,
+        uniqueInitiatives: 0,
         achieved: 0,
         verifiedAchieved: 0,
         pendingVerification: 0,
@@ -92,6 +93,42 @@ export default function GlobalStatsGrid({
 
     // RAW COUNTS - Respect the parent's filter for all status cards
     const total = plans.length;
+
+    // CONSOLIDATED COUNT - collapse monthly repetition into unique initiatives.
+    // Two plans are the "same initiative" if they share a recurring_group_id
+    // (created together via import range / repeat) OR are linked by a carry-over
+    // chain (origin_plan_id points from a child back to its parent).
+    // Union-find over the currently-visible plans; distinct roots = unique count.
+    const parent = {};
+    const find = (x) => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    };
+    const union = (a, b) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    plans.forEach(p => { if (p.id != null) parent[p.id] = p.id; });
+    const recurringBuckets = {};
+    plans.forEach(p => {
+      if (p.id == null) return;
+      // Link carry-over child to its parent (only if parent is in view)
+      if (p.origin_plan_id != null && parent[p.origin_plan_id] !== undefined) {
+        union(p.id, p.origin_plan_id);
+      }
+      // Group recurring instances
+      if (p.recurring_group_id != null) {
+        if (!recurringBuckets[p.recurring_group_id]) recurringBuckets[p.recurring_group_id] = p.id;
+        else union(p.id, recurringBuckets[p.recurring_group_id]);
+      }
+    });
+    const roots = new Set();
+    plans.forEach(p => { if (p.id != null) roots.add(find(p.id)); });
+    const uniqueInitiatives = roots.size;
     const achieved = plans.filter(p => p.status === 'Achieved').length;
     const verifiedAchieved = plans.filter(isVerifiedAchieved).length;
     const pendingVerification = plans.filter(isPendingVerification).length;
@@ -145,6 +182,7 @@ export default function GlobalStatsGrid({
 
     return {
       total,
+      uniqueInitiatives,
       achieved,
       verifiedAchieved,
       pendingVerification,
@@ -328,17 +366,26 @@ export default function GlobalStatsGrid({
         isActive={isCardActive('all')}
         onClick={onCardClick ? () => handleCardClick('all') : undefined}
         footerContent={(
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1">
-              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-200" />
-              <span className="font-bold text-white/90">{stats.achieved + stats.notAchieved}</span>
-              <span className="text-[8px] uppercase text-white/50">Done</span>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1">
+                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-200" />
+                <span className="font-bold text-white/90">{stats.achieved + stats.notAchieved}</span>
+                <span className="text-[8px] uppercase text-white/50">Done</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="w-2.5 h-2.5 text-amber-200" />
+                <span className="font-bold text-white/90">{stats.inProgress + stats.open}</span>
+                <span className="text-[8px] uppercase text-white/50">Open</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Clock className="w-2.5 h-2.5 text-amber-200" />
-              <span className="font-bold text-white/90">{stats.inProgress + stats.open}</span>
-              <span className="text-[8px] uppercase text-white/50">Open</span>
-            </div>
+            {stats.uniqueInitiatives < stats.total && (
+              <div className="flex items-center gap-1 text-xs border-t border-white/15 pt-1">
+                <Layers className="w-2.5 h-2.5 text-blue-200" />
+                <span className="font-bold text-white/90">{stats.uniqueInitiatives}</span>
+                <span className="text-[8px] uppercase text-white/50">unique plans</span>
+              </div>
+            )}
           </div>
         )}
         tooltipContent={
@@ -349,6 +396,11 @@ export default function GlobalStatsGrid({
               <p>• Open: {stats.inProgress + stats.open} ({stats.inProgress} active, {stats.open} pending)</p>
               <p>• Closed: {stats.achieved + stats.notAchieved} ({stats.achieved} achieved, {stats.notAchieved} failed)</p>
             </div>
+            {stats.uniqueInitiatives < stats.total && (
+              <p className="text-xs text-blue-300 mt-1 border-t border-gray-600 pt-1">
+                {stats.uniqueInitiatives} unique initiatives (monthly repeats & carry-over chains counted once)
+              </p>
+            )}
           </div>
         }
       />

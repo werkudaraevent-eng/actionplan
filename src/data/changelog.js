@@ -13,6 +13,15 @@
 
 export const CHANGELOG = [
   {
+    version: '1.16.0',
+    date: '2026-07-02',
+    title: 'Consolidated Unique Plan Count',
+    changes: [
+      { type: 'feature', description: 'Card Total Plans sekarang menampilkan jumlah inisiatif unik di footer — pengulangan bulanan (recurring) dan rantai carry-over dihitung sekali, bukan per baris bulan' },
+      { type: 'improvement', description: 'Angka unik hanya muncul saat memang ada pengulangan (unique < total), plus penjelasan di tooltip agar tidak membingungkan' },
+    ],
+  },
+  {
     version: '1.15.0',
     date: '2026-06-22',
     title: 'Verified Completion Rate',

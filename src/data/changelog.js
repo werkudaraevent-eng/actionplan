@@ -13,6 +13,15 @@
 
 export const CHANGELOG = [
   {
+    version: '1.17.0',
+    date: '2026-07-02',
+    title: 'Clickable Failure Reason Drill-Down',
+    changes: [
+      { type: 'feature', description: 'Baris di widget Risk & Bottleneck tab "By Reason" sekarang bisa diklik — langsung menuju All Action Plans dengan filter status Not Achieved + alasan yang dipilih' },
+      { type: 'improvement', description: 'Filter alasan tampil sebagai chip di All Action Plans dan bisa dihapus; scope department & bulan dari dashboard ikut terbawa' },
+    ],
+  },
+  {
     version: '1.16.0',
     date: '2026-07-02',
     title: 'Consolidated Unique Plan Count',

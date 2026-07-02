@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, FileSpreadsheet, FileText, RotateCcw, Loader2 } from 'lucide-react';
+import { Building2, FileSpreadsheet, FileText, RotateCcw, Loader2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -21,6 +21,7 @@ import { useToast } from '../components/common/Toast';
 import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 import { getPicDisplayName, collectAllPicUuids, batchResolveProfiles } from '../utils/picUtils';
 import { usePicProfiles } from '../hooks/usePicProfiles';
+import { getFailureReason } from '../utils/failureReasonUtils';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -90,6 +91,8 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const selectedCategory = searchParams.get('category') || 'all';
   const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
   const selectedCarryOver = searchParams.get('carryOver') || 'all';
+  const selectedReason = searchParams.get('reason') || '';
+  const clearReasonFilter = useCallback(() => setParam('reason', '', ''), [setParam]);
 
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -201,11 +204,17 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         }
       }
 
+      // Failure reason filter (from Risk & Bottleneck "By Reason" drill-down)
+      if (selectedReason) {
+        if (plan.status !== 'Not Achieved') return false;
+        if (getFailureReason(plan) !== selectedReason) return false;
+      }
+
       return true;
     });
 
     return filtered;
-  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, selectedCarryOver, profileMap]);
+  }, [plans, selectedDept, startMonth, endMonth, selectedStatus, selectedCategory, searchQuery, selectedCarryOver, selectedReason, profileMap]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation
@@ -227,12 +236,12 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
     return grouped.size;
   }, [filteredPlans]);
 
-  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || selectedCarryOver !== 'all';
+  const hasActiveFilters = selectedDept !== 'all' || (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || searchQuery.trim() || selectedCarryOver !== 'all' || selectedReason;
 
   const clearAllFilters = () => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      ['q', 'startMonth', 'endMonth', 'status', 'dept', 'category', 'carryOver'].forEach(k => next.delete(k));
+      ['q', 'startMonth', 'endMonth', 'status', 'dept', 'category', 'carryOver', 'reason'].forEach(k => next.delete(k));
       return next;
     }, { replace: true });
   };
@@ -976,6 +985,23 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
           }}
         />
 
+        {/* Active reason filter chip (from Risk & Bottleneck drill-down) */}
+        {selectedReason && (
+          <div className="flex items-center gap-2 -mt-2">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-full">
+              <span className="font-medium">Failure reason:</span>
+              <span className="font-semibold">{selectedReason}</span>
+              <button
+                type="button"
+                onClick={clearReasonFilter}
+                className="ml-1 text-amber-600 hover:text-amber-900"
+                aria-label="Clear reason filter"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Data Table with Department Column */}
         <DataTable

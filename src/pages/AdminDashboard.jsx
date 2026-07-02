@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Target, TrendingUp, TrendingDown, CheckCircle2, Trophy, Medal, Award, Calendar,
   X, Users, ChevronDown, ChevronLeft, ChevronRight, AlertTriangle, Star, RotateCcw, Layers, PieChart as PieChartIcon, Activity, Clock
@@ -9,6 +10,7 @@ import { useCompanyContext } from '../context/CompanyContext';
 import { supabase } from '../lib/supabase';
 import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, getPicDisplayName } from '../utils/picUtils';
 import { isVerifiedAchieved } from '../utils/completionUtils';
+import { getFailureReason } from '../utils/failureReasonUtils';
 import { useDepartments } from '../hooks/useDepartments';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import StrategyComboChart from '../components/dashboard/StrategyComboChart';
@@ -103,6 +105,7 @@ function SortDropdown({ value, onChange }) {
 
 
 export default function AdminDashboard({ onNavigate }) {
+  const navigate = useNavigate();
   const { activeCompanyId, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const sandboxExcludeKey = sandboxCompanyIds.join(',');
   // When in holding context, pass null to get consolidated data from ALL companies
@@ -451,16 +454,7 @@ export default function AdminDashboard({ onNavigate }) {
     // Read failure reason from gap_category (primary) with legacy remark fallback
     const reasonCounts = {};
     failedPlans.forEach((plan) => {
-      let reason = 'Unspecified';
-      if (plan.gap_category) {
-        reason = plan.gap_category === 'Other' && plan.specify_reason
-          ? plan.specify_reason
-          : plan.gap_category;
-      } else {
-        // Legacy fallback: parse [Cause: ...] from remark field
-        const match = plan.remark?.match(/\[Cause: (.*?)\]/);
-        if (match?.[1]) reason = match[1].trim();
-      }
+      const reason = getFailureReason(plan);
       reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
 
@@ -2052,6 +2046,15 @@ export default function AdminDashboard({ onNavigate }) {
             selectedMonths={MONTHS_ORDER.slice(MONTH_MAP[startMonth], MONTH_MAP[endMonth] + 1)}
             departments={departments}
             dateContextLabel={dateContextLabel}
+            onReasonClick={(reason) => {
+              const params = new URLSearchParams();
+              params.set('status', 'Not Achieved');
+              params.set('reason', reason);
+              if (selectedDept && selectedDept !== 'All') params.set('dept', selectedDept);
+              if (startMonth !== 'Jan') params.set('startMonth', startMonth);
+              if (endMonth !== 'Dec') params.set('endMonth', endMonth);
+              navigate(`/plans?${params.toString()}`);
+            }}
           />
         </div>
 

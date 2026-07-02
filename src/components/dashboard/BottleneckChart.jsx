@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, Trophy, Medal, Award, Building2, FileWarni
 
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
 
-export default function BottleneckChart({ plans, getDeptName, failureReasons = [], selectedPeriod = 'Full Year', selectedMonths = [], departments = [], dateContextLabel }) {
+export default function BottleneckChart({ plans, getDeptName, failureReasons = [], selectedPeriod = 'Full Year', selectedMonths = [], departments = [], dateContextLabel, onReasonClick }) {
   const [viewMode, setViewMode] = useState('dept'); // 'dept' or 'reason'
   const currentMonth = new Date().getMonth(); // 0-indexed
 
@@ -304,10 +304,17 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
 
                   return displayReasons.map((item) => {
                     const isTop = item.count === maxCount;
+                    const RowTag = onReasonClick ? 'button' : 'div';
                     return (
-                      <div key={item.reason} className="space-y-1">
+                      <RowTag
+                        key={item.reason}
+                        type={onReasonClick ? 'button' : undefined}
+                        onClick={onReasonClick ? () => onReasonClick(item.reason) : undefined}
+                        title={onReasonClick ? `View "${item.reason}" plans in All Action Plans` : undefined}
+                        className={`block w-full text-left space-y-1 ${onReasonClick ? 'cursor-pointer rounded-md -mx-1 px-1 py-0.5 hover:bg-gray-50 transition-colors' : ''}`}
+                      >
                         <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-gray-700 truncate flex-1 mr-2">
+                          <span className={`font-medium text-gray-700 truncate flex-1 mr-2 ${onReasonClick ? 'group-hover:text-blue-700' : ''}`}>
                             {isTop && <span className="text-red-500 mr-1">⚠️</span>}
                             {item.reason}
                           </span>
@@ -322,7 +329,7 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
                             style={{ width: `${item.percentage}%` }}
                           />
                         </div>
-                      </div>
+                      </RowTag>
                     );
                   });
                 })()}

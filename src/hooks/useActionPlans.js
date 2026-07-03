@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
 import { checkLockStatusServerSide } from '../utils/lockUtils';
 import { isVerifiedAchieved } from '../utils/completionUtils';
+import { trackEvent } from '../utils/usageTracking';
 
 // NOTE: Manual audit logging has been REMOVED from frontend.
 // The database trigger `log_action_plan_changes()` now handles ALL audit logging automatically.
@@ -203,6 +204,16 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
     setPlans((prev) => [...prev, data]);
 
     // NOTE: Audit logging handled by DB trigger (CREATED)
+
+    getCurrentUserId().then((uid) => {
+      if (uid) trackEvent({
+        eventType: 'write',
+        userId: uid,
+        companyId: data.company_id,
+        departmentCode: data.department_code,
+        path: '/plans',
+      });
+    });
 
     return data;
   };
@@ -720,6 +731,14 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       await fetchPlans();
 
       // NOTE: Audit logging handled by DB trigger (SUBMITTED_FOR_REVIEW with detailed changes)
+
+      if (userId) trackEvent({
+        eventType: 'write',
+        userId,
+        companyId: itemsToFinalize[0]?.company_id,
+        departmentCode: itemsToFinalize[0]?.department_code,
+        path: '/plans',
+      });
 
       return itemsToFinalize.length;
     } catch (err) {

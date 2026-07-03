@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
+import { trackEvent } from '../utils/usageTracking';
 
 const AuthContext = createContext({});
 
@@ -12,7 +13,7 @@ export function AuthProvider({ children }) {
   const [profileError, setProfileError] = useState(null);
   const profileFetchedRef = useRef(false); // Track if profile was already fetched for current user
 
-  const fetchProfile = useCallback(async (userId, force = false) => {
+  const fetchProfile = useCallback(async (userId, force = false, trackLogin = false) => {
     // Skip if already fetched for this user (unless forced)
     if (profileFetchedRef.current && !force) {
       console.log('Profile already fetched, skipping...');
@@ -51,6 +52,14 @@ export function AuthProvider({ children }) {
       } else {
         setProfile(data);
         setProfileError(null);
+        if (trackLogin) {
+          trackEvent({
+            eventType: 'login',
+            userId,
+            companyId: data.company_id,
+            departmentCode: data.department_code,
+          });
+        }
       }
     } catch (err) {
       console.error('Profile fetch exception:', err);
@@ -108,7 +117,7 @@ export function AuthProvider({ children }) {
           // Reset flag for new sign in
           profileFetchedRef.current = false;
           setUser(session.user);
-          fetchProfile(session.user.id);
+          fetchProfile(session.user.id, false, true);
         }
       }
     );

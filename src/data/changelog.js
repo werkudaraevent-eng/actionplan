@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.18.0',
+    date: '2026-07-03',
+    title: 'Usage Analytics',
+    changes: [
+      { type: 'feature', description: 'Halaman Usage Analytics baru — lihat kapan dan seberapa sering user benar-benar membuka platform, bukan hanya saat submit' },
+      { type: 'feature', description: 'Heatmap jam × hari menampilkan pola waktu user mengakses platform sepanjang minggu' },
+      { type: 'feature', description: 'Kurva harian (opens & user unik) dan grafik Active Users (DAU/WAU) dengan stickiness untuk melihat tren keterlibatan' },
+      { type: 'feature', description: 'Rasio engagement per department (views vs writes) — rasio tinggi berarti tim aktif tracking, bukan sekadar mencatat saat deadline' },
+      { type: 'improvement', description: 'Event tracking ringan (page view, login, write) berjalan fire-and-forget sehingga tidak pernah memperlambat atau mengganggu UI' },
+    ],
+  },
+  {
     version: '1.17.0',
     date: '2026-07-02',
     title: 'Clickable Failure Reason Drill-Down',

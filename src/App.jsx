@@ -26,7 +26,9 @@ import HoldingManagement from './pages/HoldingManagement';
 import BulkOperationsPage from './pages/BulkOperationsPage';
 import MonthlyExecutiveReport from './pages/MonthlyExecutiveReport';
 import SubmissionMatrix from './pages/SubmissionMatrix';
+import UsageAnalytics from './pages/UsageAnalytics';
 import { supabase } from './lib/supabase';
+import { trackEvent } from './utils/usageTracking';
 import { AlertCircle, LogOut, ShieldAlert, Wrench, Lock, FlaskConical, Info, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 
 // Simple string hash for announcement dismiss tracking
@@ -264,6 +266,18 @@ function AppRoutes() {
   const { isSandbox, activeCompanyId } = useCompanyContext();
   const location = useLocation();
 
+  // Track page views (fire-and-forget)
+  useEffect(() => {
+    if (!user?.id) return;
+    trackEvent({
+      eventType: 'page_view',
+      path: location.pathname,
+      userId: user.id,
+      companyId: activeCompanyId,
+      departmentCode: profile?.department_code,
+    });
+  }, [location.pathname, user?.id, activeCompanyId, profile?.department_code]);
+
   // ── MAINTENANCE MODE GATE (hooks must be before any returns) ──
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
@@ -464,6 +478,12 @@ function AppRoutes() {
           <Route path="/reports/submission-matrix" element={
             <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
               <SubmissionMatrix />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/reports/usage-analytics" element={
+            <ProtectedRoute allowedRoles={['admin', 'executive', 'holding_admin']}>
+              <UsageAnalytics />
             </ProtectedRoute>
           } />
 

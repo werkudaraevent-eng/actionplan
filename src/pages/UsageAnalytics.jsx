@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Activity, Globe, Loader2, Eye, PenLine, Users, CalendarClock } from 'lucide-react';
+import { Activity, Globe, Loader2, Eye, PenLine, Users, CalendarClock, Building2, User } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useDepartments } from '../hooks/useDepartments';
@@ -40,7 +40,9 @@ export default function UsageAnalytics() {
 
   const [rangeDays, setRangeDays] = useState(30);
   const [events, setEvents] = useState([]);
+  const [userMap, setUserMap] = useState({});
   const [loading, setLoading] = useState(true);
+  const [groupMode, setGroupMode] = useState('dept'); // 'dept' | 'user'
 
   const getDeptName = useMemo(() => {
     const map = {};
@@ -68,8 +70,24 @@ export default function UsageAnalytics() {
       if (error) {
         console.error('[UsageAnalytics] fetch error:', error.message);
         setEvents([]);
+        setUserMap({});
       } else {
-        setEvents(data || []);
+        const rows = data || [];
+        setEvents(rows);
+        const ids = [...new Set(rows.map((e) => e.user_id).filter(Boolean))];
+        if (ids.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .in('id', ids);
+          if (!cancelled) {
+            const map = {};
+            (profiles || []).forEach((p) => { map[p.id] = p.full_name || p.email || 'Unknown'; });
+            setUserMap(map);
+          }
+        } else {
+          setUserMap({});
+        }
       }
       setLoading(false);
     };
@@ -113,26 +131,34 @@ export default function UsageAnalytics() {
     }));
   }, [events, rangeDays]);
 
-  // ── Chart 3: Engagement ratio per dept (views vs writes) ──
+  // ── Chart 3: Engagement ratio per dept or user (views vs writes) ──
   const engagement = useMemo(() => {
-    const byDept = {};
+    const buckets = {};
     events.forEach((e) => {
-      const code = (e.department_code || 'Unknown').trim().toUpperCase();
-      if (!byDept[code]) byDept[code] = { views: 0, writes: 0 };
-      if (e.event_type === 'page_view') byDept[code].views++;
-      else if (e.event_type === 'write') byDept[code].writes++;
+      let key;
+      let label;
+      if (groupMode === 'user') {
+        key = e.user_id || 'unknown';
+        label = e.user_id ? (userMap[e.user_id] || 'Unknown user') : 'Unknown user';
+      } else {
+        key = (e.department_code || 'Unknown').trim().toUpperCase();
+        label = getDeptName(key);
+      }
+      if (!buckets[key]) buckets[key] = { views: 0, writes: 0, name: label };
+      if (e.event_type === 'page_view') buckets[key].views++;
+      else if (e.event_type === 'write') buckets[key].writes++;
     });
-    return Object.entries(byDept)
-      .map(([code, s]) => ({
-        code,
-        name: getDeptName(code),
+    return Object.entries(buckets)
+      .map(([key, s]) => ({
+        code: key,
+        name: s.name,
         views: s.views,
         writes: s.writes,
         ratio: Number((s.views / Math.max(s.writes, 1)).toFixed(1)),
       }))
       .filter((d) => d.views > 0 || d.writes > 0)
       .sort((a, b) => b.ratio - a.ratio);
-  }, [events, getDeptName]);
+  }, [events, getDeptName, groupMode, userMap]);
 
   const maxRatio = engagement.length ? Math.max(...engagement.map((d) => d.ratio)) : 0;
 
@@ -304,12 +330,28 @@ export default function UsageAnalytics() {
               </div>
             </div>
 
-            {/* Chart 3: Engagement ratio per dept */}
+            {/* Chart 3: Engagement ratio per dept or user */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="text-lg font-bold text-slate-800">Engagement per department</h3>
-              <p className="mb-4 text-sm text-slate-500">Views vs. writes — a high view:write ratio means the team browses/tracks, not just submits</p>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-lg font-bold text-slate-800">Engagement per {groupMode === 'user' ? 'user' : 'department'}</h3>
+                <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+                  <button
+                    onClick={() => setGroupMode('dept')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-colors ${groupMode === 'dept' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <Building2 className="h-3.5 w-3.5" /> By Dept
+                  </button>
+                  <button
+                    onClick={() => setGroupMode('user')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-colors ${groupMode === 'user' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    <User className="h-3.5 w-3.5" /> By User
+                  </button>
+                </div>
+              </div>
+              <p className="mb-4 text-sm text-slate-500">Views vs. writes — a high view:write ratio means {groupMode === 'user' ? 'the user browses/tracks' : 'the team browses/tracks'}, not just submits</p>
               {engagement.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-400">No department-tagged events in range.</p>
+                <p className="py-6 text-center text-sm text-slate-400">No {groupMode === 'user' ? 'user' : 'department'}-tagged events in range.</p>
               ) : (
                 <div className="space-y-3">
                   {engagement.map((d) => (

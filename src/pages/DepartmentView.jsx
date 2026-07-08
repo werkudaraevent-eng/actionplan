@@ -1035,6 +1035,11 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         columns.forEach(col => {
           let value = plan[col.key] ?? '';
 
+          // PIC: resolve UUIDs from pic_ids to display names, same as table/PDF
+          if (col.key === 'pic') {
+            value = getPicDisplayName(plan, profileMap);
+          }
+
           // Handle special computed columns
           if (col.key === 'root_cause') {
             // Only populate for "Not Achieved" status

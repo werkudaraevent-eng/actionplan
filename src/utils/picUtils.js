@@ -104,7 +104,7 @@ export function getPicDisplayName(plan, profileMap = null) {
     const picIds = plan?.pic_ids;
     if (Array.isArray(picIds) && picIds.length > 0 && profileMap) {
         const names = picIds
-            .map(id => profileMap.get(id)?.full_name)
+            .map(id => profileMap.get(id)?.full_name || profileMap.get(id)?.email)
             .filter(Boolean);
         if (names.length > 0) return names.join(', ');
     }
@@ -136,7 +136,7 @@ export function getPicKeysForAggregation(plan, profileMap = null) {
     const picIds = plan?.pic_ids;
     if (Array.isArray(picIds) && picIds.length > 0 && profileMap) {
         const names = picIds
-            .map(id => profileMap.get(id)?.full_name)
+            .map(id => profileMap.get(id)?.full_name || profileMap.get(id)?.email)
             .filter(Boolean);
         if (names.length > 0) return names;
     }

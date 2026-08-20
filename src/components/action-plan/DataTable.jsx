@@ -37,10 +37,11 @@ const MONTH_ORDER = {
 };
 
 // Column configuration with mandatory default order
-// Order: # → Dept → Month → Category → Area Focus → Goal/Strategy → Action Plan → Indicator → PIC → Evidence → Status → Score → Proof of Evidence → Remark → Actions
+// Order: # → Dept → Month → Division → Category → Area Focus → Goal/Strategy → Action Plan → Indicator → PIC → Evidence → Status → Score → Proof of Evidence → Remark → Actions
 // Note: # (index), Dept, and Actions are handled separately as sticky/conditional columns
 const COLUMN_CONFIG = [
   { id: 'month', label: 'MONTH', defaultVisible: true },
+  { id: 'division', label: 'DIVISION', defaultVisible: true },
   { id: 'category', label: 'CATEGORY', defaultVisible: true },
   { id: 'area_focus', label: 'AREA TO BE FOCUS', defaultVisible: true },
   { id: 'goal_strategy', label: 'GOAL/STRATEGI', defaultVisible: true },
@@ -979,6 +980,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
 
     const headerConfig = {
       month: <SortableHeader key={colId} columnKey="month">MONTH</SortableHeader>,
+      division: <SortableHeader key={colId} columnKey="division">DIVISION</SortableHeader>,
       category: <SortableHeader key={colId} columnKey="category" className="min-w-[100px]">CATEGORY</SortableHeader>,
       area_focus: <SortableHeader key={colId} columnKey="area_focus" className="min-w-[150px]">AREA TO BE FOCUS</SortableHeader>,
       goal_strategy: <SortableHeader key={colId} columnKey="goal_strategy" className="min-w-[200px]">GOAL/STRATEGI</SortableHeader>,
@@ -1004,6 +1006,21 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     switch (colId) {
       case 'month':
         return <td key={colId} className="px-4 py-3 text-sm font-medium text-gray-800 border-b border-gray-100">{item.month}</td>;
+      case 'division':
+        return (
+          <td key={colId} className={cellClass}>
+            {item.is_pre_conversion ? (
+              // Surfaced here so the history stays reachable after the old department was
+              // archived, but it was a department-level plan and is shown as one. The DEPT
+              // column carries the unit it actually belonged to.
+              <span className="text-gray-400" title={`Department-level plan filed under ${item.pre_conversion_department_code} before the move`}>Department level</span>
+            ) : item.division_id ? (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                {item.division?.code || item.division_code || item.division_id.slice(0, 8)}
+              </span>
+            ) : <span className="text-gray-400">Department level</span>}
+          </td>
+        );
       case 'category':
         return (
           <td key={colId} className={cellClass}>

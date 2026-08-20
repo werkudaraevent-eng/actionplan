@@ -19,6 +19,8 @@ import GradeActionPlanModal from '../components/action-plan/GradeActionPlanModal
 import ExportConfigModal from '../components/action-plan/ExportConfigModal';
 import LockedMonthsSummary from '../components/common/LockedMonthsSummary';
 import ReportStatusMenu from '../components/action-plan/ReportStatusMenu';
+import DivisionReadinessPanel from '../components/action-plan/DivisionReadinessPanel';
+
 
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
@@ -26,6 +28,7 @@ import { isPlanLocked, getLockStatus, getMonthName, parseMonthName } from '../ut
 import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 import { getPicDisplayName, collectAllPicUuids, batchResolveProfiles } from '../utils/picUtils';
 import { usePicProfiles } from '../hooks/usePicProfiles';
+import { buildDivisionSettings, filterCompanyRows, buildDivisionFingerprint } from '../utils/divisionManagementUtils';
 
 // NOTE: Manual audit logging REMOVED - DB trigger handles all audit logging automatically
 // See migration: enhanced_audit_trigger_super_detailed
@@ -41,7 +44,76 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const { activeCompanyId, loading: companyLoading } = useCompanyContext();
   const { toast } = useToast();
   const { departments } = useDepartments(activeCompanyId);
+  const [divisionSettings, setDivisionSettings] = useState(buildDivisionSettings(null));
+  const [divisions, setDivisions] = useState([]);
+  const [mergedHistoryPlans, setMergedHistoryPlans] = useState([]);
   const { can } = usePermission();
+
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    let cancelled = false;
+    Promise.all([
+      supabase.from('system_settings').select('division_hierarchy_enabled, division_readiness_policy').eq('company_id', activeCompanyId).maybeSingle(),
+      supabase.from('divisions').select('id, company_id, department_code, code, name, is_active').eq('company_id', activeCompanyId).eq('department_code', departmentCode).order('code'),
+    ]).then(([settingsResult, divisionsResult]) => {
+      if (cancelled) return;
+      setDivisionSettings(buildDivisionSettings(settingsResult.data));
+      setDivisions(filterCompanyRows(divisionsResult.data, activeCompanyId));
+    });
+    return () => { cancelled = true; };
+  }, [activeCompanyId, departmentCode]);
+
+  // A department that was folded into one of this department's divisions keeps its own
+  // department_code on every plan filed before the conversion, so those months would
+  // otherwise be unreachable once the old department is archived. They are pulled in
+  // read-only and shown under the division that replaced it.
+  useEffect(() => {
+    if (!activeCompanyId || !departmentCode || divisions.length === 0) {
+      Promise.resolve().then(() => setMergedHistoryPlans([]));
+      return undefined;
+    }
+    let cancelled = false;
+    supabase
+      .from('scope_restructure_operations')
+      .select('source_department_code, target_division_id, effective_year, effective_month')
+      .eq('company_id', activeCompanyId)
+      .eq('target_department_code', departmentCode)
+      .eq('target_scope_type', 'division')
+      .eq('status', 'applied')
+      .then(async ({ data: operations }) => {
+        if (cancelled || !operations?.length) {
+          if (!cancelled) setMergedHistoryPlans([]);
+          return;
+        }
+        const sourceCodes = [...new Set(operations.map((operation) => operation.source_department_code))];
+        const { data: historyPlans } = await supabase
+          .from('action_plans')
+          .select('*')
+          .eq('company_id', activeCompanyId)
+          .in('department_code', sourceCodes)
+          .is('division_id', null)
+          .is('deleted_at', null)
+          .range(0, 9999);
+        if (cancelled) return;
+
+        const divisionsById = new Map(divisions.map((division) => [division.id, division]));
+        setMergedHistoryPlans((historyPlans || []).flatMap((plan) => {
+          const operation = operations.find((entry) => entry.source_department_code === plan.department_code);
+          if (!operation) return [];
+          const planKey = plan.year * 12 + (MONTH_INDEX[plan.month] ?? 0) + 1;
+          if (planKey >= operation.effective_year * 12 + operation.effective_month) return [];
+          const division = divisionsById.get(operation.target_division_id);
+          return [{
+            ...plan,
+            division_id: operation.target_division_id,
+            division: division ? { code: division.code, name: division.name } : null,
+            is_pre_conversion: true,
+            pre_conversion_department_code: plan.department_code,
+          }];
+        }));
+      });
+    return () => { cancelled = true; };
+  }, [activeCompanyId, departmentCode, divisions]);
 
   // Permission-based access control
   const canCreatePlan = can('action_plan', 'create');
@@ -99,6 +171,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
   const setSelectedStatus = useCallback((v) => setParam('status', v, 'all'), [setParam]);
   const selectedCategory = searchParams.get('category') || 'all';
   const setSelectedCategory = useCallback((v) => setParam('category', v, 'all'), [setParam]);
+  const selectedDivision = searchParams.get('division') ?? 'all';
+  const setSelectedDivision = useCallback((v) => setParam('division', v, 'all'), [setParam]);
   const selectedCarryOver = searchParams.get('carryOver') || 'all';
 
   const [exporting, setExporting] = useState(false);
@@ -454,7 +528,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
     const startIdx = MONTH_INDEX[startMonth] ?? 0;
     const endIdx = MONTH_INDEX[endMonth] ?? 11;
 
-    return plans.filter((plan) => {
+    return [...plans, ...mergedHistoryPlans].filter((plan) => {
       // Month range filter
       const planMonthIdx = MONTH_INDEX[plan.month];
       if (planMonthIdx !== undefined && (planMonthIdx < startIdx || planMonthIdx > endIdx)) {
@@ -482,11 +556,16 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
 
       return true;
     });
-  }, [plans, startMonth, endMonth, searchQuery, profileMap]);
+  }, [plans, mergedHistoryPlans, startMonth, endMonth, searchQuery, profileMap]);
 
   // TABLE DATA: Base data filtered FURTHER by Status, then SORTED by Month (for Table - dynamic)
   const tablePlans = useMemo(() => {
     let filtered = basePlans;
+
+    // Division filter includes department-level plans when specific division selected.
+    if (selectedDivision !== 'all') {
+      filtered = filtered.filter((plan) => selectedDivision === '' ? !plan.division_id : plan.division_id === selectedDivision);
+    }
 
     // Status filter
     if (selectedStatus !== 'all') {
@@ -524,34 +603,23 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       if (monthDiff !== 0) return monthDiff;
       return (b.id || 0) - (a.id || 0); // Newest first within same month
     });
-  }, [basePlans, selectedStatus, selectedCategory, selectedCarryOver]);
+  }, [basePlans, selectedStatus, selectedCategory, selectedCarryOver, selectedDivision]);
 
   // Pre-calculate consolidated count for the export modal
   // Uses same fingerprint logic as the actual consolidation
   const consolidatedCount = useMemo(() => {
     const grouped = new Set();
-    tablePlans.forEach(row => {
-      const fingerprint = [
-        row.category,
-        row.area_focus,
-        row.goal_strategy,
-        row.action_plan,
-        row.indicator,
-        row.evidence,
-        (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic
-      ].map(val => String(val || '').trim().toLowerCase()).join('|');
-      grouped.add(fingerprint);
-    });
+    tablePlans.forEach((row) => grouped.add(buildDivisionFingerprint(row)));
     return grouped.size;
   }, [tablePlans]);
 
   // Check if any filters are active
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || selectedCarryOver !== 'all' || searchQuery.trim() || showPendingOnly;
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedStatus !== 'all' || selectedCategory !== 'all' || selectedDivision !== 'all' || selectedCarryOver !== 'all' || searchQuery.trim() || showPendingOnly;
 
   const clearAllFilters = () => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
-      ['q', 'startMonth', 'endMonth', 'status', 'category', 'carryOver', 'pending'].forEach(k => next.delete(k));
+      ['q', 'startMonth', 'endMonth', 'status', 'category', 'division', 'carryOver', 'pending'].forEach(k => next.delete(k));
       return next;
     }, { replace: true });
   };
@@ -1013,6 +1081,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
       // Define columns for export (including new gap analysis columns)
       const columns = [
         { key: 'month', label: 'Month' },
+        { key: 'division_code', label: 'Division' },
         { key: 'category', label: 'Category' },
         { key: 'area_focus', label: 'Focus Area' },
         { key: 'goal_strategy', label: 'Goal/Strategy' },
@@ -1038,6 +1107,10 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           // PIC: resolve UUIDs from pic_ids to display names, same as table/PDF
           if (col.key === 'pic') {
             value = getPicDisplayName(plan, profileMap);
+          } else if (col.key === 'division_code') {
+            value = plan.is_pre_conversion
+              ? 'Department level'
+              : plan.division?.code || plan.division_code || (plan.division_id ? plan.division_id.slice(0, 8) : 'Department level');
           }
 
           // Handle special computed columns
@@ -1110,15 +1183,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           // ONLY include fields that define the "same" action plan
           // EXCLUDE: id, created_at, updated_at, month, status, score, remark, outcome_link
           // SANITIZE: trim whitespace, normalize to lowercase for comparison
-          const fingerprint = [
-            row.category,
-            row.area_focus,
-            row.goal_strategy,
-            row.action_plan,  // Most important field
-            row.indicator,
-            row.evidence,
-            (row.pic_ids || []).sort().join(',') || row.legacy_pic_text || row.pic || ''
-          ].map(val => String(val || '').trim().toLowerCase()).join('|');
+          const fingerprint = buildDivisionFingerprint(row);
 
           if (!grouped[fingerprint]) {
             // First occurrence: Clone row and init months array
@@ -1207,6 +1272,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         month: { label: 'Month', fixedWidth: isConsolidated ? 22 : 14, align: 'center', getValue: (p) => String(p.month || '-') },
         category: { label: 'Category', fixedWidth: 18, align: 'center', getValue: (p) => String(p.category || '-') },
         area_focus: { label: 'Area Focus', fixedWidth: 28, align: 'left', getValue: (p) => String(p.area_focus || '-') },
+        division: { label: 'Division', fixedWidth: 20, align: 'left', getValue: (p) => String(p.is_pre_conversion ? 'Department level' : p.division?.code || p.division_code || (p.division_id ? p.division_id.slice(0, 8) : 'Department level')) },
         goal_strategy: { label: 'Goal/Strategy', fixedWidth: 38, align: 'left', getValue: (p) => String(p.goal_strategy || '-') },
         action_plan: { label: 'Action Plan', fixedWidth: 44, align: 'left', getValue: (p) => String(p.action_plan || '-') },
         indicator: { label: 'Indicator', fixedWidth: 34, align: 'left', getValue: (p) => String(p.indicator || '-') },
@@ -1498,6 +1564,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         const updateFields = canManagePlans
           ? {
             month: formData.month,
+            division_id: formData.division_id || null,
             goal_strategy: formData.goal_strategy,
             action_plan: formData.action_plan,
             indicator: formData.indicator,
@@ -1885,6 +1952,9 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
         setSelectedStatus={setSelectedStatus}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
+        divisions={divisions}
+        selectedDivision={selectedDivision}
+        setSelectedDivision={setSelectedDivision}
         selectedCarryOver={selectedCarryOver}
         onCarryOverChange={(val) => setParam('carryOver', val === 'all' ? '' : val)}
         columnVisibility={{ visibleColumns, columnOrder, toggleColumn, moveColumn, reorderColumns, resetColumns }}
@@ -1927,7 +1997,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             )}
 
             {/* Leader Submit/Recall Report Button - ONLY visible for Leaders (not Admins) */}
-            {isLeader && (
+            {isLeader && !divisionSettings.division_hierarchy_enabled && (
               <ReportStatusMenu
                 plans={plans}
                 onSubmit={proceedWithFinalize}
@@ -1986,6 +2056,15 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
               Request Unlock
             </button>
           </div>
+        )}
+
+        {divisionSettings.division_hierarchy_enabled && selectedMonth !== 'all' && (
+          <DivisionReadinessPanel
+            departmentCode={departmentCode}
+            year={CURRENT_YEAR}
+            month={selectedMonth}
+            onRefresh={refetch}
+          />
         )}
 
         {/* Global Locked Months Summary - Shows all locked/pending months at a glance */}

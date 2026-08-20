@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone, BrainCircuit } from 'lucide-react';
+import { Settings, Building2, Target, History, Plus, Pencil, Trash2, Save, X, Loader2, Upload, Download, User, UserPlus, Users, List, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, Database, AlertTriangle, FileSpreadsheet, Shield, ShieldAlert, Lock, Calendar, RefreshCw, Mail, Star, Power, Megaphone, BrainCircuit, ArrowRightLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 import ImportModal from '../components/action-plan/ImportModal';
 import BulkUpdateModal from '../components/action-plan/BulkUpdateModal';
 import { useToast } from '../components/common/Toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmailSettingsSection from '../components/settings/EmailSettingsSection';
 import OptionManager from '../components/settings/OptionManager';
+import DepartmentDivisionsPanel from '../components/settings/DepartmentDivisionsPanel';
+import ScopeSwitchDialog from '../components/settings/ScopeSwitchDialog';
+import ScopeHistoryPanel from '../components/settings/ScopeHistoryPanel';
 import { useCompanyContext } from '../context/CompanyContext';
+import { buildDivisionSettings, filterCompanyRows } from '../utils/divisionManagementUtils';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -105,6 +110,15 @@ function DepartmentsTab({ onNavigateToUsers }) {
   const [newName, setNewName] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [expandedDepartmentCode, setExpandedDepartmentCode] = useState(null);
+  const [divisions, setDivisions] = useState([]);
+  const [memberships, setMemberships] = useState([]);
+  const [divisionSettings, setDivisionSettings] = useState(buildDivisionSettings(null));
+  const [switchTarget, setSwitchTarget] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const archivedDepartments = departments.filter((dept) => dept.is_active === false);
+  const visibleDepartments = showArchived ? archivedDepartments : departments.filter((dept) => dept.is_active !== false);
 
   useEffect(() => {
     fetchData();
@@ -122,15 +136,24 @@ function DepartmentsTab({ onNavigateToUsers }) {
     setLoading(true);
     // MULTI-TENANT: scope both queries to the active company
     let deptQuery = supabase.from('departments').select('*').order('code').eq('company_id', activeCompanyId);
-    let profileQuery = supabase.from('profiles').select('id, full_name, role, department_code, additional_departments').eq('company_id', activeCompanyId);
+    let profileQuery = supabase.from('profiles').select('id, full_name, email, role, department_code, additional_departments, company_id').eq('company_id', activeCompanyId);
+    const settingsQuery = supabase.from('system_settings').select('division_hierarchy_enabled, division_readiness_policy').eq('company_id', activeCompanyId).maybeSingle();
+    const divisionsQuery = supabase.from('divisions').select('id, company_id, department_code, code, name, is_active').eq('company_id', activeCompanyId).order('department_code').order('code');
+    const membershipsQuery = supabase.from('division_memberships').select('id, company_id, division_id, user_id, department_code, membership_role').eq('company_id', activeCompanyId);
 
-    const [deptResult, profileResult] = await Promise.all([deptQuery, profileQuery]);
+    const [deptResult, profileResult, settingsResult, divisionsResult, membershipsResult] = await Promise.all([deptQuery, profileQuery, settingsQuery, divisionsQuery, membershipsQuery]);
 
     if (deptResult.error) console.error('Error fetching departments:', deptResult.error);
     if (profileResult.error) console.error('Error fetching profiles:', profileResult.error);
+    if (settingsResult.error) console.error('Error fetching division settings:', settingsResult.error);
+    if (divisionsResult.error) console.error('Error fetching divisions:', divisionsResult.error);
+    if (membershipsResult.error) console.error('Error fetching division memberships:', membershipsResult.error);
 
     setDepartments(deptResult.data || []);
     setProfiles(profileResult.data || []);
+    setDivisionSettings(buildDivisionSettings(settingsResult.data));
+    setDivisions(filterCompanyRows(divisionsResult.data, activeCompanyId));
+    setMemberships(filterCompanyRows(membershipsResult.data, activeCompanyId));
     setLoading(false);
   };
 
@@ -149,6 +172,37 @@ function DepartmentsTab({ onNavigateToUsers }) {
     return profiles.filter(p =>
       Array.isArray(p.additional_departments) && p.additional_departments.includes(deptCode)
     ).length;
+  };
+
+  const refreshDivisionData = async () => {
+    if (!activeCompanyId) return;
+    const [settingsResult, divisionsResult, membershipsResult] = await Promise.all([
+      supabase.from('system_settings').select('division_hierarchy_enabled, division_readiness_policy').eq('company_id', activeCompanyId).maybeSingle(),
+      supabase.from('divisions').select('id, company_id, department_code, code, name, is_active').eq('company_id', activeCompanyId).order('department_code').order('code'),
+      supabase.from('division_memberships').select('id, company_id, division_id, user_id, department_code, membership_role').eq('company_id', activeCompanyId),
+    ]);
+    setDivisionSettings(buildDivisionSettings(settingsResult.data));
+    setDivisions(filterCompanyRows(divisionsResult.data, activeCompanyId));
+    setMemberships(filterCompanyRows(membershipsResult.data, activeCompanyId));
+  };
+
+  const handleSaveDivisionSettings = async (fields) => {
+    if (!activeCompanyId) return;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.from('system_settings').update(fields).eq('company_id', activeCompanyId).select('company_id');
+      if (error) throw error;
+      if (!data?.length) {
+        const { error: insertError } = await supabase.from('system_settings').insert({ company_id: activeCompanyId, ...fields });
+        if (insertError) throw insertError;
+      }
+      setDivisionSettings((current) => ({ ...current, ...fields }));
+      toast({ title: 'Division Settings Saved', description: 'Department division hierarchy updated.', variant: 'success' });
+    } catch (error) {
+      toast({ title: 'Settings Save Failed', description: error.message, variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveNew = async () => {
@@ -187,7 +241,8 @@ function DepartmentsTab({ onNavigateToUsers }) {
       const { error } = await supabase
         .from('departments')
         .update({ name: editName.trim() })
-        .eq('code', code);
+        .eq('code', code)
+        .eq('company_id', activeCompanyId);
 
       if (error) throw error;
 
@@ -202,12 +257,41 @@ function DepartmentsTab({ onNavigateToUsers }) {
     setSaving(false);
   };
 
+  // Retiring a department is not the same as deleting it: historical plans, assignments
+  // and journals keep pointing at the code, so it is only withdrawn from new input.
+  const toggleDepartmentArchived = async (dept) => {
+    const nextActive = dept.is_active === false;
+    const { error } = await supabase
+      .from('departments')
+      .update({ is_active: nextActive })
+      .eq('code', dept.code)
+      .eq('company_id', activeCompanyId);
+    if (error) {
+      toast({ title: 'Update Failed', description: error.message, variant: 'error' });
+      return;
+    }
+    await fetchData();
+    toast({
+      title: nextActive ? 'Department Restored' : 'Department Archived',
+      description: nextActive
+        ? `${dept.code} can receive new plans again.`
+        : `${dept.code} keeps its history but no longer appears for new plans.`,
+      variant: 'success',
+    });
+  };
+
   const handleDelete = async (code) => {
     try {
+      const childDivisionCount = divisions.filter((division) => division.department_code === code).length;
+      if (childDivisionCount > 0) {
+        toast({ title: 'Delete Blocked', description: `${code} still has ${childDivisionCount} division(s). Remove or deactivate divisions first.`, variant: 'warning' });
+        return;
+      }
       const { error } = await supabase
         .from('departments')
         .delete()
-        .eq('code', code);
+        .eq('code', code)
+        .eq('company_id', activeCompanyId);
 
       if (error) throw error;
 
@@ -244,16 +328,41 @@ function DepartmentsTab({ onNavigateToUsers }) {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-        <h2 className="font-semibold text-gray-800">Department Management</h2>
-        <button
-          onClick={startAdd}
-          disabled={isAdding}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-700 text-white text-sm rounded-lg hover:bg-blue-800 disabled:opacity-50"
-        >
-          <Plus className="w-4 h-4" /> Add Department
-        </button>
+      <div className="p-4 border-b border-gray-100 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><h2 className="font-semibold text-gray-800">Department Management</h2><p className="text-sm text-gray-500 mt-1">Department is parent. Divisions are optional children managed inside each department.</p></div>
+          <button
+            onClick={startAdd}
+            disabled={isAdding}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-700 text-white text-sm rounded-lg hover:bg-blue-800 disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" /> Add Department
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={divisionSettings.division_hierarchy_enabled} disabled={saving} onChange={(event) => handleSaveDivisionSettings({ division_hierarchy_enabled: event.target.checked })} className="w-4 h-4 text-blue-700 rounded" /> Enable optional divisions</label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">Readiness policy<select value={divisionSettings.division_readiness_policy} disabled={saving} onChange={(event) => handleSaveDivisionSettings({ division_readiness_policy: event.target.value })} className="px-2 py-1 border border-gray-300 rounded-lg bg-white"><option value="ADVISORY">Advisory</option><option value="REQUIRED">Required</option></select></label>
+          <span role="status" className="text-xs text-gray-500">{divisionSettings.division_hierarchy_enabled ? 'Enabled' : 'Disabled'} · {divisionSettings.division_readiness_policy}</span>
+        </div>
       </div>
+
+      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">Open department row to manage child divisions and division memberships.</p>
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5" role="group" aria-label="Department visibility">
+          <button type="button" onClick={() => setShowArchived(false)} aria-pressed={!showArchived} className={`px-3 py-1.5 text-xs font-medium rounded-md ${!showArchived ? 'bg-blue-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+            Active ({departments.length - archivedDepartments.length})
+          </button>
+          <button type="button" onClick={() => setShowArchived(true)} aria-pressed={showArchived} className={`px-3 py-1.5 text-xs font-medium rounded-md ${showArchived ? 'bg-blue-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+            Archived ({archivedDepartments.length})
+          </button>
+        </div>
+      </div>
+
+      {showArchived && (
+        <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 text-xs text-amber-900">
+          Archived departments keep every plan, audit record and report filed under them. They are hidden from the sidebar and from new plan input. Restore one with the toggle in its row.
+        </div>
+      )}
 
       {/* Table Header */}
       <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-12 gap-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -300,14 +409,15 @@ function DepartmentsTab({ onNavigateToUsers }) {
           </div>
         )}
 
-        {/* Department List */}
-        {departments.map((dept) => {
+        {/* Department List — archived units are kept out of the working list */}
+        {visibleDepartments.map((dept) => {
           const leader = getLeader(dept.code);
           const headcount = getHeadcount(dept.code);
           const additionalCount = getAdditionalCount(dept.code);
 
           return (
-            <div key={dept.code} className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-50/50">
+            <div key={dept.code} className="hover:bg-gray-50/50">
+              <div className="p-4 grid grid-cols-12 gap-4 items-center">
               {editingCode === dept.code ? (
                 <>
                   <div className="col-span-2">
@@ -378,6 +488,20 @@ function DepartmentsTab({ onNavigateToUsers }) {
                     </div>
                   </div>
                   <div className="col-span-2 flex justify-end gap-2">
+                    {dept.is_active === false ? (
+                      <span className="self-center px-2 py-1 rounded-full bg-gray-100 text-gray-600 text-xs whitespace-nowrap">Archived</span>
+                    ) : (
+                      <button onClick={() => setSwitchTarget({ mode: 'to_division', source: dept })} title={`Move ${dept.code} under another department`} className="p-2 text-gray-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg">
+                        <ArrowRightLeft className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => toggleDepartmentArchived(dept)}
+                      title={dept.is_active === false ? `Restore ${dept.code}` : `Archive ${dept.code} — keeps history, hides it from new plans`}
+                      className="p-2 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg"
+                    >
+                      {dept.is_active === false ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                    </button>
                     <button onClick={() => startEdit(dept)} className="p-2 text-gray-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg">
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -387,14 +511,37 @@ function DepartmentsTab({ onNavigateToUsers }) {
                   </div>
                 </>
               )}
+              </div>
+              <div className="px-4 pb-3 flex justify-end">
+                <button type="button" onClick={() => setExpandedDepartmentCode(expandedDepartmentCode === dept.code ? null : dept.code)} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100">
+                  {expandedDepartmentCode === dept.code ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {expandedDepartmentCode === dept.code ? 'Hide divisions' : `Manage divisions (${divisions.filter((division) => division.department_code === dept.code && division.is_active !== false).length})`}
+                </button>
+              </div>
+              {expandedDepartmentCode === dept.code && <DepartmentDivisionsPanel department={dept} companyId={activeCompanyId} divisions={divisions} profiles={profiles} memberships={memberships} onRefresh={refreshDivisionData} onPromoteDivision={(division) => setSwitchTarget({ mode: 'to_department', source: division, parentDepartment: dept })} />}
             </div>
           );
         })}
 
-        {departments.length === 0 && !isAdding && (
-          <div key="empty-state" className="p-8 text-center text-gray-500">No departments found. Add one to get started.</div>
+        {visibleDepartments.length === 0 && !isAdding && (
+          <div key="empty-state" className="p-8 text-center text-gray-500">
+            {showArchived ? 'No archived departments.' : 'No departments found. Add one to get started.'}
+          </div>
         )}
       </div>
+
+      <ScopeHistoryPanel companyId={activeCompanyId} divisions={divisions} onRolledBack={fetchData} />
+
+      {switchTarget && (
+        <ScopeSwitchDialog
+          mode={switchTarget.mode}
+          source={switchTarget.source}
+          parentDepartment={switchTarget.parentDepartment}
+          departments={departments}
+          onClose={() => setSwitchTarget(null)}
+          onDone={fetchData}
+        />
+      )}
 
       {/* Confirm Delete Dialog */}
       <ConfirmDialog
@@ -418,11 +565,7 @@ function TargetsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
 
-  useEffect(() => {
-    fetchTargets();
-  }, [activeCompanyId]);
-
-  const fetchTargets = async () => {
+  async function fetchTargets() {
     // HYDRATION GUARD: wait for company context
     if (!activeCompanyId) {
       setTargets({});
@@ -441,7 +584,11 @@ function TargetsTab() {
       setTargets({});
     }
     setLoading(false);
-  };
+  }
+
+  useEffect(() => {
+    Promise.resolve().then(fetchTargets);
+  }, [activeCompanyId]);
 
   const handleChange = (year, value) => {
     const num = parseInt(value, 10);
@@ -865,7 +1012,7 @@ function HistoricalTab() {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-4 py-3 font-semibold text-gray-700 sticky left-0 bg-gray-50 min-w-[140px]">Department</th>
-              {MONTHS.map((month, idx) => (
+              {MONTHS.map((month) => (
                 <th key={month} className="px-2 py-3 font-medium text-gray-600 text-center min-w-[60px]">{month}</th>
               ))}
               <th className="px-3 py-3 font-semibold text-gray-700 text-center min-w-[70px] bg-gray-100">Avg</th>

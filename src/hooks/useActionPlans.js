@@ -9,6 +9,11 @@ import { trackEvent } from '../utils/usageTracking';
 // This ensures consistent, detailed logging without duplicates.
 // See migration: enhanced_audit_trigger_super_detailed
 
+// division_id on its own renders as a raw UUID wherever a plan is listed, so the readable
+// code travels with every fetch. The division foreign key is composite, which means
+// PostgREST can only resolve the embed through the constraint name.
+const PLAN_SELECT = '*, origin_plan:origin_plan_id(month), division:divisions!action_plans_division_scope_fkey(code, name)';
+
 export function useActionPlans(departmentCode = null, companyId = null, excludeCompanyIds = []) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
 
       let query = supabase
         .from('action_plans')
-        .select('*, origin_plan:origin_plan_id(month)')
+        .select(PLAN_SELECT)
         .is('deleted_at', null) // Only fetch active (non-deleted) items
         .order('created_at', { ascending: false }) // CRITICAL: Newest first
         .range(0, 9999); // CRITICAL: Increase limit from default 1000 to 10,000
@@ -1006,7 +1011,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
             })
             .eq('id', id)
             .eq('submission_status', 'submitted')
-            .select('*, origin_plan:origin_plan_id(month)');
+            .select(PLAN_SELECT);
 
           if (error) { await fetchPlans(); throw error; }
           if (!data || data.length === 0) {
@@ -1164,7 +1169,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
           .update(cleanGradeData)
           .eq('id', id)
           .eq('submission_status', 'submitted')
-          .select('*, origin_plan:origin_plan_id(month)');
+          .select(PLAN_SELECT);
 
         if (error) { await fetchPlans(); throw error; }
         if (!data || data.length === 0) {
@@ -1204,7 +1209,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       // Re-fetch the updated plan row to get the full object with joins
       const { data: updated } = await supabase
         .from('action_plans')
-        .select('*, origin_plan:origin_plan_id(month)')
+        .select(PLAN_SELECT)
         .eq('id', id)
         .single();
 
@@ -1387,7 +1392,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       // Re-fetch the updated plan for full object
       const { data: updated } = await supabase
         .from('action_plans')
-        .select('*, origin_plan:origin_plan_id(month)')
+        .select(PLAN_SELECT)
         .eq('id', id)
         .single();
 
@@ -1443,7 +1448,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       // Re-fetch the updated plan for full object
       const { data: updated } = await supabase
         .from('action_plans')
-        .select('*, origin_plan:origin_plan_id(month)')
+        .select(PLAN_SELECT)
         .eq('id', id)
         .single();
 
@@ -1500,7 +1505,7 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       // Re-fetch the updated plan for full object
       const { data: updated } = await supabase
         .from('action_plans')
-        .select('*, origin_plan:origin_plan_id(month)')
+        .select(PLAN_SELECT)
         .eq('id', id)
         .single();
 

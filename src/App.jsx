@@ -158,7 +158,6 @@ function ProtectedRoute({ children, allowedRoles = [], adminOnly = false }) {
   return children;
 }
 
-// Department route guard - ensures user can only access their own department or additional departments (unless admin/executive)
 function DepartmentRoute({ children }) {
   const { isAdmin, isExecutive, departmentCode, profile } = useAuth();
   const { deptCode } = useParams();
@@ -442,6 +441,8 @@ function AppRoutes() {
               <AdminSettingsWrapper />
             </ProtectedRoute>
           } />
+
+          <Route path="/divisions" element={<Navigate to="/settings?tab=departments" replace />} />
 
           <Route path="/permissions" element={
             <ProtectedRoute adminOnly>

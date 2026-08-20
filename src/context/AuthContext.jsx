@@ -52,6 +52,8 @@ export function AuthProvider({ children }) {
       } else {
         setProfile(data);
         setProfileError(null);
+        const { error: projectionError } = await supabase.rpc('sync_effective_scope_projection');
+        if (projectionError) console.error('Scope projection sync error:', projectionError);
         if (trackLogin) {
           trackEvent({
             eventType: 'login',

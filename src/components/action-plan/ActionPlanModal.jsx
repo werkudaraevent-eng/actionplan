@@ -10,6 +10,7 @@ import { useScoringPolicies } from '../../hooks/usePicProfiles';
 import { getPicDisplayName, batchResolveProfiles, isUserPicOfPlan } from '../../utils/picUtils';
 import { useToast } from '../common/Toast';
 import { getLockStatus, getLockStatusMessage } from '../../utils/lockUtils';
+import { getDivisionOptions } from '../../utils/divisionManagementUtils';
 import { validateBlockerReason, getMinReasonLength, buildBlockerResetFields, getFilteredAttentionLevels } from '../../utils/escalationUtils';
 import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 import { fetchDropPolicySettings, isDropApprovalRequired } from '../../utils/resolutionWizardUtils';
@@ -22,6 +23,24 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
   const { can } = usePermission();
   const { toast } = useToast();
   const { departments } = useDepartments(activeCompanyId);
+  const [divisionSettings, setDivisionSettings] = useState({ division_hierarchy_enabled: false });
+  const [divisions, setDivisions] = useState([]);
+
+  useEffect(() => {
+    if (!isOpen || !activeCompanyId) return;
+    let cancelled = false;
+    const loadDivisions = async () => {
+      const [settingsResult, divisionsResult] = await Promise.all([
+        supabase.from('system_settings').select('division_hierarchy_enabled').eq('company_id', activeCompanyId).maybeSingle(),
+        supabase.from('divisions').select('id, code, department_code, is_active').eq('company_id', activeCompanyId).eq('is_active', true).order('code'),
+      ]);
+      if (cancelled) return;
+      setDivisionSettings({ division_hierarchy_enabled: settingsResult.data?.division_hierarchy_enabled === true });
+      setDivisions(divisionsResult.data || []);
+    };
+    loadDivisions();
+    return () => { cancelled = true; };
+  }, [isOpen, activeCompanyId]);
 
   // ═══════════════════════════════════════════════════════════════════
   // TWO-AXIS PERMISSION MODEL
@@ -275,7 +294,13 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
     remark: '',
     blocker_category: null,
     attention_level: 'Standard',
+    division_id: '',
   });
+
+  const divisionOptions = useMemo(
+    () => getDivisionOptions(divisions, formData.department_code),
+    [divisions, formData.department_code]
+  );
 
   // Fetch scoring policies (allow_multiple_pics toggle)
   const { policies: scoringPolicies } = useScoringPolicies(activeCompanyId);
@@ -552,6 +577,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         support_pic_ids: editData.support_pic_ids || [],
         blocker_category: editData.blocker_category ?? null,
         attention_level: editData.attention_level ?? 'Standard',
+        division_id: editData.division_id || '',
         // If _prefillStatus is set (e.g., from "Resolve Blocker" button), override the status
         ...(editData._prefillStatus ? { status: editData._prefillStatus } : {}),
       });
@@ -710,6 +736,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
         evidence: '',
         blocker_category: null,
         attention_level: 'Standard',
+        division_id: '',
       });
       setAttachments([]);
       setRepeatEnabled(false);
@@ -794,6 +821,7 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
     setFormData(prev => ({
       ...prev,
       department_code: newDeptCode,
+      division_id: '',
       pic_ids: [], // Reset PICs when department changes
       support_pic_ids: [],
     }));
@@ -994,6 +1022,9 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
     try {
       // Prepare the final form data
       let finalFormData = { ...formData };
+      finalFormData.division_id = divisionSettings.division_hierarchy_enabled
+        ? (formData.division_id || null)
+        : (editData?.division_id || null);
 
       // MULTI-PIC: Ensure pic_ids and support_pic_ids are clean UUID arrays
       finalFormData.pic_ids = Array.isArray(formData.pic_ids) ? formData.pic_ids.filter(Boolean) : [];
@@ -1602,6 +1633,22 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
                   </select>
                 </div>
               </div>
+
+              {/* Optional child scope */}
+              {divisionSettings.division_hierarchy_enabled && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Division <span className="text-xs text-gray-400 font-normal">(Optional)</span></label>
+                  <select
+                    value={formData.division_id || ''}
+                    onChange={(event) => setFormData({ ...formData, division_id: event.target.value })}
+                    disabled={!formData.department_code || divisionOptions.length === 1 || editData?.submission_status === 'submitted'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    {!formData.department_code ? <option value="">Select department first</option> : divisionOptions.map((option) => <option key={option.value || 'department-level'} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Leave Department level when plan belongs to whole department.</p>
+                </div>
+              )}
 
               {/* Row 2: Category & Area Focus */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

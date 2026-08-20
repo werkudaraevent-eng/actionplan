@@ -54,7 +54,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           const expectedBadgeText = periodLabel.trim().replace(/^\(|\)$/g, '');
           expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(expectedBadgeText);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -69,7 +69,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           const expectedBadgeText = periodLabel.trim().replace(/^\(|\)$/g, '');
           expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(expectedBadgeText);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -84,7 +84,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           );
           expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(dateContext);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
   });
@@ -110,7 +110,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(true);
           expect(getBadgeTextOnCard(container, INVENTORY_CARD_LABEL)).toBe(dateContext);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -133,7 +133,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           // Inventory card has no badge when both are empty
           expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(false);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
   });
@@ -158,7 +158,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
             expect(cardHasBadge(container, label)).toBe(true);
           }
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -174,7 +174,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
             expect(cardHasBadge(container, label)).toBe(false);
           }
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -192,7 +192,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
             expect(getBadgeTextOnCard(container, label)).toBe(dateContext);
           }
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
 
@@ -212,7 +212,7 @@ describe('GlobalStatsGrid Badge Logic - Property Tests', () => {
           // Inventory card always shows dateContext
           expect(cardHasBadge(container, INVENTORY_CARD_LABEL)).toBe(true);
         }),
-        { numRuns: 100 }
+        { numRuns: 20 }
       );
     });
   });

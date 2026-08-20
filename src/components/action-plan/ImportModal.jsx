@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
@@ -6,9 +6,11 @@ import { useDepartments } from '../../hooks/useDepartments';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { useToast } from '../common/Toast';
 import SubsidiaryBanner from '../common/SubsidiaryBanner';
+import { validateDivisionImportValue, resolveDivisionCode } from '../../utils/divisionManagementUtils';
 
 const TEMPLATE_HEADERS = [
   'Department Code',
+  'Division Code',
   'Month',
   'Category',
   'Focus Area',
@@ -96,6 +98,27 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
   const { toast } = useToast();
   const { activeCompanyId } = useCompanyContext();
   const { departments } = useDepartments(activeCompanyId);
+  const [divisionHierarchyEnabled, setDivisionHierarchyEnabled] = useState(false);
+  const [divisions, setDivisions] = useState([]);
+
+  useEffect(() => {
+    if (!isOpen || !activeCompanyId) return;
+    let cancelled = false;
+    Promise.all([
+      supabase.from('system_settings').select('division_hierarchy_enabled').eq('company_id', activeCompanyId).maybeSingle(),
+      supabase.from('divisions').select('id, code, department_code, is_active').eq('company_id', activeCompanyId).order('code'),
+    ]).then(([settingsResult, divisionsResult]) => {
+      if (cancelled) return;
+      setDivisionHierarchyEnabled(settingsResult.data?.division_hierarchy_enabled === true);
+      setDivisions(divisionsResult.data || []);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, activeCompanyId]);
+
+  const activeTemplateHeaders = divisionHierarchyEnabled
+    ? TEMPLATE_HEADERS
+    : TEMPLATE_HEADERS.filter((header) => header !== 'Division Code');
+
   const [step, setStep] = useState(1); // 1: upload, 2: processing, 3: results
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [dragActive, setDragActive] = useState(false);
@@ -108,12 +131,21 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
   const downloadTemplate = () => {
     // Create sample data rows (Score column removed - graded later on web)
+    const headers = activeTemplateHeaders;
     const sampleData = [
-      TEMPLATE_HEADERS,
-      ['BAS', 'Jan', 'UH', 'Workforce Optimization', 'Improve Operations', 'Implement new system', 'System deployed', 'John Doe', 'Monthly report submitted', 'Open', '', ''],
-      ['HR', 'Feb', 'Priority', 'Talent Development', 'Talent Acquisition', 'Hire 5 engineers', '5 hires completed', 'HR Manager', 'Hiring tracker updated', 'Achieved', 'https://drive.google.com/example', 'Completed ahead of schedule'],
-      ['IT', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Open', '', 'Multi-month project']
+      headers,
+      divisionHierarchyEnabled
+        ? ['BAS', 'BAS_A', 'Jan', 'UH', 'Workforce Optimization', 'Improve Operations', 'Implement new system', 'System deployed', 'John Doe', 'Monthly report submitted', 'Open', '', '']
+        : ['BAS', 'Jan', 'UH', 'Workforce Optimization', 'Improve Operations', 'Implement new system', 'System deployed', 'John Doe', 'Monthly report submitted', 'Open', '', ''],
     ];
+
+    if (divisionHierarchyEnabled) {
+      sampleData.push(['HR', '', 'Feb', 'Priority', 'Talent Development', 'Talent Acquisition', 'Hire 5 engineers', '5 hires completed', 'HR Manager', 'Hiring tracker updated', 'Achieved', 'https://drive.google.com/example', 'Completed ahead of schedule']);
+      sampleData.push(['IT', '', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Open', '', 'Multi-month project']);
+    } else {
+      sampleData.push(['HR', 'Feb', 'Priority', 'Talent Development', 'Talent Acquisition', 'Hire 5 engineers', '5 hires completed', 'HR Manager', 'Hiring tracker updated', 'Achieved', 'https://drive.google.com/example', 'Completed ahead of schedule']);
+      sampleData.push(['IT', 'Jan - Mar', 'UH', 'Digital Transformation', 'System Upgrade', 'Upgrade ERP system', 'ERP v2.0 deployed', 'IT Lead', 'Deployment report', 'Open', '', 'Multi-month project']);
+    }
 
     // Create workbook and worksheet
     const ws = XLSX.utils.aoa_to_sheet(sampleData);
@@ -123,6 +155,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
     // Set column widths for better readability
     ws['!cols'] = [
       { wch: 15 }, // Department Code
+      ...(divisionHierarchyEnabled ? [{ wch: 15 }] : []), // Division Code
       { wch: 12 }, // Month
       { wch: 12 }, // Category
       { wch: 25 }, // Focus Area
@@ -233,7 +266,13 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
 
     // Map CSV headers to row keys (PapaParse uses exact header names as keys)
     const deptCode = row['Department Code'];
+    const divisionCode = row['Division Code'];
     const monthRaw = row['Month'];
+    const normalizedDeptCode = deptCode?.toString().trim().toUpperCase();
+    if (divisionHierarchyEnabled) {
+      const divisionError = validateDivisionImportValue(divisionCode, normalizedDeptCode, divisions);
+      if (divisionError) errors.push(divisionError);
+    }
     const goalStrategy = row['Goal/Strategy'];
     const actionPlan = row['Action Plan'];
     const indicator = row['Indicator'];
@@ -293,6 +332,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
             // Flexible header mapping (handles various Excel header formats)
             const mappedRow = {
               'Department Code': row['Department Code'] || row['DEPT'] || row['Dept'] || row['Department'],
+              'Division Code': row['Division Code'] || row['DIVISION'] || row['Division'],
               'Month': row['Month'] || row['Periode'] || row['Period'] || row['MONTH'],
               'Category': row['Category'] || row['CATEGORY'] || row['Cat'],
               'Focus Area': row['Focus Area'] || row['AREA TO BE FOCUS'] || row['Area Focus'] || row['FOCUS AREA'],
@@ -340,6 +380,9 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
                 remark: mappedRow['Remarks']?.toString().trim() || null,
                 company_id: activeCompanyId, // MULTI-TENANT: stamp company_id on imported rows
+                division_id: divisionHierarchyEnabled
+                  ? resolveDivisionCode(mappedRow['Division Code'], mappedRow['Department Code']?.toString().trim().toUpperCase(), divisions)
+                  : null,
                 recurring_group_id: recurringGroupId,
               };
 

@@ -726,6 +726,10 @@ export default function ViewDetailModal({ plan: initialPlan, onClose, onEscalate
                   <div><p className="text-xs text-gray-500">Month</p><p className="text-sm font-medium text-gray-800">{plan.month || '—'}</p></div>
                 </div>
                 <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center"><Building2 className="w-4 h-4 text-indigo-600" /></div>
+                  <div><p className="text-xs text-gray-500">Division</p><p className="text-sm font-medium text-gray-800">{plan.division?.code || plan.division_code || (plan.division_id ? plan.division_id.slice(0, 8) : 'Department level')}</p></div>
+                </div>
+                <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center"><User className="w-4 h-4 text-purple-600" /></div>
                   <div><p className="text-xs text-gray-500">Person In Charge</p><p className="text-sm font-medium text-gray-800">{picDisplayName}</p></div>
                 </div>

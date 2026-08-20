@@ -97,6 +97,9 @@ export default function UnifiedPageHeader({
   selectedDept = 'all',
   setSelectedDept,
   departments = [],
+  divisions = [],
+  selectedDivision = 'all',
+  setSelectedDivision,
   searchPlaceholder = 'Search action plans...',
   
   // Action Slots
@@ -118,7 +121,8 @@ export default function UnifiedPageHeader({
     selectedStatus !== 'all' ||
     selectedCategory !== 'all' ||
     selectedCarryOver !== 'all' ||
-    (withDeptFilter && selectedDept !== 'all');
+    (withDeptFilter && selectedDept !== 'all') ||
+    selectedDivision !== 'all';
 
   // Clear month filter only
   const clearMonthFilter = () => {
@@ -412,6 +416,22 @@ export default function UnifiedPageHeader({
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {/* Division Filter */}
+              {setSelectedDivision && (
+                <div className="relative shrink-0">
+                  <select
+                    value={selectedDivision}
+                    onChange={(event) => setSelectedDivision(event.target.value)}
+                    aria-label="Filter by division"
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border bg-white ${selectedDivision !== 'all' ? 'border-indigo-200 text-indigo-700 bg-indigo-50' : 'border-gray-200 text-gray-700'}`}
+                  >
+                    <option value="all">All Divisions</option>
+                    <option value="">Department level</option>
+                    {divisions.map((division) => <option key={division.id} value={division.id}>{division.code}</option>)}
+                  </select>
                 </div>
               )}
 

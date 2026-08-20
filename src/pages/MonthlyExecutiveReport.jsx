@@ -319,6 +319,7 @@ function planDetail(plan, profileMap) {
   return {
     title: String(plan.action_plan || 'Untitled').slice(0, 120),
     department: plan.department_code,
+    division: plan.division?.code || plan.division_code || (plan.division_id ? plan.division_id.slice(0, 8) : 'Department level'),
     pic: getPicDisplayName(plan, profileMap),
     priority: getPriority(plan),
     status: plan.status,
@@ -338,9 +339,32 @@ export default function MonthlyExecutiveReport() {
   const [selectedMonth, setSelectedMonth] = useState(MONTHS[new Date().getMonth()]);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [selectedDept, setSelectedDept] = useState('All');
+  const [selectedDivision, setSelectedDivision] = useState('All');
+  const [reportDivisions, setReportDivisions] = useState([]);
   const [annualTargetRate, setAnnualTargetRate] = useState(null);
+  const activeDivision = selectedDivision === 'All' ? null : reportDivisions.find((division) => division.id === selectedDivision);
   const [topicResults, setTopicResults] = useState({}); // key -> { status, result, error }
   const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReportDivisions() {
+      if (!effectiveCompanyId || isHoldingContext) {
+        setReportDivisions([]);
+        setSelectedDivision('All');
+        return;
+      }
+      const { data } = await supabase
+        .from('divisions')
+        .select('id, code, name, department_code, is_active')
+        .eq('company_id', effectiveCompanyId)
+        .eq('is_active', true)
+        .order('code');
+      if (!cancelled) setReportDivisions(data || []);
+    }
+    loadReportDivisions();
+    return () => { cancelled = true; };
+  }, [effectiveCompanyId, isHoldingContext]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,7 +391,7 @@ export default function MonthlyExecutiveReport() {
     let cancelled = false;
     setTopicResults({});
     async function loadSaved() {
-      if (!supabase || !activeCompanyId || isHoldingContext) return;
+      if (!supabase || !activeCompanyId || isHoldingContext || selectedDivision !== 'All') return;
       const { data, error } = await supabase
         .from('executive_report_insights')
         .select('topic, headline, narrative, highlights')
@@ -394,13 +418,14 @@ export default function MonthlyExecutiveReport() {
     }
     loadSaved();
     return () => { cancelled = true; };
-  }, [selectedMonth, selectedYear, selectedDept, activeCompanyId, isHoldingContext]);
+  }, [selectedMonth, selectedYear, selectedDept, selectedDivision, activeCompanyId, isHoldingContext]);
 
   const report = useMemo(() => {
     const periodPlans = plans.filter((plan) => {
       const planYear = plan.year || CURRENT_YEAR;
       const deptMatch = selectedDept === 'All' || plan.department_code === selectedDept;
-      return plan.month === selectedMonth && planYear === selectedYear && deptMatch;
+      const divisionMatch = selectedDivision === 'All' || plan.division_id === selectedDivision;
+      return plan.month === selectedMonth && planYear === selectedYear && deptMatch && divisionMatch;
     });
 
     const total = periodPlans.length;
@@ -456,7 +481,8 @@ export default function MonthlyExecutiveReport() {
     const previousPlans = plans.filter((plan) => {
       const planYear = plan.year || CURRENT_YEAR;
       const deptMatch = selectedDept === 'All' || plan.department_code === selectedDept;
-      return plan.month === previousPeriod.month && planYear === previousPeriod.year && deptMatch;
+      const divisionMatch = selectedDivision === 'All' || plan.division_id === selectedDivision;
+      return plan.month === previousPeriod.month && planYear === previousPeriod.year && deptMatch && divisionMatch;
     });
     const previousAchieved = previousPlans.filter((plan) => plan.status === 'Achieved').length;
     const previousRate = previousPlans.length ? (previousAchieved / previousPlans.length) * 100 : null;
@@ -476,7 +502,8 @@ export default function MonthlyExecutiveReport() {
       const rows = plans.filter((plan) => {
         const planYear = plan.year || CURRENT_YEAR;
         const deptMatch = selectedDept === 'All' || plan.department_code === selectedDept;
-        return plan.month === m && planYear === selectedYear && deptMatch;
+        const divisionMatch = selectedDivision === 'All' || plan.division_id === selectedDivision;
+        return plan.month === m && planYear === selectedYear && deptMatch && divisionMatch;
       });
       const mAchieved = rows.filter((plan) => plan.status === 'Achieved').length;
       return {
@@ -501,7 +528,7 @@ export default function MonthlyExecutiveReport() {
       previousPeriod, previousRate, actionItems, topDept, lowestDept, riskTone,
       monthlyTrend, priorityCalibrationFlag, blindSpot,
     };
-  }, [plans, departments, selectedMonth, selectedYear, selectedDept]);
+  }, [plans, departments, selectedMonth, selectedYear, selectedDept, selectedDivision]);
 
   // Topic-specific payloads — each slide gets exactly the data its analysis needs, including
   // plan-level detail (titles, PIC, blockers, carry-over) so the AI can be specific, not generic.
@@ -581,6 +608,15 @@ export default function MonthlyExecutiveReport() {
   const departmentLabel = selectedDept === 'All'
     ? 'All Departments'
     : `${selectedDept} — ${departments.find((dept) => dept.code === selectedDept)?.name || selectedDept}`;
+  const divisionLabel = activeDivision
+    ? `${activeDivision.code} — ${activeDivision.name || activeDivision.code}`
+    : 'All Divisions';
+
+  useEffect(() => {
+    if (selectedDivision !== 'All' && !reportDivisions.some((division) => division.id === selectedDivision && (selectedDept === 'All' || division.department_code === selectedDept))) {
+      setSelectedDivision('All');
+    }
+  }, [selectedDept, selectedDivision, reportDivisions]);
 
   async function callTopic(topic) {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -593,6 +629,7 @@ export default function MonthlyExecutiveReport() {
       period: { month: selectedMonth, year: selectedYear, label: `${selectedMonth} ${selectedYear}` },
       department_filter: departmentLabel,
       department_scope: selectedDept,
+      division_scope: selectedDivision,
       topic,
       data: buildTopicData(topic),
     };
@@ -665,6 +702,14 @@ export default function MonthlyExecutiveReport() {
               <option value="All">All Departments</option>
               {departments.map((dept) => <option key={dept.code} value={dept.code}>{dept.code} — {dept.name}</option>)}
             </select>
+            {!isHoldingContext && (
+              <select value={selectedDivision} onChange={(e) => setSelectedDivision(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                <option value="All">All Divisions</option>
+                {reportDivisions
+                  .filter((division) => selectedDept === 'All' || division.department_code === selectedDept)
+                  .map((division) => <option key={division.id} value={division.id}>{division.code} — {division.name || division.code}</option>)}
+              </select>
+            )}
             <button onClick={generateReport} disabled={generating || loading} className="inline-flex items-center gap-2 rounded-xl bg-[#02378D] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-blue-900/20 hover:bg-blue-900 disabled:opacity-50">
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <BrainCircuit className="h-4 w-4" />}
               {generating ? `Generating ${doneCount}/${TOPICS.length}…` : hasAnyResult ? 'Regenerate AI Report' : 'Generate AI Report'}
@@ -683,6 +728,7 @@ export default function MonthlyExecutiveReport() {
             <div className="flex flex-col justify-end">
               <p className="text-6xl font-black tracking-tight text-white">{companyName}</p>
               <p className="mt-5 max-w-2xl text-xl text-slate-300">Action plan performance, risk posture, and next-month decision agenda.</p>
+              <p className="mt-3 text-sm font-semibold text-slate-400">Division scope: {divisionLabel}</p>
               <div className="mt-10 flex flex-wrap gap-3 text-sm font-semibold text-slate-300">
                 <span className="rounded-full border border-white/15 px-4 py-2">Period: {selectedMonth} {selectedYear}</span>
                 <span className="rounded-full border border-white/15 px-4 py-2">Scope: {selectedDept === 'All' ? 'All Departments' : selectedDept}</span>
@@ -754,6 +800,7 @@ export default function MonthlyExecutiveReport() {
                   rows={report.actionItems.slice(0, 10)}
                   columns={[
                     { key: 'department_code', label: 'Dept' },
+                    { key: 'division', label: 'Division', render: (row) => row.division || 'Department level' },
                     { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
                     { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 56) },
                   ]}

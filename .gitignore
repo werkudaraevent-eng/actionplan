@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase CLI scratch space. linked-public-data.sql is a dump of the live database,
+# so nothing under here belongs in version control.
+supabase/.temp/
+supabase/.branches/
+
+# Local agent config and test artifacts
+.claude/
+scripts/e2e-shots/
+scripts/*.png
+
+# Office lock files
+~$*

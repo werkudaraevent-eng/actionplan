@@ -206,6 +206,7 @@ export default function Sidebar() {
     if (path === '/plans') return location.pathname === '/plans';
     if (path === '/users') return location.pathname === '/users';
     if (path === '/settings') return location.pathname === '/settings';
+    if (path === '/divisions') return location.pathname === '/divisions';
     if (path === '/permissions') return location.pathname === '/permissions';
     if (path === '/profile') return location.pathname === '/profile';
     if (path === '/changelog') return location.pathname === '/changelog';
@@ -453,7 +454,7 @@ export default function Sidebar() {
                 </button>
                 <button
                   onClick={() => navigate('/settings')}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/settings') ? theme.navActive : `${theme.navText} ${theme.navHover}`
+                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/settings') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Settings className="w-4 h-4" />

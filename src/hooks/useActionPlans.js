@@ -388,8 +388,16 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
         throw error;
       }
 
-      // NOTE: Audit logging handled by DB trigger (SOFT_DELETE not yet in trigger - keep manual for now)
-      // TODO: Add SOFT_DELETE to trigger if needed
+      // The DB trigger fires on UPDATE but records nothing for a soft delete, so the
+      // removal is logged here instead of vanishing from the activity log.
+      await supabase.from('audit_logs').insert({
+        action_plan_id: id,
+        user_id: (await supabase.auth.getUser()).data?.user?.id,
+        change_type: 'SOFT_DELETE',
+        description: deletionReason ? `Deleted — ${deletionReason}` : 'Deleted',
+        previous_value: { deleted_at: null, status: planToDelete?.status },
+        new_value: { deleted_at: deletedAt, deletion_reason: deletionReason },
+      });
     } catch (err) {
       console.error('Delete failed:', err);
       throw err;
@@ -412,8 +420,15 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       // Add back to active list
       setPlans((prev) => [...prev, data]);
 
-      // NOTE: Audit logging handled by DB trigger (RESTORE not yet in trigger - keep manual for now)
-      // TODO: Add RESTORE to trigger if needed
+      // Same gap as the delete path: the trigger records nothing for a restore.
+      await supabase.from('audit_logs').insert({
+        action_plan_id: id,
+        user_id: (await supabase.auth.getUser()).data?.user?.id,
+        change_type: 'RESTORE',
+        description: 'Restored from trash',
+        previous_value: { deleted_at: 'set' },
+        new_value: { deleted_at: null },
+      });
 
       return data;
     } catch (err) {

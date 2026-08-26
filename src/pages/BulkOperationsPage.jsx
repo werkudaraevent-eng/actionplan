@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check, ChevronDown } from 'lucide-react';
+import { Users, RefreshCw, CheckSquare, ArrowRight, Loader2, Check, ChevronDown, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import { supabase, STATUS_OPTIONS } from '../lib/supabase';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useAuth } from '../context/AuthContext';
@@ -98,6 +98,11 @@ export default function BulkOperationsPage() {
   const [bulkValue, setBulkValue] = useState('');
   const [bulkDept, setBulkDept] = useState('all');
   const [bulkStatus, setBulkStatus] = useState('all');
+  const [bulkStartMonth, setBulkStartMonth] = useState('all');
+  const [bulkEndMonth, setBulkEndMonth] = useState('all');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [bulkSort, setBulkSort] = useState({ key: 'department_code', dir: 'asc' });
   const [bulkLoading, setBulkLoading] = useState(false);
   const [applying, setApplying] = useState(false);
 
@@ -199,14 +204,22 @@ export default function BulkOperationsPage() {
     if (bulkStatus !== 'all') query = query.eq('status', bulkStatus);
     
     const { data } = await query;
-    setBulkPlans(data || []);
+    // Month is stored as a name, so the range is applied after the fetch where the
+    // calendar order is known.
+    const startIdx = bulkStartMonth === 'all' ? 0 : MONTHS_ORDER.indexOf(bulkStartMonth);
+    const endIdx = bulkEndMonth === 'all' ? 11 : MONTHS_ORDER.indexOf(bulkEndMonth);
+    const inRange = (data || []).filter((plan) => {
+      const idx = MONTHS_ORDER.indexOf(plan.month);
+      return idx >= startIdx && idx <= endIdx;
+    });
+    setBulkPlans(inRange);
     setSelectedIds(new Set());
     setBulkLoading(false);
   };
 
   useEffect(() => {
     if (activeTab === 'bulk') fetchBulkPlans();
-  }, [activeTab, activeCompanyId, bulkDept, bulkStatus]);
+  }, [activeTab, activeCompanyId, bulkDept, bulkStatus, bulkStartMonth, bulkEndMonth]);
 
   // Bulk apply handler
   const handleBulkApply = () => {
@@ -267,6 +280,87 @@ export default function BulkOperationsPage() {
         }
       }
     });
+  };
+
+  // Soft delete, matching the single-plan path: the rows stay in the table with a
+  // deleted_at stamp, so a mistaken sweep can still be traced and restored.
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0 || deleteReason.trim().length < 5) return;
+    const selectedPlans = bulkPlans.filter((plan) => selectedIds.has(plan.id));
+    const withOutcome = selectedPlans.filter((plan) => plan.status === 'Achieved' || plan.status === 'Not Achieved').length;
+
+    setConfirmModal({
+      title: 'Delete selected plans',
+      message: `Delete ${selectedIds.size} plans?${withOutcome > 0 ? ` ${withOutcome} of them already have a final outcome recorded.` : ''} They are removed from every view and report, and can be restored from the department page.`,
+      onConfirm: async () => {
+        setDeleting(true);
+        try {
+          const { error } = await supabase
+            .from('action_plans')
+            .update({
+              deleted_at: new Date().toISOString(),
+              deleted_by: profile?.full_name || profile?.email || 'Bulk operation',
+              deletion_reason: deleteReason.trim(),
+            })
+            .in('id', Array.from(selectedIds));
+
+          if (error) throw error;
+
+          toast({
+            title: 'Plans Deleted',
+            description: `${selectedIds.size} plans removed. Reason recorded: "${deleteReason.trim()}"`,
+            variant: 'success',
+          });
+          setSelectedIds(new Set());
+          setDeleteReason('');
+          fetchBulkPlans();
+        } catch (err) {
+          toast({ title: 'Delete Failed', description: err.message, variant: 'error' });
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
+  };
+
+  // Month is a name, so it sorts by calendar position; everything else compares as text.
+  const sortedBulkPlans = useMemo(() => {
+    const value = (plan) => (
+      bulkSort.key === 'month'
+        ? MONTHS_ORDER.indexOf(plan.month)
+        : String(plan[bulkSort.key] ?? '').toLowerCase()
+    );
+    return [...bulkPlans].sort((left, right) => {
+      const a = value(left);
+      const b = value(right);
+      if (a === b) return 0;
+      return bulkSort.dir === 'asc' ? (a < b ? -1 : 1) : (a < b ? 1 : -1);
+    });
+  }, [bulkPlans, bulkSort]);
+
+  const toggleBulkSort = (key) => {
+    setBulkSort((current) => (
+      current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }
+    ));
+  };
+
+  const BulkSortHeader = ({ label, sortKey }) => {
+    const active = bulkSort.key === sortKey;
+    return (
+      <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">
+        <button
+          type="button"
+          onClick={() => toggleBulkSort(sortKey)}
+          aria-label={`Sort by ${label}`}
+          className={`inline-flex items-center gap-1 uppercase hover:text-gray-800 ${active ? 'text-gray-800' : ''}`}
+        >
+          {label}
+          {active
+            ? (bulkSort.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+            : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+        </button>
+      </th>
+    );
   };
 
   const toggleSelectAll = () => {
@@ -464,7 +558,29 @@ export default function BulkOperationsPage() {
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              
+              <select
+                value={bulkStartMonth}
+                onChange={(e) => setBulkStartMonth(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                aria-label="From month"
+              >
+                <option value="all">From: Jan</option>
+                {MONTHS_ORDER.map(m => (
+                  <option key={m} value={m}>From: {m}</option>
+                ))}
+              </select>
+              <select
+                value={bulkEndMonth}
+                onChange={(e) => setBulkEndMonth(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                aria-label="To month"
+              >
+                <option value="all">To: Dec</option>
+                {MONTHS_ORDER.map(m => (
+                  <option key={m} value={m}>To: {m}</option>
+                ))}
+              </select>
+
               {selectedIds.size > 0 && (
                 <div className="flex items-center gap-2 ml-auto">
                   <select
@@ -473,6 +589,7 @@ export default function BulkOperationsPage() {
                     className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
                     <option value="">— Action —</option>
+                    <option value="delete">Delete plans</option>
                     <option value="pic">Change PIC</option>
                     <option value="status">Change Status</option>
                     <option value="category">Change Category</option>
@@ -501,7 +618,24 @@ export default function BulkOperationsPage() {
                   {bulkField === 'area_focus' && (
                     <input value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} placeholder="e.g. Digital Transformation" className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48" />
                   )}
-                  
+                  {bulkField === 'delete' && (
+                    <>
+                      <input
+                        value={deleteReason}
+                        onChange={(e) => setDeleteReason(e.target.value)}
+                        placeholder="Reason, e.g. replaced by June restructure import"
+                        className="px-3 py-2 border border-red-300 rounded-lg text-sm w-80"
+                      />
+                      <button
+                        onClick={handleBulkDelete}
+                        disabled={deleting || deleteReason.trim().length < 5}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        {deleting ? 'Deleting...' : `Delete ${selectedIds.size}`}
+                      </button>
+                    </>
+                  )}
+
                   {bulkField && bulkValue && (
                     <button
                       onClick={handleBulkApply}
@@ -538,15 +672,15 @@ export default function BulkOperationsPage() {
                             className="w-4 h-4 rounded"
                           />
                         </th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Dept</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Month</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Action Plan</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Category</th>
+                        <BulkSortHeader label="Dept" sortKey="department_code" />
+                        <BulkSortHeader label="Month" sortKey="month" />
+                        <BulkSortHeader label="Action Plan" sortKey="action_plan" />
+                        <BulkSortHeader label="Status" sortKey="status" />
+                        <BulkSortHeader label="Category" sortKey="category" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {bulkPlans.map(plan => (
+                      {sortedBulkPlans.map(plan => (
                         <tr key={plan.id} className={selectedIds.has(plan.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}>
                           <td className="px-3 py-2">
                             <input

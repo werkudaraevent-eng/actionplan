@@ -12,7 +12,7 @@ const ROLES = [
   { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only', color: 'gray' },
 ];
 
-export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], isAdmin = false }) {
+export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], allDepartments = [], divisions = [], currentDivisionId = '', isAdmin = false }) {
   const { profile } = useAuth();
   const isHoldingAdmin = profile?.role === 'holding_admin';
 
@@ -23,6 +23,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
     full_name: '',
     role: 'staff',
     department_code: '',
+    division_id: '',
     additional_departments: [],
   });
   const [saving, setSaving] = useState(false);
@@ -36,6 +37,21 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
   const [securityMessage, setSecurityMessage] = useState({ type: '', text: '' });
 
   const isEdit = !!editData;
+  const departmentDivisions = divisions.filter(
+    (division) => division.is_active && division.department_code === formData.department_code
+  );
+  // An archived department still owns the plans filed under it, so access to it has to stay
+  // grantable; only new primary assignments are steered towards active departments.
+  const archivedDepartments = allDepartments.filter((dept) => dept.is_active === false);
+  const archivedCodes = new Set(archivedDepartments.map((dept) => dept.code));
+  const primaryOptions = [
+    ...departments,
+    ...archivedDepartments.filter((dept) => dept.code === formData.department_code),
+  ];
+  const additionalOptions = [
+    ...departments.filter((dept) => dept.code !== formData.department_code),
+    ...archivedDepartments.filter((dept) => dept.code !== formData.department_code),
+  ];
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -46,6 +62,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           full_name: editData.full_name || '',
           role: editData.role || 'staff',
           department_code: editData.department_code || '',
+          division_id: currentDivisionId || '',
           additional_departments: editData.additional_departments || [],
         });
       } else {
@@ -55,6 +72,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           full_name: '',
           role: 'staff',
           department_code: '',
+          division_id: '',
           additional_departments: [],
         });
       }
@@ -64,7 +82,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       setShowPassword(false);
       setSecurityMessage({ type: '', text: '' });
     }
-  }, [isOpen, editData]);
+  }, [isOpen, editData, currentDivisionId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -311,18 +329,40 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                   </label>
                   <select
                     value={formData.department_code}
-                    onChange={(e) => setFormData({ ...formData, department_code: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, department_code: e.target.value, division_id: '' })}
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                   >
                     <option value="">Select a department...</option>
-                    {departments.map((dept) => (
+                    {primaryOptions.map((dept) => (
                       <option key={dept.code} value={dept.code}>
-                        {dept.code} - {dept.name}
+                        {dept.code} - {dept.name}{archivedCodes.has(dept.code) ? ' (archived)' : ''}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">Used for headcount reporting</p>
                 </div>
+
+                {/* Division membership, only where the chosen department has one */}
+                {departmentDivisions.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Division
+                    </label>
+                    <select
+                      value={formData.division_id}
+                      onChange={(e) => setFormData({ ...formData, division_id: e.target.value })}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
+                    >
+                      <option value="">Department level (no division)</option>
+                      {departmentDivisions.map((division) => (
+                        <option key={division.id} value={division.id}>
+                          {division.code} - {division.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Assigns division membership; the primary department stays {formData.department_code}</p>
+                  </div>
+                )}
 
                 {/* Additional Departments - Multi-Select with restricted height */}
                 <div>
@@ -330,8 +370,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                     Additional Access
                   </label>
                   <div className="border border-gray-300 rounded-lg p-2 max-h-48 overflow-y-auto bg-gray-50">
-                    {departments
-                      .filter(dept => dept.code !== formData.department_code)
+                    {additionalOptions
                       .map((dept) => (
                         <label
                           key={dept.code}
@@ -351,9 +390,14 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                           <span className="text-sm text-gray-700">
                             {dept.code} - {dept.name}
                           </span>
+                          {archivedCodes.has(dept.code) && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-medium" title="Archived department. Access here only keeps its past plans visible.">
+                              Archived
+                            </span>
+                          )}
                         </label>
                       ))}
-                    {departments.filter(dept => dept.code !== formData.department_code).length === 0 && (
+                    {additionalOptions.length === 0 && (
                       <p className="text-xs text-gray-400 text-center py-2">
                         {formData.department_code ? 'No other departments available' : 'Select primary department first'}
                       </p>

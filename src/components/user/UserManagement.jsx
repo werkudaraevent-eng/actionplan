@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X, Crown, Building2 } from 'lucide-react';
+import { Users, Search, Plus, Pencil, Trash2, Loader2, Shield, User, X, Crown, Building2, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -84,6 +84,13 @@ export default function UserManagement({ initialFilter = '' }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All'); // Strict department filter
   const [selectedRole, setSelectedRole] = useState('All Roles'); // Role filter
+  const [selectedDivision, setSelectedDivision] = useState('All'); // Division filter
+  const [sort, setSort] = useState({ key: 'joined', dir: 'desc' }); // Table sort
+  const [divisions, setDivisions] = useState([]);
+  const [memberships, setMemberships] = useState([]);
+  // useDepartments hides archived departments, but a profile can still point at one until
+  // its owner signs in again; the unfiltered list keeps that label readable.
+  const [allDepartments, setAllDepartments] = useState([]);
   const [activeTab, setActiveTab] = useState('subsidiary');
 
   // Holding Executive Team state (only used by holding_admin)
@@ -175,6 +182,129 @@ export default function UserManagement({ initialFilter = '' }) {
     fetchHoldingUsers();
   }, [fetchHoldingUsers]);
 
+  const fetchDivisionScope = useCallback(async () => {
+    if (!activeCompanyId) {
+      setDivisions([]);
+      setMemberships([]);
+      setAllDepartments([]);
+      return;
+    }
+    const [divisionResult, membershipResult, departmentResult] = await Promise.all([
+      supabase.from('divisions').select('id, code, name, department_code, is_active').eq('company_id', activeCompanyId).order('code'),
+      supabase.from('division_memberships').select('user_id, division_id, membership_role').eq('company_id', activeCompanyId),
+      supabase.from('departments').select('code, name, is_active').eq('company_id', activeCompanyId),
+    ]);
+    setDivisions(divisionResult.data || []);
+    setMemberships(membershipResult.data || []);
+    setAllDepartments(departmentResult.data || []);
+  }, [activeCompanyId]);
+
+  useEffect(() => {
+    Promise.resolve().then(fetchDivisionScope);
+  }, [fetchDivisionScope]);
+
+  const divisionById = useMemo(() => new Map(divisions.map((division) => [division.id, division])), [divisions]);
+  const divisionByUser = useMemo(() => {
+    const map = new Map();
+    memberships.forEach((membership) => {
+      const division = divisionById.get(membership.division_id);
+      if (division) map.set(membership.user_id, { ...division, membership_role: membership.membership_role });
+    });
+    return map;
+  }, [memberships, divisionById]);
+  const archivedDeptCodes = useMemo(
+    () => new Set(allDepartments.filter((dept) => dept.is_active === false).map((dept) => dept.code)),
+    [allDepartments]
+  );
+
+  // Roles sort by seniority rather than alphabetically, which is what an admin scanning
+  // the list is actually looking for.
+  const roleRank = (role) => {
+    const order = ['holding_admin', 'admin', 'executive', 'leader', 'staff'];
+    const index = order.indexOf((role || '').toLowerCase());
+    return index === -1 ? order.length : index;
+  };
+
+  const sortValue = (user, key) => {
+    switch (key) {
+      case 'user': return (user.full_name || user.email || '').toLowerCase();
+      case 'role': return roleRank(user.role);
+      case 'department': return (user.department_code || '').toLowerCase();
+      case 'division': return (divisionByUser.get(user.id)?.code || '').toLowerCase();
+      case 'company': return (user.company?.name || '').toLowerCase();
+      case 'joined': return new Date(user.created_at || 0).getTime() || 0;
+      default: return '';
+    }
+  };
+
+  const sortUsers = useCallback((list) => {
+    const sorted = [...list];
+    sorted.sort((left, right) => {
+      const a = sortValue(left, sort.key);
+      const b = sortValue(right, sort.key);
+      // Rows with nothing in the sorted column stay at the bottom either way, so a
+      // reversal never fills the top of the table with blanks.
+      if (a === '' && b !== '') return 1;
+      if (b === '' && a !== '') return -1;
+      if (a === b) return 0;
+      const result = a < b ? -1 : 1;
+      return sort.dir === 'asc' ? result : -result;
+    });
+    return sorted;
+  }, [sort, divisionByUser]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleSort = (key) => {
+    setSort((current) => (
+      current.key === key
+        ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'joined' ? 'desc' : 'asc' }
+    ));
+  };
+
+  const SortableHeader = ({ label, sortKey, align = 'left' }) => {
+    const active = sort.key === sortKey;
+    return (
+      <th className={`px-6 py-3 text-${align} text-xs font-semibold text-gray-600 uppercase tracking-wider`}>
+        <button
+          type="button"
+          onClick={() => toggleSort(sortKey)}
+          aria-label={`Sort by ${label}`}
+          className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-gray-900 ${active ? 'text-gray-900' : ''}`}
+        >
+          {label}
+          {active
+            ? (sort.dir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+            : <ChevronsUpDown className="w-3 h-3 text-gray-300" />}
+        </button>
+      </th>
+    );
+  };
+
+  // A user belongs to at most one division, so a change replaces the previous membership.
+  // Leaving the division blank drops it and returns the user to department level.
+  const syncDivisionMembership = async (userId, departmentCode, divisionId) => {
+    if (!activeCompanyId || !userId) return;
+    const current = divisionByUser.get(userId);
+    if ((current?.id || '') === (divisionId || '')) return;
+
+    const { error: removeError } = await supabase
+      .from('division_memberships')
+      .delete()
+      .eq('user_id', userId)
+      .eq('company_id', activeCompanyId);
+    if (removeError) throw removeError;
+
+    if (!divisionId) return;
+    const { error: addError } = await supabase.from('division_memberships').insert({
+      user_id: userId,
+      division_id: divisionId,
+      company_id: activeCompanyId,
+      department_code: departmentCode,
+      membership_role: current?.membership_role === 'division_leader' ? 'division_leader' : 'member',
+    });
+    if (addError) throw addError;
+  };
+
   // Auto-switch tab when company context changes
   useEffect(() => {
     if (isHoldingContext && isHoldingAdmin) {
@@ -203,13 +333,24 @@ export default function UserManagement({ initialFilter = '' }) {
         // Handle 'Administrator' mapping to 'admin'
         (selectedRole === 'Administrator' && ((user.role || '').toLowerCase() === 'admin' || (user.role || '').toLowerCase() === 'holding_admin'));
 
-      return matchesSearch && matchesDept && matchesRole;
-    });
-  }, [users, searchQuery, selectedDept, selectedRole]);
+      // Condition D: Division filter ('None' isolates users with no division membership)
+      const userDivision = divisionByUser.get(user.id);
+      const matchesDivision = selectedDivision === 'All'
+        || (selectedDivision === 'None' ? !userDivision : userDivision?.id === selectedDivision);
 
-  // Get department name
+      return matchesSearch && matchesDept && matchesRole && matchesDivision;
+    });
+  }, [users, searchQuery, selectedDept, selectedRole, selectedDivision, divisionByUser]);
+
+  // Declared after the filtered list it consumes: both run during render, so the order here
+  // is a real dependency, not just style.
+  const sortedUsers = useMemo(() => sortUsers(filteredUsers), [sortUsers, filteredUsers]);
+  const sortedHoldingUsers = useMemo(() => sortUsers(holdingUsers), [sortUsers, holdingUsers]);
+
+  // Get department name. Falls back to the unfiltered list so an archived department still
+  // resolves to a name instead of echoing its own code.
   const getDeptName = (code) => {
-    const dept = departments.find((d) => d.code === code);
+    const dept = departments.find((d) => d.code === code) || allDepartments.find((d) => d.code === code);
     return dept ? dept.name : code || 'Not Assigned';
   };
 
@@ -261,6 +402,8 @@ export default function UserManagement({ initialFilter = '' }) {
           );
         }
 
+        await syncDivisionMembership(userModal.editData.id, formData.department_code, formData.division_id);
+
         toast({ title: 'User Updated', description: `"${formData.full_name}" updated successfully.`, variant: 'success' });
       } else {
         // --- ADD MODE: Call Edge Function to create auth user + profile ---
@@ -296,6 +439,20 @@ export default function UserManagement({ initialFilter = '' }) {
         }
         if (data?.error) throw new Error(data.error);
 
+        if (formData.division_id) {
+          // The edge function owns account creation, so the new profile id is read back
+          // by email before its division membership can be written.
+          const { data: created } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', formData.email)
+            .eq('company_id', activeCompanyId)
+            .maybeSingle();
+          if (created?.id) {
+            await syncDivisionMembership(created.id, formData.department_code, formData.division_id);
+          }
+        }
+
         toast({ title: 'User Created', description: `Account for "${formData.email}" created successfully.`, variant: 'success' });
 
         // Show credential success modal instead of alert
@@ -309,6 +466,7 @@ export default function UserManagement({ initialFilter = '' }) {
       setUserModal({ isOpen: false, editData: null });
       fetchUsers();
       fetchHoldingUsers(); // Also refresh holding list in case a holding_admin was created
+      fetchDivisionScope();
     } catch (err) {
       console.error('Save failed:', err);
       toast({ title: 'Save Failed', description: err.message || 'An unexpected error occurred.', variant: 'error' });
@@ -448,6 +606,15 @@ export default function UserManagement({ initialFilter = '' }) {
             <span className="text-sm text-gray-600">
               {user.department_code ? getDeptName(user.department_code).split(' ')[0] : ''}
             </span>
+            {/* The profile still points at a retired department; it moves on next sign-in. */}
+            {user.department_code && archivedDeptCodes.has(user.department_code) && (
+              <span
+                className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-medium"
+                title="This department was archived. The profile moves to its new scope the next time this user signs in."
+              >
+                Archived
+              </span>
+            )}
             {/* Additional departments badge with portal tooltip */}
             {user.additional_departments && user.additional_departments.length > 0 && (
               <AdditionalDeptsBadge
@@ -458,6 +625,22 @@ export default function UserManagement({ initialFilter = '' }) {
           </div>
         )}
       </td>
+      {!showCompany && (
+        <td className="px-6 py-4">
+          {divisionByUser.get(user.id) ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-mono text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">
+                {divisionByUser.get(user.id).code}
+              </span>
+              {divisionByUser.get(user.id).membership_role === 'division_leader' && (
+                <span className="text-[10px] font-medium text-indigo-700">Leader</span>
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">Department level</span>
+          )}
+        </td>
+      )}
       <td className="px-6 py-4 text-sm text-gray-500">
         {formatDate(user.created_at)}
       </td>
@@ -577,6 +760,40 @@ export default function UserManagement({ initialFilter = '' }) {
                   )}
                 </div>
 
+                {/* Division Filter Dropdown — only meaningful once divisions exist */}
+                {divisions.some((division) => division.is_active) && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">Division:</span>
+                    <select
+                      value={selectedDivision}
+                      onChange={(e) => setSelectedDivision(e.target.value)}
+                      className={`px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-600 focus:border-blue-600 ${selectedDivision !== 'All'
+                        ? 'border-blue-600 bg-blue-50 text-blue-800'
+                        : 'border-gray-200 text-gray-700'
+                        }`}
+                    >
+                      <option value="All">All Divisions</option>
+                      <option value="None">Department level only</option>
+                      {divisions
+                        .filter((division) => division.is_active && (selectedDept === 'All' || division.department_code === selectedDept))
+                        .map((division) => (
+                          <option key={division.id} value={division.id}>
+                            {division.department_code} / {division.code}
+                          </option>
+                        ))}
+                    </select>
+                    {selectedDivision !== 'All' && (
+                      <button
+                        onClick={() => setSelectedDivision('All')}
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                        title="Clear filter"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Role Filter Dropdown */}
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-500">Role:</span>
@@ -638,18 +855,11 @@ export default function UserManagement({ initialFilter = '' }) {
                 <table className="w-full">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        User
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Department
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Joined
-                      </th>
+                      <SortableHeader label="User" sortKey="user" />
+                      <SortableHeader label="Role" sortKey="role" />
+                      <SortableHeader label="Department" sortKey="department" />
+                      <SortableHeader label="Division" sortKey="division" />
+                      <SortableHeader label="Joined" sortKey="joined" />
                       {showActions && (
                         <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
                           Actions
@@ -658,7 +868,7 @@ export default function UserManagement({ initialFilter = '' }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredUsers.map((user) => renderUserRow(user, false))}
+                    {sortedUsers.map((user) => renderUserRow(user, false))}
                   </tbody>
                 </table>
               )}
@@ -693,18 +903,10 @@ export default function UserManagement({ initialFilter = '' }) {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-amber-50/50 border-b border-gray-100">
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          User
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Role
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Anchored Company
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Joined
-                        </th>
+                        <SortableHeader label="User" sortKey="user" />
+                        <SortableHeader label="Role" sortKey="role" />
+                        <SortableHeader label="Anchored Company" sortKey="company" />
+                        <SortableHeader label="Joined" sortKey="joined" />
                         {showActions && (
                           <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
                             Actions
@@ -713,7 +915,7 @@ export default function UserManagement({ initialFilter = '' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {holdingUsers.map((user) => renderUserRow(user, true))}
+                      {sortedHoldingUsers.map((user) => renderUserRow(user, true))}
                     </tbody>
                   </table>
                 )}
@@ -730,6 +932,9 @@ export default function UserManagement({ initialFilter = '' }) {
         onSave={handleSave}
         editData={userModal.editData}
         departments={departments}
+        allDepartments={allDepartments}
+        divisions={divisions}
+        currentDivisionId={userModal.editData ? (divisionByUser.get(userModal.editData.id)?.id || '') : ''}
         isAdmin={isAdmin}
       />
 

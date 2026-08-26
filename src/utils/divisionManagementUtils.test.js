@@ -73,6 +73,22 @@ describe('division management helpers', () => {
     expect(validateDivisionImportValue('HR_A', 'SALES', [
       { code: 'HR_A', department_code: 'HR', is_active: true },
     ])).toBe('Division HR_A belongs to HR, not SALES.');
+    expect(validateDivisionImportValue('COMMS', 'SM', [
+      { code: 'COMMS', department_code: 'SM', is_active: true },
+    ])).toBe(null);
+    expect(validateDivisionImportValue('COMMS', 'SM', [
+      { code: 'COMMS', department_code: 'SM', is_active: false },
+    ])).toBe('Division COMMS is inactive.');
+  });
+
+  it('resolves a shared division code against the row department, not the first match', () => {
+    const divisions = [
+      { code: 'OPS', department_code: 'HR', is_active: true },
+      { code: 'OPS', department_code: 'SM', is_active: true },
+    ];
+    expect(validateDivisionImportValue('OPS', 'SM', divisions)).toBe(null);
+    expect(validateDivisionImportValue('OPS', 'HR', divisions)).toBe(null);
+    expect(validateDivisionImportValue('OPS', 'IT', divisions)).toBe('Division OPS belongs to HR, not IT.');
   });
 
   it('keeps division scope separate in consolidation fingerprints', () => {

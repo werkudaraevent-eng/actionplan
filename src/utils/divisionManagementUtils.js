@@ -31,12 +31,16 @@ export function validateDivisionImportValue(rawCode, departmentCode, divisions) 
   const code = String(rawCode || '').trim().toUpperCase();
   if (!code) return null;
 
-  const division = (divisions || []).find((item) => item.code === code);
+  // Division codes are only unique inside a department, so the row's own department
+  // decides which one it means; a match elsewhere is reported, not silently accepted.
+  const all = divisions || [];
+  const division = all.find((item) => item.code === code && item.department_code === departmentCode)
+    || all.find((item) => item.code === code);
   if (!division) return `Unknown or inactive division: ${code}.`;
-  if (!division.is_active) return `Division ${code} is inactive.`;
   if (division.department_code !== departmentCode) {
     return `Division ${code} belongs to ${division.department_code}, not ${departmentCode}.`;
   }
+  if (!division.is_active) return `Division ${code} is inactive.`;
   return null;
 }
 

@@ -26,6 +26,16 @@ const TEMPLATE_HEADERS = [
 
 const VALID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// The template offers a Status column, so a backlog imported from spreadsheets can arrive
+// with the outcome it already had. A blank cell still means a fresh plan.
+const VALID_STATUSES = ['Open', 'On Progress', 'Achieved', 'Not Achieved'];
+
+const normalizeStatus = (raw) => {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (!value) return 'Open';
+  return VALID_STATUSES.find((status) => status.toLowerCase() === value) || null;
+};
+
 // Month name mapping (handles various formats)
 const MONTH_MAP = {
   'jan': 'Jan', 'feb': 'Feb', 'mar': 'Mar', 'apr': 'Apr', 'may': 'May', 'jun': 'Jun',
@@ -289,6 +299,10 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
       errors.push(`Invalid Month: "${monthRaw}". Use: Jan, Feb, Mar, etc. or ranges like "Jan - Mar"`);
     }
 
+    if (normalizeStatus(row['Status']) === null) {
+      errors.push(`Invalid Status: "${row['Status']}". Use one of: ${VALID_STATUSES.join(', ')}, or leave blank for Open.`);
+    }
+
     if (!goalStrategy?.trim()) errors.push('Missing Goal/Strategy');
     if (!actionPlan?.trim()) errors.push('Missing Action Plan');
     if (!indicator?.trim()) errors.push('Missing Indicator');
@@ -376,7 +390,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
                 pic_ids: picIds.length > 0 ? picIds : null,
                 legacy_pic_text: legacyPicText,
                 evidence: mappedRow['Evidence']?.toString().trim() || null,
-                status: 'Open', // Always start as Open for new imports
+                status: normalizeStatus(mappedRow['Status']),
                 outcome_link: mappedRow['Proof of Evidence']?.toString().trim() || null,
                 remark: mappedRow['Remarks']?.toString().trim() || null,
                 company_id: activeCompanyId, // MULTI-TENANT: stamp company_id on imported rows

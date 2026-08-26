@@ -102,7 +102,12 @@ export default function BulkOperationsPage() {
   const [bulkEndMonth, setBulkEndMonth] = useState('all');
   const [deleting, setDeleting] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
-  const [bulkSort, setBulkSort] = useState({ key: 'department_code', dir: 'asc' });
+  // Default to calendar month: the fetch orders by the month column, which is text, so
+  // 'Apr, Aug, Dec...' is what arrives and Sep always looks like the end of the data.
+  const [bulkSort, setBulkSort] = useState({ key: 'month', dir: 'asc' });
+  const [bulkPageSize, setBulkPageSize] = useState(100);
+  const [bulkCarryOver, setBulkCarryOver] = useState('all');
+  const [handoverParents, setHandoverParents] = useState([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [applying, setApplying] = useState(false);
 
@@ -194,7 +199,7 @@ export default function BulkOperationsPage() {
     setBulkLoading(true);
     let query = supabase
       .from('action_plans')
-      .select('id, action_plan, month, year, department_code, status, category, area_focus, pic_ids')
+      .select('id, action_plan, month, year, department_code, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, origin_plan:origin_plan_id(month, year)')
       .eq('company_id', activeCompanyId)
       .is('deleted_at', null)
       .order('department_code')
@@ -203,15 +208,28 @@ export default function BulkOperationsPage() {
     if (bulkDept !== 'all') query = query.eq('department_code', bulkDept);
     if (bulkStatus !== 'all') query = query.eq('status', bulkStatus);
     
-    const { data } = await query;
+    // Some rows are flagged as carry-over without an origin_plan_id, so the child side
+    // alone cannot say where a chain began. The parent side records carried_to_month, and
+    // that is what fills the gap.
+    const [{ data }, parentResult] = await Promise.all([
+      query,
+      supabase
+        .from('action_plans')
+        .select('month, department_code, carried_to_month, action_plan')
+        .eq('company_id', activeCompanyId)
+        .is('deleted_at', null)
+        .not('carried_to_month', 'is', null),
+    ]);
     // Month is stored as a name, so the range is applied after the fetch where the
     // calendar order is known.
     const startIdx = bulkStartMonth === 'all' ? 0 : MONTHS_ORDER.indexOf(bulkStartMonth);
     const endIdx = bulkEndMonth === 'all' ? 11 : MONTHS_ORDER.indexOf(bulkEndMonth);
+
     const inRange = (data || []).filter((plan) => {
       const idx = MONTHS_ORDER.indexOf(plan.month);
       return idx >= startIdx && idx <= endIdx;
     });
+    setHandoverParents(parentResult.data || []);
     setBulkPlans(inRange);
     setSelectedIds(new Set());
     setBulkLoading(false);
@@ -219,7 +237,7 @@ export default function BulkOperationsPage() {
 
   useEffect(() => {
     if (activeTab === 'bulk') fetchBulkPlans();
-  }, [activeTab, activeCompanyId, bulkDept, bulkStatus, bulkStartMonth, bulkEndMonth]);
+  }, [activeTab, activeCompanyId, bulkDept, bulkStatus, bulkStartMonth, bulkEndMonth, bulkCarryOver]);
 
   // Bulk apply handler
   const handleBulkApply = () => {
@@ -306,6 +324,17 @@ export default function BulkOperationsPage() {
 
           if (error) throw error;
 
+          // The audit trigger does not cover soft deletes, so without this the removal
+          // leaves no trace in the activity log at all.
+          await supabase.from('audit_logs').insert(selectedPlans.map((plan) => ({
+            action_plan_id: plan.id,
+            user_id: profile?.id,
+            change_type: 'SOFT_DELETE',
+            description: `Deleted via bulk operation — ${deleteReason.trim()}`,
+            previous_value: { deleted_at: null, status: plan.status },
+            new_value: { deleted_at: new Date().toISOString(), deletion_reason: deleteReason.trim() },
+          })));
+
           toast({
             title: 'Plans Deleted',
             description: `${selectedIds.size} plans removed. Reason recorded: "${deleteReason.trim()}"`,
@@ -323,6 +352,38 @@ export default function BulkOperationsPage() {
     });
   };
 
+  // Derived on every render from state rather than stamped onto rows during the fetch:
+  // a stamped row keeps whatever the code looked like when it was fetched, which hides
+  // later corrections until something happens to trigger a refetch.
+  //
+  // is_carry_over is unreliable in this data — originals carry the flag and genuine
+  // continuations lack it — so the handover recorded on the parent (carried_to_month) is
+  // the signal. A carry-over child copies the parent's action plan text, so department +
+  // receiving month + text identifies it precisely.
+  const enrichedBulkPlans = useMemo(() => {
+    const handoverFrom = new Map();
+    handoverParents.forEach((parent) => {
+      handoverFrom.set(`${parent.department_code}|${parent.carried_to_month}|${parent.action_plan}`, parent.month);
+    });
+    const startIdx = bulkStartMonth === 'all' ? 0 : MONTHS_ORDER.indexOf(bulkStartMonth);
+
+    return bulkPlans.map((plan) => {
+      const originMonth = plan.origin_plan?.month
+        || handoverFrom.get(`${plan.department_code}|${plan.month}|${plan.action_plan}`)
+        || null;
+      return {
+        ...plan,
+        origin_month_resolved: originMonth,
+        carried_in: originMonth !== null && MONTHS_ORDER.indexOf(originMonth) < startIdx,
+      };
+    });
+  }, [bulkPlans, handoverParents, bulkStartMonth]);
+
+  const filteredBulkPlans = useMemo(() => {
+    if (bulkCarryOver === 'all') return enrichedBulkPlans;
+    return enrichedBulkPlans.filter((plan) => (bulkCarryOver === 'yes' ? plan.carried_in : !plan.carried_in));
+  }, [enrichedBulkPlans, bulkCarryOver]);
+
   // Month is a name, so it sorts by calendar position; everything else compares as text.
   const sortedBulkPlans = useMemo(() => {
     const value = (plan) => (
@@ -330,13 +391,18 @@ export default function BulkOperationsPage() {
         ? MONTHS_ORDER.indexOf(plan.month)
         : String(plan[bulkSort.key] ?? '').toLowerCase()
     );
-    return [...bulkPlans].sort((left, right) => {
+    return [...filteredBulkPlans].sort((left, right) => {
       const a = value(left);
       const b = value(right);
       if (a === b) return 0;
       return bulkSort.dir === 'asc' ? (a < b ? -1 : 1) : (a < b ? 1 : -1);
     });
-  }, [bulkPlans, bulkSort]);
+  }, [filteredBulkPlans, bulkSort]);
+
+  const visibleBulkPlans = useMemo(
+    () => (bulkPageSize === 'all' ? sortedBulkPlans : sortedBulkPlans.slice(0, bulkPageSize)),
+    [sortedBulkPlans, bulkPageSize]
+  );
 
   const toggleBulkSort = (key) => {
     setBulkSort((current) => (
@@ -364,10 +430,10 @@ export default function BulkOperationsPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === bulkPlans.length) {
+    if (selectedIds.size === filteredBulkPlans.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(bulkPlans.map(p => p.id)));
+      setSelectedIds(new Set(filteredBulkPlans.map(p => p.id)));
     }
   };
 
@@ -580,6 +646,31 @@ export default function BulkOperationsPage() {
                   <option key={m} value={m}>To: {m}</option>
                 ))}
               </select>
+              <select
+                value={bulkCarryOver}
+                onChange={(e) => setBulkCarryOver(e.target.value)}
+                className={`px-3 py-2 border rounded-lg text-sm ${bulkCarryOver !== 'all' ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'}`}
+                aria-label="Carried-in filter"
+              >
+                <option value="all">Carried in: all</option>
+                <option value="yes">Carried in: only</option>
+                <option value="no">Carried in: exclude</option>
+              </select>
+              <select
+                value={bulkPageSize}
+                onChange={(e) => setBulkPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                aria-label="Rows to show"
+              >
+                <option value={50}>Show 50</option>
+                <option value={100}>Show 100</option>
+                <option value={250}>Show 250</option>
+                <option value="all">Show all</option>
+              </select>
+              <span className="text-sm text-gray-500">
+                {visibleBulkPlans.length} of {filteredBulkPlans.length} shown
+                {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
+              </span>
 
               {selectedIds.size > 0 && (
                 <div className="flex items-center gap-2 ml-auto">
@@ -657,7 +748,7 @@ export default function BulkOperationsPage() {
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
                   Loading plans...
                 </div>
-              ) : bulkPlans.length === 0 ? (
+              ) : filteredBulkPlans.length === 0 ? (
                 <div className="p-8 text-center text-gray-400">No plans found</div>
               ) : (
                 <div className="overflow-x-auto">
@@ -667,7 +758,8 @@ export default function BulkOperationsPage() {
                         <th className="px-3 py-2.5 text-left">
                           <input
                             type="checkbox"
-                            checked={selectedIds.size === bulkPlans.length && bulkPlans.length > 0}
+                            title={`Select all ${filteredBulkPlans.length} filtered plans, including rows beyond the ones shown`}
+                            checked={selectedIds.size === filteredBulkPlans.length && filteredBulkPlans.length > 0}
                             onChange={toggleSelectAll}
                             className="w-4 h-4 rounded"
                           />
@@ -680,7 +772,7 @@ export default function BulkOperationsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {sortedBulkPlans.map(plan => (
+                      {visibleBulkPlans.map(plan => (
                         <tr key={plan.id} className={selectedIds.has(plan.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}>
                           <td className="px-3 py-2">
                             <input
@@ -692,7 +784,19 @@ export default function BulkOperationsPage() {
                           </td>
                           <td className="px-3 py-2 text-xs font-mono text-gray-500">{plan.department_code}</td>
                           <td className="px-3 py-2 text-gray-600">{plan.month}</td>
-                          <td className="px-3 py-2 text-gray-900 max-w-xs truncate">{plan.action_plan}</td>
+                          <td className="px-3 py-2 text-gray-900 max-w-xs truncate">
+                            {plan.origin_month_resolved && (
+                              <span
+                                className={`mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium align-middle ${plan.carried_in ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}
+                                title={plan.carried_in
+                                  ? `Carried in from ${plan.origin_month_resolved}, outside this range — deleting it leaves that plan pointing at nothing`
+                                  : `Carried over from ${plan.origin_month_resolved}, inside this range`}
+                              >
+                                From {plan.origin_month_resolved}
+                              </span>
+                            )}
+                            {plan.action_plan}
+                          </td>
                           <td className="px-3 py-2">
                             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                               plan.status === 'Achieved' ? 'bg-green-100 text-green-700' :
@@ -711,7 +815,7 @@ export default function BulkOperationsPage() {
             </div>
             
             {selectedIds.size > 0 && (
-              <p className="text-sm text-gray-500">{selectedIds.size} of {bulkPlans.length} plans selected</p>
+              <p className="text-sm text-gray-500">{selectedIds.size} of {filteredBulkPlans.length} plans selected</p>
             )}
           </div>
         )}

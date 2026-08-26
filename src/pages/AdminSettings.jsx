@@ -15,6 +15,7 @@ import ScopeSwitchDialog from '../components/settings/ScopeSwitchDialog';
 import ScopeHistoryPanel from '../components/settings/ScopeHistoryPanel';
 import { useCompanyContext } from '../context/CompanyContext';
 import { buildDivisionSettings, filterCompanyRows } from '../utils/divisionManagementUtils';
+import { getCarryOverLevel } from '../utils/resolutionWizardUtils';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -1172,6 +1173,7 @@ function DataManagementTab() {
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [plans, setPlans] = useState([]);
+  const [planProfiles, setPlanProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -1186,42 +1188,69 @@ function DataManagementTab() {
       return;
     }
 
+    // A backup has to carry the relationships too, not just the columns: which division a
+    // plan sits in, and which plan it was carried over from.
     let query = supabase
       .from('action_plans')
-      .select('*')
+      .select('*, origin_plan:origin_plan_id(month, year), division:divisions!action_plans_division_scope_fkey(code, name)')
       .is('deleted_at', null)
       .eq('company_id', activeCompanyId) // ALWAYS scope by company
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(0, 9999);
 
-    const { data, error } = await query;
+    const [{ data, error }, profileResult] = await Promise.all([
+      query,
+      supabase.from('profiles').select('id, full_name, email').eq('company_id', activeCompanyId),
+    ]);
 
     if (error) console.error('Error fetching plans:', error);
     setPlans(data || []);
+    setPlanProfiles(profileResult.data || []);
     setLoading(false);
   };
+
+  // pic_ids holds user ids; an export full of UUIDs is not a backup anyone can read.
+  const picNames = (ids) => (ids || [])
+    .map((id) => {
+      const profile = planProfiles.find((entry) => entry.id === id);
+      return profile?.full_name || profile?.email || id;
+    })
+    .join(', ');
 
   const handleExport = async () => {
     setExporting(true);
     try {
       const exportData = plans.map((plan) => ({
+        'Plan ID': plan.id,
         'Year': plan.year,
         'Department': plan.department_code,
+        'Division': plan.division?.code || '',
         'Month': plan.month,
         'Category': plan.category || '',
         'Focus Area': plan.area_focus || '',
         'Goal/Strategy': plan.goal_strategy,
         'Action Plan': plan.action_plan,
         'Indicator': plan.indicator,
-        'PIC': plan.legacy_pic_text || plan.pic,
+        'PIC': picNames(plan.pic_ids) || plan.legacy_pic_text || '',
+        'Support PIC': picNames(plan.support_pic_ids),
         'Evidence': plan.evidence || '',
         'Status': plan.status,
+        'Submission Status': plan.submission_status || '',
+        'Carry Over': plan.is_carry_over ? 'Yes' : 'No',
+        'Carried From': plan.origin_plan ? `${plan.origin_plan.month} ${plan.origin_plan.year}` : '',
+        'Carried To': plan.carried_to_month || '',
+        'Late Level': getCarryOverLevel(plan) || '',
+        'Carry Over Status': plan.carry_over_status || '',
+        'Max Possible Score': plan.max_possible_score ?? '',
+        'Resolution': plan.resolution_type || '',
+        'Origin Plan ID': plan.origin_plan_id || '',
         'Reason for Non-Achievement': plan.status === 'Not Achieved'
           ? (plan.gap_category === 'Other' && plan.specify_reason
             ? `Other: ${plan.specify_reason}`
             : (plan.gap_category || '-'))
           : '-',
         'Failure Details': plan.status === 'Not Achieved' ? (plan.gap_analysis || '-') : '-',
-        'Score': plan.score || '',
+        'Score': plan.quality_score ?? '',
         'Proof of Evidence': plan.outcome_link || '',
         'Remarks': plan.remark || '',
         'Created At': plan.created_at,
@@ -1234,17 +1263,29 @@ function DataManagementTab() {
 
       // Set column widths
       ws['!cols'] = [
+        { wch: 38 }, // Plan ID
         { wch: 8 },  // Year
         { wch: 12 }, // Department
+        { wch: 10 }, // Division
         { wch: 8 },  // Month
         { wch: 12 }, // Category
         { wch: 25 }, // Focus Area
         { wch: 30 }, // Goal/Strategy
         { wch: 35 }, // Action Plan
         { wch: 25 }, // Indicator
-        { wch: 15 }, // PIC
+        { wch: 22 }, // PIC
+        { wch: 22 }, // Support PIC
         { wch: 25 }, // Evidence
         { wch: 12 }, // Status
+        { wch: 16 }, // Submission Status
+        { wch: 10 }, // Carry Over
+        { wch: 14 }, // Carried From
+        { wch: 12 }, // Carried To
+        { wch: 10 }, // Late Level
+        { wch: 16 }, // Carry Over Status
+        { wch: 16 }, // Max Possible Score
+        { wch: 14 }, // Resolution
+        { wch: 38 }, // Origin Plan ID
         { wch: 20 }, // Reason for Non-Achievement
         { wch: 35 }, // Failure Details
         { wch: 8 },  // Score

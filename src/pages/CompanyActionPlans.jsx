@@ -303,6 +303,13 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         { key: 'root_cause', label: 'Reason for Non-Achievement' },
         { key: 'failure_details', label: 'Failure Details' },
         { key: 'score', label: 'Score' },
+        { key: 'max_possible_score', label: 'Max Score' },
+        { key: 'carry_over', label: 'Carry Over' },
+        { key: 'carried_from', label: 'Carried From' },
+        { key: 'carried_to_month', label: 'Carried To' },
+        { key: 'late_level', label: 'Late Level' },
+        { key: 'carry_over_status', label: 'Carry Over Status' },
+        { key: 'resolution_type', label: 'Resolution' },
         { key: 'outcome_link', label: 'Proof of Evidence' },
         { key: 'remark', label: 'Remarks' },
         { key: 'created_at', label: 'Created At' },
@@ -335,6 +342,15 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
             value = plan.status === 'Not Achieved' ? (plan.gap_analysis || '-') : '-';
           } else if (col.key === 'created_at' && value) {
             value = new Date(value).toLocaleDateString();
+          } else if (col.key === 'score') {
+            // plan.score does not exist; the graded value lives in quality_score.
+            value = plan.quality_score ?? '';
+          } else if (col.key === 'carry_over') {
+            value = plan.is_carry_over ? 'Yes' : 'No';
+          } else if (col.key === 'carried_from') {
+            value = plan.origin_plan?.month ? `${plan.origin_plan.month} ${plan.origin_plan.year ?? ''}`.trim() : '';
+          } else if (col.key === 'late_level') {
+            value = getCarryOverLevel(plan) || '';
           }
 
           row[col.label] = value;

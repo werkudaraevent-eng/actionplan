@@ -12,7 +12,7 @@ import { trackEvent } from '../utils/usageTracking';
 // division_id on its own renders as a raw UUID wherever a plan is listed, so the readable
 // code travels with every fetch. The division foreign key is composite, which means
 // PostgREST can only resolve the embed through the constraint name.
-const PLAN_SELECT = '*, origin_plan:origin_plan_id(month), division:divisions!action_plans_division_scope_fkey(code, name)';
+const PLAN_SELECT = '*, origin_plan:origin_plan_id(month, year), division:divisions!action_plans_division_scope_fkey(code, name)';
 
 export function useActionPlans(departmentCode = null, companyId = null, excludeCompanyIds = []) {
   const [plans, setPlans] = useState([]);

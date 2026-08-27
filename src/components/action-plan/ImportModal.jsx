@@ -225,9 +225,13 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }) {
    * Returns Map<lowercase_full_name, uuid>
    */
   const buildProfileLookup = async () => {
+    // Names repeat across companies (the same person holds accounts in two tenants),
+    // so an unscoped lookup can resolve a PIC to a foreign-company profile, which the
+    // pic-scope trigger then rejects.
     const { data, error } = await supabase
       .from('profiles')
       .select('id, full_name')
+      .eq('company_id', activeCompanyId)
       .not('full_name', 'is', null);
 
     if (error) {

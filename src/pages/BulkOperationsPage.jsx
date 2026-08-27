@@ -109,6 +109,7 @@ export default function BulkOperationsPage() {
   const [bulkSort, setBulkSort] = useState({ key: 'month', dir: 'asc' });
   const [bulkPageSize, setBulkPageSize] = useState(100);
   const [bulkCarryOver, setBulkCarryOver] = useState('all');
+  const [bulkRecorded, setBulkRecorded] = useState('all');
   const [handoverParents, setHandoverParents] = useState([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -208,7 +209,7 @@ export default function BulkOperationsPage() {
     setBulkLoading(true);
     let query = supabase
       .from('action_plans')
-      .select('id, action_plan, month, year, department_code, division_id, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, origin_plan:origin_plan_id(month, year)')
+      .select('id, action_plan, month, year, department_code, division_id, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, outcome_link, quality_score, submission_status, origin_plan:origin_plan_id(month, year)')
       .eq('company_id', activeCompanyId)
       .is('deleted_at', null)
       .order('department_code')
@@ -357,11 +358,11 @@ export default function BulkOperationsPage() {
   const handleBulkDelete = () => {
     if (selectedIds.size === 0 || deleteReason.trim().length < 5) return;
     const selectedPlans = bulkPlans.filter((plan) => selectedIds.has(plan.id));
-    const withOutcome = selectedPlans.filter((plan) => plan.status === 'Achieved' || plan.status === 'Not Achieved').length;
+    const withOutcome = selectedPlans.filter((plan) => plan.has_record).length;
 
     setConfirmModal({
       title: 'Delete selected plans',
-      message: `Delete ${selectedIds.size} plans?${withOutcome > 0 ? ` ${withOutcome} of them already have a final outcome recorded.` : ''} They are removed from every view and report, and can be restored from the department page.`,
+      message: `Delete ${selectedIds.size} plans?${withOutcome > 0 ? ` ${withOutcome} of them already carry a result, evidence or grade, and that record disappears from every report.` : ''} They are removed from every view and report, and can be restored from the department page.`,
       onConfirm: async () => {
         setDeleting(true);
         try {
@@ -424,19 +425,31 @@ export default function BulkOperationsPage() {
       const originMonth = plan.origin_plan?.month
         || handoverFrom.get(`${plan.department_code}|${plan.month}|${plan.action_plan}`)
         || null;
+      // A plan carrying a result, evidence or a grade is a record of work done, not a
+      // placeholder waiting to be replaced. Sweeping it away deletes the proof behind the
+      // number it contributed to.
+      const hasRecord = ['Achieved', 'Not Achieved', 'On Progress'].includes(plan.status)
+        || Boolean(plan.outcome_link)
+        || plan.quality_score != null
+        || plan.submission_status === 'submitted';
+
       return {
         ...plan,
         division_code: divisionById.get(plan.division_id)?.code || '',
         origin_month_resolved: originMonth,
         carried_in: originMonth !== null && MONTHS_ORDER.indexOf(originMonth) < startIdx,
+        has_record: hasRecord,
       };
     });
   }, [bulkPlans, handoverParents, divisions, bulkStartMonth]);
 
-  const filteredBulkPlans = useMemo(() => {
-    if (bulkCarryOver === 'all') return enrichedBulkPlans;
-    return enrichedBulkPlans.filter((plan) => (bulkCarryOver === 'yes' ? plan.carried_in : !plan.carried_in));
-  }, [enrichedBulkPlans, bulkCarryOver]);
+  const filteredBulkPlans = useMemo(() => enrichedBulkPlans.filter((plan) => {
+    if (bulkCarryOver === 'yes' && !plan.carried_in) return false;
+    if (bulkCarryOver === 'no' && plan.carried_in) return false;
+    if (bulkRecorded === 'yes' && !plan.has_record) return false;
+    if (bulkRecorded === 'no' && plan.has_record) return false;
+    return true;
+  }), [enrichedBulkPlans, bulkCarryOver, bulkRecorded]);
 
   // Month is a name, so it sorts by calendar position; everything else compares as text.
   const sortedBulkPlans = useMemo(() => {
@@ -727,6 +740,16 @@ export default function BulkOperationsPage() {
                 <option value="no">Carried in: exclude</option>
               </select>
               <select
+                value={bulkRecorded}
+                onChange={(e) => setBulkRecorded(e.target.value)}
+                className={`px-3 py-2 border rounded-lg text-sm ${bulkRecorded !== 'all' ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : 'border-gray-300'}`}
+                aria-label="Recorded result filter"
+              >
+                <option value="all">Results: all</option>
+                <option value="yes">Results: recorded only</option>
+                <option value="no">Results: none yet</option>
+              </select>
+              <select
                 value={bulkPageSize}
                 onChange={(e) => setBulkPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
@@ -859,6 +882,14 @@ export default function BulkOperationsPage() {
                           )}
                           <td className="px-3 py-2 text-gray-600">{plan.month}</td>
                           <td className="px-3 py-2 text-gray-900 max-w-xs truncate">
+                            {plan.has_record && (
+                              <span
+                                className="mr-1.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-medium align-middle"
+                                title="Has a recorded outcome, evidence or grade — deleting it removes proof of work already done"
+                              >
+                                Recorded
+                              </span>
+                            )}
                             {plan.origin_month_resolved && (
                               <span
                                 className={`mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium align-middle ${plan.carried_in ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}

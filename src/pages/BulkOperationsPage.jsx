@@ -97,6 +97,8 @@ export default function BulkOperationsPage() {
   const [bulkField, setBulkField] = useState(''); // 'pic' | 'status' | 'category' | 'area_focus'
   const [bulkValue, setBulkValue] = useState('');
   const [bulkDept, setBulkDept] = useState('all');
+  const [bulkDivision, setBulkDivision] = useState('all'); // 'all' | '' (department level) | division id
+  const [divisions, setDivisions] = useState([]);
   const [bulkStatus, setBulkStatus] = useState('all');
   const [bulkStartMonth, setBulkStartMonth] = useState('all');
   const [bulkEndMonth, setBulkEndMonth] = useState('all');
@@ -120,6 +122,13 @@ export default function BulkOperationsPage() {
       .eq('company_id', activeCompanyId)
       .order('full_name')
       .then(({ data }) => setUsers(data || []));
+    supabase
+      .from('divisions')
+      .select('id, department_code, code, name')
+      .eq('company_id', activeCompanyId)
+      .eq('is_active', true)
+      .order('code')
+      .then(({ data }) => setDivisions(data || []));
   }, [activeCompanyId]);
 
   // Fetch affected plans when source PIC changes
@@ -199,13 +208,16 @@ export default function BulkOperationsPage() {
     setBulkLoading(true);
     let query = supabase
       .from('action_plans')
-      .select('id, action_plan, month, year, department_code, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, origin_plan:origin_plan_id(month, year)')
+      .select('id, action_plan, month, year, department_code, division_id, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, origin_plan:origin_plan_id(month, year)')
       .eq('company_id', activeCompanyId)
       .is('deleted_at', null)
       .order('department_code')
       .order('month');
     
     if (bulkDept !== 'all') query = query.eq('department_code', bulkDept);
+    if (bulkDivision !== 'all') {
+      query = bulkDivision === '' ? query.is('division_id', null) : query.eq('division_id', bulkDivision);
+    }
     if (bulkStatus !== 'all') query = query.eq('status', bulkStatus);
     
     // Some rows are flagged as carry-over without an origin_plan_id, so the child side
@@ -237,7 +249,7 @@ export default function BulkOperationsPage() {
 
   useEffect(() => {
     if (activeTab === 'bulk') fetchBulkPlans();
-  }, [activeTab, activeCompanyId, bulkDept, bulkStatus, bulkStartMonth, bulkEndMonth, bulkCarryOver]);
+  }, [activeTab, activeCompanyId, bulkDept, bulkDivision, bulkStatus, bulkStartMonth, bulkEndMonth, bulkCarryOver]);
 
   // Bulk apply handler
   const handleBulkApply = () => {
@@ -365,6 +377,7 @@ export default function BulkOperationsPage() {
     handoverParents.forEach((parent) => {
       handoverFrom.set(`${parent.department_code}|${parent.carried_to_month}|${parent.action_plan}`, parent.month);
     });
+    const divisionById = new Map(divisions.map((division) => [division.id, division]));
     const startIdx = bulkStartMonth === 'all' ? 0 : MONTHS_ORDER.indexOf(bulkStartMonth);
 
     return bulkPlans.map((plan) => {
@@ -373,11 +386,12 @@ export default function BulkOperationsPage() {
         || null;
       return {
         ...plan,
+        division_code: divisionById.get(plan.division_id)?.code || '',
         origin_month_resolved: originMonth,
         carried_in: originMonth !== null && MONTHS_ORDER.indexOf(originMonth) < startIdx,
       };
     });
-  }, [bulkPlans, handoverParents, bulkStartMonth]);
+  }, [bulkPlans, handoverParents, divisions, bulkStartMonth]);
 
   const filteredBulkPlans = useMemo(() => {
     if (bulkCarryOver === 'all') return enrichedBulkPlans;
@@ -606,7 +620,7 @@ export default function BulkOperationsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <select
                 value={bulkDept}
-                onChange={(e) => setBulkDept(e.target.value)}
+                onChange={(e) => { setBulkDept(e.target.value); setBulkDivision('all'); }}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
               >
                 <option value="all">All Departments</option>
@@ -614,6 +628,22 @@ export default function BulkOperationsPage() {
                   <option key={d.code} value={d.code}>{d.code} - {d.name}</option>
                 ))}
               </select>
+              {divisions.length > 0 && (
+                <select
+                  value={bulkDivision}
+                  onChange={(e) => setBulkDivision(e.target.value)}
+                  className={`px-3 py-2 border rounded-lg text-sm ${bulkDivision !== 'all' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-gray-300'}`}
+                  aria-label="Filter by division"
+                >
+                  <option value="all">All Divisions</option>
+                  <option value="">Department level</option>
+                  {divisions
+                    .filter((division) => bulkDept === 'all' || division.department_code === bulkDept)
+                    .map((division) => (
+                      <option key={division.id} value={division.id}>{division.code}</option>
+                    ))}
+                </select>
+              )}
               <select
                 value={bulkStatus}
                 onChange={(e) => setBulkStatus(e.target.value)}
@@ -765,6 +795,7 @@ export default function BulkOperationsPage() {
                           />
                         </th>
                         <BulkSortHeader label="Dept" sortKey="department_code" />
+                        {divisions.length > 0 && <BulkSortHeader label="Division" sortKey="division_code" />}
                         <BulkSortHeader label="Month" sortKey="month" />
                         <BulkSortHeader label="Action Plan" sortKey="action_plan" />
                         <BulkSortHeader label="Status" sortKey="status" />
@@ -783,6 +814,9 @@ export default function BulkOperationsPage() {
                             />
                           </td>
                           <td className="px-3 py-2 text-xs font-mono text-gray-500">{plan.department_code}</td>
+                          {divisions.length > 0 && (
+                            <td className="px-3 py-2 text-xs text-gray-500">{plan.division_code || 'Dept level'}</td>
+                          )}
                           <td className="px-3 py-2 text-gray-600">{plan.month}</td>
                           <td className="px-3 py-2 text-gray-900 max-w-xs truncate">
                             {plan.origin_month_resolved && (

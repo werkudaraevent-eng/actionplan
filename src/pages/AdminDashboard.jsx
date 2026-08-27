@@ -581,10 +581,25 @@ export default function AdminDashboard({ onNavigate }) {
       historicalByDept[histKey].count++;
     });
 
-    // LEFT JOIN APPROACH: Start from ALL departments (source of truth)
-    // This ensures departments with 0 plans are still included in the leaderboard
-    // FIX: Use normalized code for lookups
-    const byDepartment = departments.map((dept) => {
+    // Units come from the plans and the historical stats, not from the departments that are
+    // active today: a unit retired mid-year still owns the months it worked, and dropping it
+    // from the leaderboard while its plans stay in the totals makes the two disagree.
+    const MONTH_SEQUENCE = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const activePeriodOf = (code) => {
+      const rows = effectivePlans.filter((plan) => (plan.department_code || '').trim().toUpperCase() === code);
+      const present = MONTH_SEQUENCE.filter((month) => rows.some((row) => row.month === month));
+      if (present.length === 0) return '';
+      return present[0] === present[present.length - 1] ? present[0] : `${present[0]}–${present[present.length - 1]}`;
+    };
+
+    const departmentName = (code) => departments.find((dept) => dept.code.trim().toUpperCase() === code)?.name || code;
+    const reportedCodes = [...new Set([
+      ...departments.map((dept) => dept.code.trim().toUpperCase()),
+      ...Object.keys(deptMap),
+      ...Object.keys(historicalByDept),
+    ])].filter(Boolean).sort();
+
+    const byDepartment = reportedCodes.map((dept) => ({ code: dept, name: departmentName(dept) })).map((dept) => {
       const code = dept.code;
       const normalizedCode = code.trim().toUpperCase();
       const s = deptMap[normalizedCode];
@@ -597,6 +612,7 @@ export default function AdminDashboard({ onNavigate }) {
         return {
           code,
           name: code,
+          activePeriod: activePeriodOf(normalizedCode),
           total: s.total,
           achieved: s.achieved,
           completion,
@@ -611,6 +627,7 @@ export default function AdminDashboard({ onNavigate }) {
         return {
           code,
           name: code,
+          activePeriod: '',
           total: 0,
           achieved: 0,
           completion,
@@ -2354,7 +2371,15 @@ export default function AdminDashboard({ onNavigate }) {
                     <div className="w-8 flex justify-center">{getRankIcon(index)}</div>
                     <div className="w-14 text-center"><span className="font-mono text-sm font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded">{dept.code}</span></div>
                     <div className="flex-1">
-                      <p className="font-medium text-gray-800">{getDeptName(dept.code)}</p>
+                      <p className="font-medium text-gray-800">
+                        {getDeptName(dept.code)}
+                        {/* Units retired mid-year are ranked on the months they actually worked. */}
+                        {dept.activePeriod && dept.activePeriod !== 'Jan–Dec' && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] font-medium align-middle">
+                            {dept.activePeriod}
+                          </span>
+                        )}
+                      </p>
                       <p className="text-sm text-gray-500">
                         {dept.isHistorical
                           ? <span className="text-amber-600 italic">Historical data</span>

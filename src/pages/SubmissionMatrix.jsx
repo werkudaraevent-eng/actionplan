@@ -20,6 +20,27 @@ const CELL_STYLES = {
   na: 'bg-white text-slate-300 border-slate-100',
 };
 
+
+// A unit that was retired mid-year still owns the months it worked, so reporting lists the
+// units present in the data rather than the departments that happen to be active today.
+// Otherwise a retired unit vanishes from every breakdown while its plans keep counting
+// towards the company total, and the rows stop adding up to the header figure.
+const MONTH_SEQUENCE = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function describeActivePeriod(rows) {
+  const present = MONTH_SEQUENCE.filter((month) => rows.some((row) => row.month === month));
+  if (present.length === 0) return '';
+  const first = present[0];
+  const last = present[present.length - 1];
+  return first === last ? first : `${first}–${last}`;
+}
+
+function listUnitsFromPlans(rows, departments) {
+  const nameOf = (code) => departments.find((dept) => dept.code === code)?.name || code;
+  const codes = [...new Set(rows.map((row) => row.department_code).filter(Boolean))];
+  return codes.sort().map((code) => ({ code, name: nameOf(code) }));
+}
+
 export default function SubmissionMatrix() {
   const { activeCompanyId, activeCompany, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
@@ -31,7 +52,9 @@ export default function SubmissionMatrix() {
   const matrix = useMemo(() => {
     const yearPlans = plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
 
-    const rows = departments.map((dept) => {
+    const units = listUnitsFromPlans(yearPlans, departments);
+
+    const rows = units.map((dept) => {
       const cells = MONTHS.map((month) => {
         const cellPlans = yearPlans.filter((plan) => plan.department_code === dept.code && plan.month === month);
         const total = cellPlans.length;
@@ -49,7 +72,7 @@ export default function SubmissionMatrix() {
       const monthsFinalized = cells.filter((cell) => cell.state === 'finalized').length;
       const yearRate = monthsWithPlans ? (monthsFinalized / monthsWithPlans) * 100 : null;
 
-      return { code: dept.code, name: dept.name, cells, monthsWithPlans, monthsFinalized, yearRate };
+      return { code: dept.code, name: dept.name, cells, monthsWithPlans, monthsFinalized, yearRate, activePeriod: describeActivePeriod(yearPlans.filter((plan) => plan.department_code === dept.code)) };
     }).filter((row) => row.monthsWithPlans > 0);
 
     const monthFooter = MONTHS.map((month, index) => {
@@ -116,7 +139,10 @@ export default function SubmissionMatrix() {
                 {matrix.rows.map((row) => (
                   <tr key={row.code}>
                     <td className="sticky left-0 z-10 bg-white px-4 py-2.5">
-                      <p className="font-bold text-slate-800">{row.code}</p>
+                      <p className="font-bold text-slate-800">
+                        {row.code}
+                        {row.activePeriod && <span className="ml-1.5 font-medium text-[10px] text-slate-400">{row.activePeriod}</span>}
+                      </p>
                       <p className="max-w-[180px] truncate text-[11px] text-slate-400">{row.name}</p>
                     </td>
                     {row.cells.map((cell) => (

@@ -329,6 +329,27 @@ function planDetail(plan, profileMap) {
   };
 }
 
+
+// A unit that was retired mid-year still owns the months it worked, so reporting lists the
+// units present in the data rather than the departments that happen to be active today.
+// Otherwise a retired unit vanishes from every breakdown while its plans keep counting
+// towards the company total, and the rows stop adding up to the header figure.
+const MONTH_SEQUENCE = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function describeActivePeriod(rows) {
+  const present = MONTH_SEQUENCE.filter((month) => rows.some((row) => row.month === month));
+  if (present.length === 0) return '';
+  const first = present[0];
+  const last = present[present.length - 1];
+  return first === last ? first : `${first}–${last}`;
+}
+
+function listUnitsFromPlans(rows, departments) {
+  const nameOf = (code) => departments.find((dept) => dept.code === code)?.name || code;
+  const codes = [...new Set(rows.map((row) => row.department_code).filter(Boolean))];
+  return codes.sort().map((code) => ({ code, name: nameOf(code) }));
+}
+
 export default function MonthlyExecutiveReport() {
   const { activeCompanyId, activeCompany, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
@@ -441,7 +462,7 @@ export default function MonthlyExecutiveReport() {
     const carryOver = periodPlans.filter((plan) => plan.is_carry_over || plan.origin_plan_id || plan.carry_over_count > 0).length;
     const revision = periodPlans.filter((plan) => String(plan.submission_status || '').includes('revision') || String(plan.admin_feedback || '').toLowerCase().includes('revision')).length;
 
-    const departmentRows = departments.map((dept) => {
+    const departmentRows = listUnitsFromPlans(periodPlans, departments).map((dept) => {
       const rows = periodPlans.filter((plan) => plan.department_code === dept.code);
       const deptAchieved = rows.filter((plan) => plan.status === 'Achieved').length;
       const atRisk = rows.filter((plan) => ['Blocked', 'Not Achieved'].includes(plan.status)).length;
@@ -449,6 +470,7 @@ export default function MonthlyExecutiveReport() {
         id: dept.code,
         code: dept.code,
         name: dept.name,
+        activePeriod: describeActivePeriod(rows),
         total: rows.length,
         achieved: deptAchieved,
         completionRate: rows.length ? (deptAchieved / rows.length) * 100 : 0,
@@ -570,7 +592,7 @@ export default function MonthlyExecutiveReport() {
             : [];
           return {
             departments: report.departmentRows.slice(0, 12).map((r) => ({
-              code: r.code, name: r.name, total: r.total, achieved: r.achieved,
+              code: r.code, name: r.name, active_period: r.activePeriod, total: r.total, achieved: r.achieved,
               rate: Math.round(r.completionRate), avg_score: Math.round(r.avgScore) || 0, at_risk: r.atRisk,
             })),
             top_department: top ? { code: top.code, name: top.name, rate: Math.round(top.completionRate), avg_score: Math.round(top.avgScore) || 0 } : null,

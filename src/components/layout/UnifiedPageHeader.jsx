@@ -106,6 +106,24 @@ export default function UnifiedPageHeader({
   headerActions,
   filterActions,
 }) {
+  // A division only exists inside one department, so the division filter follows the
+  // department choice. Offering every division lets a department be paired with one it
+  // does not own, which can only ever return nothing.
+  const divisionsForDept = selectedDept === 'all'
+    ? divisions
+    : divisions.filter((division) => division.department_code === selectedDept);
+
+  const hasDivisionsForDept = divisionsForDept.length > 0;
+
+  const selectDepartment = (code) => {
+    setSelectedDept?.(code);
+    const stillValid = code === 'all'
+      || selectedDivision === 'all'
+      || selectedDivision === ''
+      || divisions.some((division) => division.id === selectedDivision && division.department_code === code);
+    if (!stillValid) setSelectedDivision?.('all');
+  };
+
   // Dropdown open states
   const [isMonthRangeOpen, setIsMonthRangeOpen] = useState(false);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
@@ -383,7 +401,7 @@ export default function UnifiedPageHeader({
                         <div className="max-h-64 overflow-y-auto p-1">
                           <button
                             onClick={() => {
-                              setSelectedDept?.('all');
+                              selectDepartment('all');
                               setIsDeptOpen(false);
                             }}
                             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
@@ -399,7 +417,7 @@ export default function UnifiedPageHeader({
                             <button
                               key={dept.code}
                               onClick={() => {
-                                setSelectedDept?.(dept.code);
+                                selectDepartment(dept.code);
                                 setIsDeptOpen(false);
                               }}
                               className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between ${
@@ -425,12 +443,13 @@ export default function UnifiedPageHeader({
                   <select
                     value={selectedDivision}
                     onChange={(event) => setSelectedDivision(event.target.value)}
+                    disabled={!hasDivisionsForDept}
                     aria-label="Filter by division"
-                    className={`px-3 py-2 rounded-lg text-sm font-medium border bg-white ${selectedDivision !== 'all' ? 'border-indigo-200 text-indigo-700 bg-indigo-50' : 'border-gray-200 text-gray-700'}`}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium border bg-white disabled:bg-gray-50 disabled:text-gray-400 ${selectedDivision !== 'all' ? 'border-indigo-200 text-indigo-700 bg-indigo-50' : 'border-gray-200 text-gray-700'}`}
                   >
-                    <option value="all">All Divisions</option>
-                    <option value="">Department level</option>
-                    {divisions.map((division) => <option key={division.id} value={division.id}>{division.code}</option>)}
+                    <option value="all">{hasDivisionsForDept ? 'All Divisions' : 'No divisions'}</option>
+                    {hasDivisionsForDept && <option value="">Department level</option>}
+                    {divisionsForDept.map((division) => <option key={division.id} value={division.id}>{division.code}</option>)}
                   </select>
                 </div>
               )}

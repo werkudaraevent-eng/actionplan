@@ -36,26 +36,64 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
   const canEdit = !isExecutive; // Executives have read-only access
   const canExport = can('report', 'export');
   const { toast } = useToast();
-  const { activeCompanyId, loading: companyLoading } = useCompanyContext();
-  const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
-  const { departments } = useDepartments(activeCompanyId);
+  const { activeCompanyId, isHoldingContext, sandboxCompanyIds, loading: companyLoading } = useCompanyContext();
+  // Holding is a consolidated view across every subsidiary, which useActionPlans expresses
+  // as a null company. Collapsing that to the hydration sentinel left this page permanently
+  // empty in group context, so the two cases are kept apart.
+  const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
+  const safeCompanyId = companyLoading || (!isHoldingContext && !activeCompanyId) ? '__pending__' : effectiveCompanyId;
+  const { departments: companyDepartments } = useDepartments(effectiveCompanyId);
   const [divisions, setDivisions] = useState([]);
   // Fetch ALL plans (no department filter) scoped to active company
-  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(null, safeCompanyId);
+  const { plans, loading, refetch, updatePlan, deletePlan, updateStatus, gradePlan, carryOverPlan, resetPlan } = useActionPlans(
+    null,
+    safeCompanyId,
+    isHoldingContext ? sandboxCompanyIds : []
+  );
   const { profileMap } = usePicProfiles(plans);
   const plansWithDivision = useMemo(() => plans.map((plan) => ({
     ...plan,
     division: plan.division || divisions.find((division) => division.id === plan.division_id) || null,
   })), [plans, divisions]);
 
+  // Department and division master data is fetched per company, so in group context the
+  // filters are built from the plans on screen instead — that spans every subsidiary and
+  // can never offer a value the table has no rows for.
+  const departments = useMemo(() => {
+    if (!isHoldingContext) return companyDepartments;
+    const seen = new Map();
+    plans.forEach((plan) => {
+      if (plan.department_code && !seen.has(plan.department_code)) {
+        seen.set(plan.department_code, { code: plan.department_code, name: plan.department_code });
+      }
+    });
+    return [...seen.values()].sort((left, right) => left.code.localeCompare(right.code));
+  }, [isHoldingContext, companyDepartments, plans]);
+
+  const divisionOptions = useMemo(() => {
+    if (!isHoldingContext) return divisions;
+    const seen = new Map();
+    plansWithDivision.forEach((plan) => {
+      if (plan.division_id && plan.division?.code && !seen.has(plan.division_id)) {
+        seen.set(plan.division_id, {
+          id: plan.division_id,
+          code: plan.division.code,
+          name: plan.division.name || plan.division.code,
+          department_code: plan.department_code,
+        });
+      }
+    });
+    return [...seen.values()].sort((left, right) => left.code.localeCompare(right.code));
+  }, [isHoldingContext, divisions, plansWithDivision]);
+
   useEffect(() => {
-    if (!activeCompanyId) return;
+    if (!effectiveCompanyId) return;
     let cancelled = false;
     Promise.all([
-      supabase.from('divisions').select('id, company_id, department_code, code, name, is_active').eq('company_id', activeCompanyId).eq('is_active', true).order('code'),
+      supabase.from('divisions').select('id, company_id, department_code, code, name, is_active').eq('company_id', effectiveCompanyId).eq('is_active', true).order('code'),
     ]).then(([divisionsResult]) => {
       if (cancelled) return;
-      setDivisions(filterCompanyRows(divisionsResult.data, activeCompanyId));
+      setDivisions(filterCompanyRows(divisionsResult.data, effectiveCompanyId));
     });
     return () => { cancelled = true; };
   }, [activeCompanyId]);
@@ -933,7 +971,7 @@ export default function CompanyActionPlans({ initialStatusFilter = '', initialDe
         selectedDept={selectedDept}
         setSelectedDept={setSelectedDept}
         departments={departments}
-        divisions={divisions}
+        divisions={divisionOptions}
         selectedDivision={selectedDivision}
         setSelectedDivision={setSelectedDivision}
         selectedCarryOver={selectedCarryOver}

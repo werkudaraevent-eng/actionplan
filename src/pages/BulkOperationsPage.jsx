@@ -220,10 +220,49 @@ export default function BulkOperationsPage() {
     }
     if (bulkStatus !== 'all') query = query.eq('status', bulkStatus);
     
+    // A department folded into one of this department's divisions keeps its own
+    // department_code on plans filed before the conversion, so a plain department_code
+    // filter misses them. Same pull-in as DepartmentView: map them onto the division
+    // that replaced the old department.
+    const fetchHistoryPlans = async () => {
+      if (bulkDept === 'all' || bulkDivision === '') return [];
+      const { data: operations } = await supabase
+        .from('scope_restructure_operations')
+        .select('source_department_code, target_division_id, effective_year, effective_month')
+        .eq('company_id', activeCompanyId)
+        .eq('target_department_code', bulkDept)
+        .eq('target_scope_type', 'division')
+        .eq('status', 'applied');
+      if (!operations?.length) return [];
+      const sourceCodes = [...new Set(operations.map((operation) => operation.source_department_code))];
+      let historyQuery = supabase
+        .from('action_plans')
+        .select('id, action_plan, month, year, department_code, division_id, status, category, area_focus, pic_ids, is_carry_over, origin_plan_id, carry_over_status, origin_plan:origin_plan_id(month, year)')
+        .eq('company_id', activeCompanyId)
+        .in('department_code', sourceCodes)
+        .is('division_id', null)
+        .is('deleted_at', null)
+        .range(0, 9999);
+      if (bulkStatus !== 'all') historyQuery = historyQuery.eq('status', bulkStatus);
+      const { data: historyPlans } = await historyQuery;
+      return (historyPlans || []).flatMap((plan) => {
+        const operation = operations.find((entry) => entry.source_department_code === plan.department_code);
+        const planKey = plan.year * 12 + MONTHS_ORDER.indexOf(plan.month) + 1;
+        if (planKey >= operation.effective_year * 12 + operation.effective_month) return [];
+        if (bulkDivision !== 'all' && operation.target_division_id !== bulkDivision) return [];
+        return [{
+          ...plan,
+          division_id: operation.target_division_id,
+          is_pre_conversion: true,
+          pre_conversion_department_code: plan.department_code,
+        }];
+      });
+    };
+
     // Some rows are flagged as carry-over without an origin_plan_id, so the child side
     // alone cannot say where a chain began. The parent side records carried_to_month, and
     // that is what fills the gap.
-    const [{ data }, parentResult] = await Promise.all([
+    const [{ data }, parentResult, historyPlans] = await Promise.all([
       query,
       supabase
         .from('action_plans')
@@ -231,13 +270,14 @@ export default function BulkOperationsPage() {
         .eq('company_id', activeCompanyId)
         .is('deleted_at', null)
         .not('carried_to_month', 'is', null),
+      fetchHistoryPlans(),
     ]);
     // Month is stored as a name, so the range is applied after the fetch where the
     // calendar order is known.
     const startIdx = bulkStartMonth === 'all' ? 0 : MONTHS_ORDER.indexOf(bulkStartMonth);
     const endIdx = bulkEndMonth === 'all' ? 11 : MONTHS_ORDER.indexOf(bulkEndMonth);
 
-    const inRange = (data || []).filter((plan) => {
+    const inRange = [...(data || []), ...historyPlans].filter((plan) => {
       const idx = MONTHS_ORDER.indexOf(plan.month);
       return idx >= startIdx && idx <= endIdx;
     });

@@ -409,10 +409,12 @@ export default function BulkOperationsPage() {
   // a stamped row keeps whatever the code looked like when it was fetched, which hides
   // later corrections until something happens to trigger a refetch.
   //
-  // is_carry_over is unreliable in this data — originals carry the flag and genuine
-  // continuations lack it — so the handover recorded on the parent (carried_to_month) is
-  // the signal. A carry-over child copies the parent's action plan text, so department +
-  // receiving month + text identifies it precisely.
+  // origin_plan_id is the real link, and where it exists it decides the answer. Some older
+  // rows carry the flag without the link, so the handover recorded on the parent
+  // (carried_to_month) fills that gap — but department + month + text is not unique: a
+  // department repeats the same action plan text across months, so the parent key matched
+  // 96 ordinary plans that never carried anything. Requiring is_carry_over on the plan
+  // narrows the fallback to rows that at least claim to be continuations.
   const enrichedBulkPlans = useMemo(() => {
     const handoverFrom = new Map();
     handoverParents.forEach((parent) => {
@@ -423,7 +425,9 @@ export default function BulkOperationsPage() {
 
     return bulkPlans.map((plan) => {
       const originMonth = plan.origin_plan?.month
-        || handoverFrom.get(`${plan.department_code}|${plan.month}|${plan.action_plan}`)
+        || (plan.is_carry_over
+          ? handoverFrom.get(`${plan.department_code}|${plan.month}|${plan.action_plan}`)
+          : undefined)
         || null;
       // A plan carrying a result, evidence or a grade is a record of work done, not a
       // placeholder waiting to be replaced. Sweeping it away deletes the proof behind the

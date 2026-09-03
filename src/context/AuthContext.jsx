@@ -5,15 +5,20 @@ import { trackEvent } from '../utils/usageTracking';
 const AuthContext = createContext({});
 
 // sync_effective_scope_projection() rewrites profiles.department_code from
-// organization_scope_assignments on every profile load. That table is written only by
-// the one-off backfill and by scope restructures — never by Team Management — so an
-// admin changing someone's department was silently reverted on their next page load,
-// and a secondary "department_access" row could outrank the person's real primary.
-// Eleven of sixty-nine profiles disagreed with their assignments when this was found.
+// organization_scope_assignments on every profile load, which is how a scope
+// restructure reaches a profile on its effective date.
 //
-// Left off until the assignment rows describe the current org chart. Turn back on only
-// after reconciling them; until then a stale row would undo real administration.
-const SYNC_SCOPE_PROJECTION_ON_LOAD = false;
+// It was switched off on 2026-09-03 after it was found reverting real administration:
+// the assignment table is written only by the 2026-07-22 backfill and by restructures,
+// never by Team Management, so twelve of sixty-nine profiles held a department the
+// projection would overwrite on their next page load. Re-enabled once those rows were
+// reconciled (scripts/repair-scope-assignments.cjs) and department_access rows were
+// stopped from outranking a real posting (migration 20260903150000).
+//
+// The underlying gap remains: Team Management still writes profiles without writing
+// assignments, so a future department move made through the UI will drift the same way.
+// Switch this off again if that reappears before the write path is fixed.
+const SYNC_SCOPE_PROJECTION_ON_LOAD = true;
 
 export const useAuth = () => useContext(AuthContext);
 

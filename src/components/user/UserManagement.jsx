@@ -376,6 +376,13 @@ export default function UserManagement({ initialFilter = '' }) {
 
   // Handle save (create/update)
   const handleSave = async (formData) => {
+    // The restriction only means something for a leader who holds a division. Normalising
+    // here rather than trusting the form keeps a stale checkbox — left over from changing
+    // the role or clearing the division — from being written.
+    const divisionScopedAccess = formData.role === 'leader'
+      && !!formData.division_id
+      && formData.division_scoped_access === true;
+
     try {
       if (userModal.editData) {
         // --- EDIT MODE: Direct update to profiles table ---
@@ -388,6 +395,7 @@ export default function UserManagement({ initialFilter = '' }) {
             role: formData.role,
             department_code: formData.department_code,
             additional_departments: formData.additional_departments,
+            division_scoped_access: divisionScopedAccess,
           })
           .eq('id', userModal.editData.id)
           .select();
@@ -450,6 +458,15 @@ export default function UserManagement({ initialFilter = '' }) {
             .maybeSingle();
           if (created?.id) {
             await syncDivisionMembership(created.id, formData.department_code, formData.division_id);
+            // The edge function builds the profile and knows nothing about this flag, so
+            // it is written here — after the membership exists for it to restrict to.
+            if (divisionScopedAccess) {
+              const { error: scopeError } = await supabase
+                .from('profiles')
+                .update({ division_scoped_access: true })
+                .eq('id', created.id);
+              if (scopeError) throw scopeError;
+            }
           }
         }
 
@@ -634,6 +651,16 @@ export default function UserManagement({ initialFilter = '' }) {
               </span>
               {divisionByUser.get(user.id).membership_role === 'division_leader' && (
                 <span className="text-[10px] font-medium text-indigo-700">Leader</span>
+              )}
+              {/* A restricted leader looks identical to an unrestricted one otherwise,
+                  and the difference decides what they can see. */}
+              {user.division_scoped_access === true && (
+                <span
+                  className="px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-medium"
+                  title="Dibatasi ke divisi ini — tidak melihat divisi lain di departemennya."
+                >
+                  Divisi saja
+                </span>
               )}
             </span>
           ) : (

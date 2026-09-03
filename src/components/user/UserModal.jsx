@@ -25,6 +25,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
     department_code: '',
     division_id: '',
     additional_departments: [],
+    division_scoped_access: false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +65,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           department_code: editData.department_code || '',
           division_id: currentDivisionId || '',
           additional_departments: editData.additional_departments || [],
+          division_scoped_access: editData.division_scoped_access === true,
         });
       } else {
         // Reset for Add mode
@@ -74,6 +76,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           department_code: '',
           division_id: '',
           additional_departments: [],
+          division_scoped_access: false,
         });
       }
       setError('');
@@ -361,6 +364,35 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                       ))}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">Assigns division membership; the primary department stays {formData.department_code}</p>
+                  </div>
+                )}
+
+                {/* Confining a leader is only meaningful once they hold a division, and
+                    only for a leader — staff already see just their own plans. */}
+                {departmentDivisions.length > 0 && formData.role === 'leader' && (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.division_scoped_access}
+                        onChange={(e) => setFormData({ ...formData, division_scoped_access: e.target.checked })}
+                        disabled={!formData.division_id}
+                        className="mt-0.5 w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600 disabled:opacity-50"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium text-gray-800">Batasi ke divisinya saja</span>
+                        <span className="block text-xs text-gray-600 mt-0.5">
+                          {formData.division_id
+                            ? 'Hanya melihat dan mengubah action plan di divisinya, bukan seluruh departemen. Plan di mana dia menjadi PIC tetap terlihat.'
+                            : 'Pilih divisi terlebih dahulu — batasan ini butuh divisi untuk membatasi ke mana.'}
+                        </span>
+                      </span>
+                    </label>
+                    {formData.division_scoped_access && formData.division_id && (
+                      <p className="text-xs text-amber-700 mt-2 pl-6.5">
+                        Dia tidak akan lagi melihat divisi lain di {formData.department_code}, termasuk plan tingkat departemen.
+                      </p>
+                    )}
                   </div>
                 )}
 

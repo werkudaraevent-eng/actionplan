@@ -12,6 +12,16 @@ import { useToast } from '../common/Toast';
 import { getLatestVersion } from '../../data/changelog';
 import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme } from '../../data/sidebarThemes';
 
+// A native <option> inherits its colour from the <select>, but the OS paints the open
+// list on its own background rather than the select's. Every sidebar theme sets pale
+// text for the closed control — blue-100, gray-300, amber-100 — so the options came out
+// nearly white on the white popup and only the highlighted row, which the OS repaints
+// with system colours, could be read.
+//
+// Pinning the list to dark-on-white keeps it legible under every theme and on both
+// platforms, instead of depending on whatever the popup happens to be drawn with.
+const OPTION_LIST_STYLES = '[&>option]:bg-white [&>option]:text-gray-900 [&>option:disabled]:text-gray-400';
+
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -302,7 +312,7 @@ export default function Sidebar() {
                 value={activeCompanyId || ''}
                 onChange={(e) => handleWorkspaceSwitch(e.target.value)}
                 disabled={isSwitching}
-                className={`w-full max-w-full ${theme.selectBg} ${theme.selectText} text-sm rounded-md px-2.5 py-1.5 border ${theme.id === 'light' ? 'border-[#02378D]/30 focus:border-[#02378D] focus:ring-1 focus:ring-[#02378D]/30' : 'border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50'} outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
+                className={`w-full max-w-full ${theme.selectBg} ${theme.selectText} ${OPTION_LIST_STYLES} text-sm rounded-md px-2.5 py-1.5 border ${theme.id === 'light' ? 'border-[#02378D]/30 focus:border-[#02378D] focus:ring-1 focus:ring-[#02378D]/30' : 'border-amber-500/40 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50'} outline-none appearance-none cursor-pointer transition-all hover:opacity-90 overflow-hidden text-ellipsis ${isSwitching ? 'opacity-60 pointer-events-none' : ''}`}
                 style={{ backgroundImage: isSwitching ? 'none' : `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='${theme.id === 'light' ? '%2302378D' : '%23fbbf24'}' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.5rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.25rem' }}
               >
                 {/* Holding entity at the top */}
@@ -542,7 +552,7 @@ export default function Sidebar() {
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, '/workspace')}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} ${OPTION_LIST_STYLES} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
                       <option key={dept.code} value={dept.code}>
@@ -598,7 +608,7 @@ export default function Sidebar() {
                     value={currentDept}
                     onChange={(e) => handleDeptDropdownSwitch(e.target.value, `/dept/${e.target.value}/dashboard`)}
                     disabled={isSwitchingDept}
-                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 ${theme.selectBg} border ${theme.selectBorder} rounded-lg ${theme.selectText} ${OPTION_LIST_STYLES} text-sm appearance-none cursor-pointer ${theme.navHover} transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${isSwitchingDept ? 'opacity-60 pointer-events-none' : ''}`}
                   >
                     {accessibleDepts.map((dept) => (
                       <option key={dept.code} value={dept.code}>

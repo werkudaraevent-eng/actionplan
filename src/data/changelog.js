@@ -26,6 +26,7 @@ export const CHANGELOG = [
       { type: 'improvement', description: 'Panel penutupan bulan ditulis ulang: judul dan penjelasan memakai bahasa sehari-hari, tombol yang tidak bisa ditekan menerangkan alasannya, dan 19 kode error diterjemahkan menjadi kalimat yang bisa ditindaklanjuti — sebelumnya hanya 3, sisanya tampil sebagai kode mentah' },
       { type: 'improvement', description: 'Pilihan divisi tersimpan di alamat halaman, sehingga tampilan yang sudah difilter bisa di-bookmark, dibagikan, dan bertahan setelah refresh' },
       { type: 'improvement', description: 'Semua tampilan divisi hanya muncul untuk perusahaan yang mengaktifkan hierarki divisi; yang tidak mengaktifkannya tidak melihat perubahan apa pun' },
+      { type: 'fix', description: 'Pilihan pada dropdown Department dan Workspace di sidebar tidak terbaca — teksnya mewarisi warna pucat dari tema gelap sidebar, sementara daftarnya digambar di atas latar putih, sehingga hanya baris yang sedang disorot yang terlihat' },
     ],
   },
   {

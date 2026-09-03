@@ -48,6 +48,10 @@ describe('atomic department finalization migration', () => {
     const sql = readMigration();
 
     expect(sql).toContain("submission_status = 'submitted'");
+    // This records what the 2026-07-13 file shipped, not what should run today. The
+    // lookup below resolved to NULL on PostgREST v10+, so finalization always raised
+    // AUTHENTICATION_REQUIRED; 20260903090000 replaces it. Migrations are history and
+    // stay as written — see finalizeActorLookupMigration.test.js for the live contract.
     expect(sql).toContain("v_actor_id := NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid");
     expect(sql).toContain('submitted_by = v_actor_id');
     expect(sql).toContain("quality_score = CASE WHEN ap.status = 'Not Achieved' THEN 0");

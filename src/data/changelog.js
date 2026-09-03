@@ -27,6 +27,8 @@ export const CHANGELOG = [
       { type: 'improvement', description: 'Pilihan divisi tersimpan di alamat halaman, sehingga tampilan yang sudah difilter bisa di-bookmark, dibagikan, dan bertahan setelah refresh' },
       { type: 'improvement', description: 'Semua tampilan divisi hanya muncul untuk perusahaan yang mengaktifkan hierarki divisi; yang tidak mengaktifkannya tidak melihat perubahan apa pun' },
       { type: 'fix', description: 'Pilihan pada dropdown Department dan Workspace di sidebar tidak terbaca — teksnya mewarisi warna pucat dari tema gelap sidebar, sementara daftarnya digambar di atas latar putih, sehingga hanya baris yang sedang disorot yang terlihat' },
+      { type: 'fix', description: 'Perubahan departemen yang dilakukan admin bisa kembali sendiri saat halaman dimuat ulang. Sinkronisasi struktur organisasi memakai catatan per 22 Juli yang tidak pernah ikut diperbarui oleh Team Management, sehingga perpindahan sesudah tanggal itu dibatalkan diam-diam. Dua belas profil terdampak dan sudah dikembalikan sesuai struktur sekarang' },
+      { type: 'fix', description: 'Departemen sekunder tidak lagi bisa menggeser departemen utama seseorang saat sinkronisasi struktur organisasi berjalan' },
     ],
   },
   {

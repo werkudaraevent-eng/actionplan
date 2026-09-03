@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Target, CheckCircle2, Clock, AlertCircle, ChevronDown, Calendar, AlertTriangle, Star, TrendingUp, TrendingDown, PieChart, RotateCcw, X } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Cell } from 'recharts';
 import { useActionPlans } from '../hooks/useActionPlans';
@@ -9,9 +10,12 @@ import { supabase } from '../lib/supabase';
 import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, getPicDisplayName } from '../utils/picUtils';
 import { isVerifiedAchieved } from '../utils/completionUtils';
 import { useDepartments } from '../hooks/useDepartments';
+import { useDivisions } from '../hooks/useDivisions';
+import { summarizeByDivision } from '../utils/divisionManagementUtils';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import PriorityFocusWidget from '../components/dashboard/PriorityFocusWidget';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
+import DivisionBreakdownWidget from '../components/dashboard/DivisionBreakdownWidget';
 import DashboardExportButton from '../components/dashboard/DashboardExportButton';
 import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
@@ -21,6 +25,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
 const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const sortByMonth = (a, b) => (MONTH_ORDER[a.name] ?? 99) - (MONTH_ORDER[b.name] ?? 99);
+
+// Sentinel for "plans this department left at department level". Radix rejects an empty
+// string as a SelectItem value, so the absence of a division needs a name of its own.
+const DEPARTMENT_LEVEL = '__department_level__';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const AVAILABLE_YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
@@ -119,6 +127,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   const safeCompanyId = companyLoading || !activeCompanyId ? '__pending__' : activeCompanyId;
   const { plans, loading, refetch } = useActionPlans(activeDepartmentCode, safeCompanyId);
   const { departments } = useDepartments(activeCompanyId);
+  const { divisions, hierarchyEnabled } = useDivisions(activeCompanyId);
+
+  // Divisions belong to exactly one department, so this dashboard only ever offers the
+  // ones under the department in view. A company that never turned the hierarchy on
+  // gets an empty list and every division affordance below stays hidden.
+  const departmentDivisions = useMemo(
+    () => (hierarchyEnabled ? divisions.filter((division) => division.department_code === activeDepartmentCode) : []),
+    [divisions, hierarchyEnabled, activeDepartmentCode]
+  );
+  const showDivisionView = departmentDivisions.length > 0;
 
   // Staff users should not navigate from KPI cards - they can only view
   const canNavigate = onNavigate && !isStaff;
@@ -138,6 +156,41 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // Priority filter and refresh states
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Division filter. 'All' spans the whole department; a division id narrows every KPI
+  // and chart on the page to that division alone.
+  //
+  // It lives in the URL rather than in local state so the sidebar's division tree can
+  // link straight to one, and so a filtered dashboard survives a refresh and can be
+  // pasted to a colleague.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDivision = searchParams.get('division') || 'All';
+  const setSelectedDivision = useCallback((value) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (!value || value === 'All') next.delete('division');
+      else next.set('division', value);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // A hand-edited or stale ?division= pointing at another department's division would
+  // filter every plan away and read as "this department did nothing". Fall back to the
+  // whole department instead.
+  const selectedDivision = useMemo(() => {
+    if (requestedDivision === 'All' || requestedDivision === DEPARTMENT_LEVEL) return requestedDivision;
+    return departmentDivisions.some((division) => division.id === requestedDivision) ? requestedDivision : 'All';
+  }, [requestedDivision, departmentDivisions]);
+
+  // A division filter left over from another department would silently empty the page.
+  // Only an actual switch clears it — clearing on mount too would discard the very
+  // ?division= the sidebar just navigated here with.
+  const previousDepartmentCode = useRef(activeDepartmentCode);
+  useEffect(() => {
+    if (previousDepartmentCode.current === activeDepartmentCode) return;
+    previousDepartmentCode.current = activeDepartmentCode;
+    setSelectedDivision('All');
+  }, [activeDepartmentCode, setSelectedDivision]);
 
   // Profile map for resolving pic_ids → display names (for charts)
   const [picProfileMap, setPicProfileMap] = useState(new Map());
@@ -194,6 +247,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     setStartMonth('Jan');
     setEndMonth('Dec');
     setSelectedCategory('All'); // Reset priority filter
+    setSelectedDivision('All');
   };
 
   const handlePeriodChange = (period) => {
@@ -236,10 +290,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
     return `${startMonth} – ${endMonth}`;
   };
 
-  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY' || selectedCategory !== 'All';
+  const hasActiveFilters = (startMonth !== 'Jan' || endMonth !== 'Dec') || selectedYear !== CURRENT_YEAR || selectedPeriod !== 'FY' || selectedCategory !== 'All' || selectedDivision !== 'All';
 
-  // Filter plans by selected year, month range, and priority
-  const yearFilteredPlans = useMemo(() => {
+  const selectedDivisionLabel = selectedDivision === DEPARTMENT_LEVEL
+    ? 'Department level'
+    : departmentDivisions.find((division) => division.id === selectedDivision)?.code || selectedDivision;
+
+  // Filter plans by selected year, month range, and priority — everything except the
+  // division filter. The division breakdown compares divisions against each other, so it
+  // reads this list; narrowing to one division would leave it with a single bar.
+  const periodFilteredPlans = useMemo(() => {
     let filtered = plans.filter((plan) => (plan.year || CURRENT_YEAR) === selectedYear);
 
     // Apply month range filter
@@ -263,6 +323,16 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
 
     return filtered;
   }, [plans, selectedYear, startMonth, endMonth, selectedCategory]);
+
+  // Division filter. Strict equality, matching the All Action Plans table: a plan left at
+  // department level is not counted inside any division, so division figures never
+  // double-count it. '' selects exactly those department-level plans.
+  const yearFilteredPlans = useMemo(() => {
+    if (!showDivisionView || selectedDivision === 'All') return periodFilteredPlans;
+    return periodFilteredPlans.filter((plan) => (
+      selectedDivision === DEPARTMENT_LEVEL ? !plan.division_id : plan.division_id === selectedDivision
+    ));
+  }, [periodFilteredPlans, showDivisionView, selectedDivision]);
 
   // Check if viewing historical data (no real plans but has historical stats)
   const isHistoricalView = yearFilteredPlans.length === 0 && historicalStats.length > 0;
@@ -313,6 +383,26 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
   // YTD mode: Only count plans up to current month
   // Period mode: Respect the selected range without YTD cutoff
   const isYTDMode = selectedPeriod === 'FY' && selectedYear === CURRENT_YEAR;
+
+  // The window the KPI cards count over: the selected month range, cut off at the current
+  // month while in YTD mode, and excluding plans with no month at all. The division
+  // breakdown reuses it so its totals reconcile with the cards directly above it.
+  const applyStatsWindow = useCallback((list) => list.filter((plan) => {
+    const monthIdx = MONTH_ORDER[plan.month];
+    if (monthIdx === undefined) return false;
+    const startIdx = MONTH_ORDER[startMonth] ?? 0;
+    const endIdx = MONTH_ORDER[endMonth] ?? 11;
+    if (monthIdx < startIdx || monthIdx > endIdx) return false;
+    if (isYTDMode && monthIdx > new Date().getMonth()) return false;
+    return true;
+  }), [startMonth, endMonth, isYTDMode]);
+
+  const statsScopedPlans = useMemo(() => applyStatsWindow(yearFilteredPlans), [applyStatsWindow, yearFilteredPlans]);
+
+  const divisionRows = useMemo(
+    () => (showDivisionView ? summarizeByDivision(applyStatsWindow(periodFilteredPlans), departmentDivisions) : []),
+    [showDivisionView, applyStatsWindow, periodFilteredPlans, departmentDivisions]
+  );
 
   // Calculate stats from year-filtered plans (with historical fallback)
   const stats = useMemo(() => {
@@ -1095,6 +1185,22 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                 </SelectContent>
               </Select>
 
+              {/* Division Selector — hidden entirely for a department without divisions */}
+              {showDivisionView && (
+                <Select value={selectedDivision} onValueChange={setSelectedDivision}>
+                  <SelectTrigger className="w-[150px] h-9 text-sm bg-white" aria-label="Filter by division">
+                    <SelectValue placeholder="Division" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Divisions</SelectItem>
+                    {departmentDivisions.map((division) => (
+                      <SelectItem key={division.id} value={division.id}>{division.code}</SelectItem>
+                    ))}
+                    <SelectItem value={DEPARTMENT_LEVEL}>Department level</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+
               {/* Period Selector */}
               <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                 <SelectTrigger className="w-[120px] h-9 text-sm bg-white">
@@ -1185,6 +1291,12 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
                   <button onClick={clearCategoryFilter} className="hover:text-rose-900"><X className="w-3 h-3" /></button>
                 </span>
               )}
+              {showDivisionView && selectedDivision !== 'All' && (
+                <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-full flex items-center gap-1">
+                  Division: {selectedDivisionLabel}
+                  <button onClick={() => setSelectedDivision('All')} className="hover:text-teal-900"><X className="w-3 h-3" /></button>
+                </span>
+              )}
               {selectedPeriod !== 'FY' && (
                 <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full flex items-center gap-1">
                   {selectedPeriod === 'Custom' ? getFilterRangeLabel() : selectedPeriod}
@@ -1200,22 +1312,7 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       <main id="dept-dashboard-content" className="p-6">
         {/* Stats Grid - Unified Component */}
         <GlobalStatsGrid
-          plans={yearFilteredPlans.filter(p => {
-            // Apply month range filter
-            const monthIdx = MONTH_ORDER[p.month];
-            if (monthIdx === undefined) return false;
-            const startIdx = MONTH_ORDER[startMonth] ?? 0;
-            const endIdx = MONTH_ORDER[endMonth] ?? 11;
-            if (monthIdx < startIdx || monthIdx > endIdx) return false;
-
-            // Apply YTD cutoff if in YTD mode
-            if (isYTDMode) {
-              const currentMonthIndex = new Date().getMonth();
-              if (monthIdx > currentMonthIndex) return false;
-            }
-
-            return true;
-          })}
+          plans={statsScopedPlans}
           scope="department"
           loading={loading}
           dateContext={(() => {
@@ -1247,6 +1344,21 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
             onNavigate(`dept-${activeDepartmentCode}`, { statusFilter });
           } : undefined}
         />
+
+        {/* Division rollup — only for a department that actually has divisions */}
+        {showDivisionView && (
+          <div className="mb-6">
+            <DivisionBreakdownWidget
+              rows={divisionRows}
+              periodLabel={isYTDMode
+                ? `Jan - ${MONTHS_ORDER[currentMonthIndex]} ${selectedYear} (Year to Date)`
+                : selectedPeriod === 'FY'
+                  ? `Jan - Dec ${selectedYear} (Full Year)`
+                  : `${startMonth}${startMonth !== endMonth ? ` - ${endMonth}` : ''} ${selectedYear}`}
+              onDivisionClick={(divisionId) => setSelectedDivision(divisionId ?? DEPARTMENT_LEVEL)}
+            />
+          </div>
+        )}
 
         {/* 2x2 Matrix Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

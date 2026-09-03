@@ -12,6 +12,7 @@ import { collectAllPicUuids, batchResolveProfiles, getPicKeysForAggregation, get
 import { isVerifiedAchieved } from '../utils/completionUtils';
 import { getFailureReason } from '../utils/failureReasonUtils';
 import { useDepartments } from '../hooks/useDepartments';
+import { useDivisions } from '../hooks/useDivisions';
 import PerformanceChart from '../components/dashboard/PerformanceChart';
 import StrategyComboChart from '../components/dashboard/StrategyComboChart';
 import BottleneckChart from '../components/dashboard/BottleneckChart';
@@ -112,6 +113,10 @@ export default function AdminDashboard({ onNavigate }) {
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
   const { departments } = useDepartments(effectiveCompanyId);
+  // Holding context spans companies, and divisions are defined per company, so the
+  // division breakdown is offered only when a single company is in view.
+  const { divisions, hierarchyEnabled } = useDivisions(effectiveCompanyId);
+  const canBreakDownByDivision = hierarchyEnabled && divisions.length > 0;
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [startMonth, setStartMonth] = useState('Jan');
@@ -120,6 +125,11 @@ export default function AdminDashboard({ onNavigate }) {
   const [selectedCategory, setSelectedCategory] = useState('All'); // Category/Priority filter
   const [selectedPeriod, setSelectedPeriod] = useState('FY'); // 'FY', 'Q1', 'Q2', 'Q3', 'Q4', 'Custom'
   const [orgMetric, setOrgMetric] = useState('department_code');
+  // Switching to a company without divisions would leave the chart on a dimension that
+  // no longer exists, showing one "Department level" bar and nothing else.
+  useEffect(() => {
+    if (orgMetric === 'division' && !canBreakDownByDivision) setOrgMetric('department_code');
+  }, [orgMetric, canBreakDownByDivision]);
   const [stratMetric, setStratMetric] = useState('goal_strategy');
   const [comparisonYear, setComparisonYear] = useState('prev_year');
   const [isCompletionView, setIsCompletionView] = useState(true); // false = Verification Score, true = Completion Rate
@@ -881,6 +891,8 @@ export default function AdminDashboard({ onNavigate }) {
 
   // Org Chart Data - with historical fallback - Now includes both completion and score
   // Uses effectivePlans to respect YTD filtering
+  const divisionById = useMemo(() => new Map(divisions.map((division) => [division.id, division])), [divisions]);
+
   const orgChartData = useMemo(() => {
     // If we have real plans, use them
     if (effectivePlans.length > 0) {
@@ -901,6 +913,11 @@ export default function AdminDashboard({ onNavigate }) {
         if (orgMetric === 'department_code') {
           // Department view: single key per plan
           addToDataMap(plan.department_code || 'Unknown', plan);
+        } else if (orgMetric === 'division') {
+          // Division view: one key per plan, prefixed with its department so two
+          // departments that both name a division "OPS" stay separate bars.
+          const division = plan.division_id ? divisionById.get(plan.division_id) : null;
+          addToDataMap(division ? `${division.department_code} > ${division.code}` : 'Department level', plan);
         } else {
           // PIC view: flatten multi-PIC — credit ALL assigned PICs
           const picKeys = getPicKeysForAggregation(plan, picProfileMap);
@@ -951,7 +968,7 @@ export default function AdminDashboard({ onNavigate }) {
     }
 
     return [];
-  }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView, picProfileMap]);
+  }, [effectivePlans, orgMetric, filteredHistoricalStats, isCompletionView, picProfileMap, divisionById]);
 
   // Strategy Chart Data - Now includes both completion and score
   // Uses effectivePlans to respect YTD filtering
@@ -1402,7 +1419,11 @@ export default function AdminDashboard({ onNavigate }) {
 
   // Dynamic titles based on isCompletionView toggle
   const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Verification Score';
-  const orgTitle = orgMetric === 'department_code' ? `${activeMetricLabel} by Department` : `${activeMetricLabel} by PIC`;
+  const orgTitle = orgMetric === 'department_code'
+    ? `${activeMetricLabel} by Department`
+    : orgMetric === 'division'
+      ? `${activeMetricLabel} by Division`
+      : `${activeMetricLabel} by PIC`;
   const stratTitle = stratMetric === 'goal_strategy' ? `${activeMetricLabel} by Strategy` : `${activeMetricLabel} by Report Format`;
 
   if (loading) {
@@ -2308,14 +2329,24 @@ export default function AdminDashboard({ onNavigate }) {
             </div>
             <div className="flex items-center gap-2">
               <SortDropdown value={orgChartSort} onChange={setOrgChartSort} />
-              <ChartDropdown value={orgMetric} onChange={setOrgMetric} options={[{ value: 'department_code', label: 'Department' }, { value: 'pic', label: 'PIC' }]} />
+              <ChartDropdown
+                value={orgMetric}
+                onChange={setOrgMetric}
+                options={[
+                  { value: 'department_code', label: 'Department' },
+                  ...(canBreakDownByDivision ? [{ value: 'division', label: 'Division' }] : []),
+                  { value: 'pic', label: 'PIC' },
+                ]}
+              />
             </div>
           </div>
-          {isHistoricalView && orgMetric === 'pic' ? (
+          {isHistoricalView && orgMetric !== 'department_code' ? (
             <div className="h-[300px] flex items-center justify-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
               <div className="text-center px-6">
                 <Users className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm font-medium">PIC breakdown not available</p>
+                <p className="text-gray-500 text-sm font-medium">
+                  {orgMetric === 'division' ? 'Division' : 'PIC'} breakdown not available
+                </p>
                 <p className="text-gray-400 text-xs mt-1">Historical data is stored at department level only</p>
               </div>
             </div>

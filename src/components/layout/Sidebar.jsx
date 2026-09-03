@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity, Network } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
 import { useDepartments } from '../../hooks/useDepartments';
+import { useDivisions } from '../../hooks/useDivisions';
 import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
@@ -22,6 +23,19 @@ export default function Sidebar() {
   // MULTI-TENANT: Use company-scoped departments for the sidebar list
   // This is the same hook used by DepartmentContext, scoped to activeCompanyId
   const { departments, loading: deptLoading } = useDepartments(activeCompanyId);
+
+  // Divisions hang under their department in the list below. A company that never
+  // enabled the hierarchy gets an empty list and the tree stays flat, exactly as before.
+  const { divisions, hierarchyEnabled } = useDivisions(activeCompanyId);
+  const divisionsByDept = useMemo(() => {
+    if (!hierarchyEnabled) return new Map();
+    const grouped = new Map();
+    for (const division of divisions) {
+      if (!grouped.has(division.department_code)) grouped.set(division.department_code, []);
+      grouped.get(division.department_code).push(division);
+    }
+    return grouped;
+  }, [divisions, hierarchyEnabled]);
 
   // Sidebar theme state
   const [themeId, setThemeId] = useState(getSavedTheme);
@@ -394,22 +408,43 @@ export default function Sidebar() {
                   {departments.map((dept) => {
                     const isDeptActive = isActive(`/dept/${dept.code}`);
                     const isDeptLoading = isActivatingDeptCode === dept.code;
+                    const deptDivisions = divisionsByDept.get(dept.code) || [];
                     return (
-                      <button
-                        key={dept.code}
-                        onClick={() => handleDeptSwitch(dept)}
-                        className={`w-full min-w-0 text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
-                          ? `${theme.navActive} opacity-70`
-                          : isDeptActive ? theme.navActive : `${theme.navText} ${theme.navHover}`
-                          }`}
-                      >
-                        <span className={`flex-shrink-0 text-center font-mono text-sm ${theme.badgeBg} rounded px-1.5 py-0.5 whitespace-nowrap`}>
-                          {isDeptLoading ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
-                          ) : dept.code}
-                        </span>
-                        <span className="text-sm truncate min-w-0" title={dept.name}>{dept.name}</span>
-                      </button>
+                      <div key={dept.code}>
+                        <button
+                          onClick={() => handleDeptSwitch(dept)}
+                          className={`w-full min-w-0 text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isDeptLoading
+                            ? `${theme.navActive} opacity-70`
+                            : isDeptActive ? theme.navActive : `${theme.navText} ${theme.navHover}`
+                            }`}
+                        >
+                          <span className={`flex-shrink-0 text-center font-mono text-sm ${theme.badgeBg} rounded px-1.5 py-0.5 whitespace-nowrap`}>
+                            {isDeptLoading ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
+                            ) : dept.code}
+                          </span>
+                          <span className="text-sm truncate min-w-0" title={dept.name}>{dept.name}</span>
+                        </button>
+
+                        {/* Divisions of the department currently in view. Collapsed for the
+                            rest, so a company with many divisions keeps a readable sidebar. */}
+                        {isDeptActive && deptDivisions.length > 0 && (
+                          <div className="ml-4 pl-3 border-l border-white/15 space-y-0.5 mt-0.5 mb-1">
+                            {deptDivisions.map((division) => (
+                              <button
+                                key={division.id}
+                                onClick={() => navigate(`/dept/${dept.code}/dashboard?division=${division.id}`)}
+                                className={`w-full min-w-0 text-left px-2 py-1.5 rounded-md transition-all flex items-center gap-2 ${theme.navText} ${theme.navHover}`}
+                                title={division.name}
+                              >
+                                <Network className="w-3 h-3 flex-shrink-0 opacity-60" />
+                                <span className="font-mono text-[11px] flex-shrink-0">{division.code}</span>
+                                <span className="text-[11px] truncate min-w-0 opacity-70">{division.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

@@ -9,6 +9,7 @@ import {
   buildDivisionFingerprint,
   addDivisionToRecurringPlans,
   resolveDivisionCode,
+  summarizeByDivision,
 } from './divisionManagementUtils';
 
 describe('division management helpers', () => {
@@ -117,5 +118,82 @@ describe('division management helpers', () => {
     expect(resolveDivisionCode('sales_a', 'SALES', divisions)).toBe('one');
     expect(resolveDivisionCode('SALES_OLD', 'SALES', divisions)).toBe(null);
     expect(resolveDivisionCode('HR_A', 'SALES', divisions)).toBe(null);
+  });
+});
+
+describe('summarizeByDivision', () => {
+  const divisions = [
+    { id: 'comms', code: 'COMMS', name: 'Commercials' },
+    { id: 'cmc', code: 'CMC', name: 'Corporate Marketing Communication' },
+    { id: 'bs', code: 'BS', name: 'Business Solutions' },
+  ];
+
+  it('counts only admin-scored Achieved plans as complete', () => {
+    const plans = [
+      { division_id: 'comms', status: 'Achieved', quality_score: 90 },
+      { division_id: 'comms', status: 'Achieved', quality_score: null },
+      { division_id: 'comms', status: 'On Progress' },
+      { division_id: 'comms', status: 'Open' },
+    ];
+    const comms = summarizeByDivision(plans, divisions).find((row) => row.code === 'COMMS');
+    expect(comms.total).toBe(4);
+    expect(comms.achieved).toBe(2);
+    expect(comms.verifiedAchieved).toBe(1);
+    expect(comms.pendingVerification).toBe(1);
+    expect(comms.completionRate).toBe(25);
+  });
+
+  it('keeps a division with no plans in the rollup', () => {
+    const rows = summarizeByDivision([{ division_id: 'comms', status: 'Open' }], divisions);
+    expect(rows.map((row) => row.code).sort()).toEqual(['BS', 'CMC', 'COMMS']);
+    expect(rows.find((row) => row.code === 'BS')).toMatchObject({ total: 0, completionRate: 0, avgScore: null });
+  });
+
+  it('omits the department-level bucket when every plan carries a division', () => {
+    const rows = summarizeByDivision([{ division_id: 'cmc', status: 'Open' }], divisions);
+    expect(rows.some((row) => row.isDepartmentLevel)).toBe(false);
+  });
+
+  it('collects unassigned plans into a department-level bucket', () => {
+    const rows = summarizeByDivision(
+      [{ division_id: null, status: 'Achieved', quality_score: 80 }, { division_id: 'bs', status: 'Open' }],
+      divisions
+    );
+    const departmentLevel = rows.find((row) => row.isDepartmentLevel);
+    expect(departmentLevel).toMatchObject({ total: 1, verifiedAchieved: 1, completionRate: 100 });
+  });
+
+  it('files a plan pointing at an unknown division under department level rather than dropping it', () => {
+    const rows = summarizeByDivision([{ division_id: 'retired-division', status: 'Open' }], divisions);
+    expect(rows.reduce((sum, row) => sum + row.total, 0)).toBe(1);
+    expect(rows.find((row) => row.isDepartmentLevel).total).toBe(1);
+  });
+
+  it('averages only scored plans and reports how many were scored', () => {
+    const rows = summarizeByDivision(
+      [
+        { division_id: 'cmc', status: 'Achieved', quality_score: 100 },
+        { division_id: 'cmc', status: 'Not Achieved', quality_score: 50 },
+        { division_id: 'cmc', status: 'Open' },
+      ],
+      divisions
+    );
+    const cmc = rows.find((row) => row.code === 'CMC');
+    expect(cmc.avgScore).toBe(75);
+    expect(cmc.scoredCount).toBe(2);
+    expect(cmc.notAchieved).toBe(1);
+  });
+
+  it('ranks by completion rate, and breaks a tie on volume so an empty division sinks last', () => {
+    const plans = [
+      { division_id: 'comms', status: 'Achieved', quality_score: 90 },
+      { division_id: 'cmc', status: 'Open' },
+    ];
+    // CMC and BS are both at 0%, but CMC filed a plan and BS filed nothing.
+    expect(summarizeByDivision(plans, divisions).map((row) => row.code)).toEqual(['COMMS', 'CMC', 'BS']);
+  });
+
+  it('returns nothing to render when the department has no divisions and no plans', () => {
+    expect(summarizeByDivision([], [])).toEqual([]);
   });
 });

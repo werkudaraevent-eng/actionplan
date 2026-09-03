@@ -4,6 +4,17 @@ import { trackEvent } from '../utils/usageTracking';
 
 const AuthContext = createContext({});
 
+// sync_effective_scope_projection() rewrites profiles.department_code from
+// organization_scope_assignments on every profile load. That table is written only by
+// the one-off backfill and by scope restructures — never by Team Management — so an
+// admin changing someone's department was silently reverted on their next page load,
+// and a secondary "department_access" row could outrank the person's real primary.
+// Eleven of sixty-nine profiles disagreed with their assignments when this was found.
+//
+// Left off until the assignment rows describe the current org chart. Turn back on only
+// after reconciling them; until then a stale row would undo real administration.
+const SYNC_SCOPE_PROJECTION_ON_LOAD = false;
+
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
@@ -52,8 +63,10 @@ export function AuthProvider({ children }) {
       } else {
         setProfile(data);
         setProfileError(null);
-        const { error: projectionError } = await supabase.rpc('sync_effective_scope_projection');
-        if (projectionError) console.error('Scope projection sync error:', projectionError);
+        if (SYNC_SCOPE_PROJECTION_ON_LOAD) {
+          const { error: projectionError } = await supabase.rpc('sync_effective_scope_projection');
+          if (projectionError) console.error('Scope projection sync error:', projectionError);
+        }
         if (trackLogin) {
           trackEvent({
             eventType: 'login',

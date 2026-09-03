@@ -99,6 +99,16 @@ export default function DivisionReadinessPanel({
   const canFinalize = snapshot.can_finalize === true;
   const period = `${monthLabel(month)} ${year}`;
 
+  // draft_plan_count is what finalization would submit. Older deployments of the
+  // readiness RPC do not return it; treat that absence as unknown and leave the button
+  // as it was rather than disabling a month the server might still accept.
+  const draftCount = snapshot.draft_plan_count;
+  const submittedCount = snapshot.submitted_plan_count || 0;
+  const countsKnown = typeof draftCount === 'number';
+  const alreadyClosed = countsKnown && draftCount === 0 && submittedCount > 0;
+  const nothingFiled = countsKnown && draftCount === 0 && submittedCount === 0;
+  const nothingToSubmit = alreadyClosed || nothingFiled;
+
   const markReady = async (division) => {
     setActing(`ready:${division.division_id}`);
     try {
@@ -158,10 +168,23 @@ export default function DivisionReadinessPanel({
     <section className="bg-white border border-indigo-200 rounded-xl shadow-sm p-4" aria-labelledby="division-readiness-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 id="division-readiness-title" className="font-semibold text-gray-800">Tutup Bulan {period}</h2>
+          <h2 id="division-readiness-title" className="font-semibold text-gray-800">
+            {alreadyClosed ? `${period} Sudah Ditutup` : `Tutup Bulan ${period}`}
+          </h2>
           <p className="text-sm text-gray-600 mt-1 max-w-2xl">
-            Mengirim semua action plan {monthLabel(month)} departemen ini untuk dinilai sekaligus,
-            tanpa perlu submit satu per satu. Plan yang belum selesai otomatis dilanjutkan ke bulan berikutnya.
+            {alreadyClosed ? (
+              <>
+                Seluruh {submittedCount} action plan {monthLabel(month)} sudah dikirim untuk dinilai.
+                Tidak ada lagi yang perlu ditutup di bulan ini.
+              </>
+            ) : nothingFiled ? (
+              <>Belum ada action plan {monthLabel(month)} di departemen ini.</>
+            ) : (
+              <>
+                Mengirim semua action plan {monthLabel(month)} departemen ini untuk dinilai sekaligus,
+                tanpa perlu submit satu per satu. Plan yang belum selesai otomatis dilanjutkan ke bulan berikutnya.
+              </>
+            )}
           </p>
         </div>
         <button type="button" onClick={loadReadiness} disabled={loading || acting !== null} className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
@@ -179,7 +202,10 @@ export default function DivisionReadinessPanel({
         </div>
       )}
 
-      <div className="mt-4">
+      {/* The readiness grid counts draft plans, so once the month is closed every
+          division reads "0 plan" next to a Mark ready button that can no longer mean
+          anything. Drop the section instead. */}
+      <div className={alreadyClosed ? 'hidden' : 'mt-4'}>
         {divisions.length === 0 ? (
           <p className="text-sm text-gray-500">
             Departemen ini belum punya divisi, jadi tidak ada yang perlu melapor siap terlebih dahulu.
@@ -239,27 +265,44 @@ export default function DivisionReadinessPanel({
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={finalize}
-            disabled={!canFinalize || acting !== null || blockedByPolicy}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50"
-          >
-            {acting === 'finalize' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Tutup bulan &amp; kirim untuk dinilai
-          </button>
+          {alreadyClosed ? (
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700">
+              <CheckCircle2 className="w-4 h-4" />
+              {submittedCount} action plan sudah dikirim untuk dinilai
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={finalize}
+              disabled={!canFinalize || acting !== null || blockedByPolicy || nothingToSubmit}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {acting === 'finalize' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Tutup bulan &amp; kirim untuk dinilai
+            </button>
+          )}
 
           {/* Say why the button is dead instead of leaving a greyed-out control. */}
-          {!canFinalize && (
+          {!alreadyClosed && !canFinalize && (
             <span className="text-xs text-gray-500">
               Hanya admin atau ketua departemen ini yang bisa menutup bulan.
             </span>
           )}
-          {canFinalize && blockedByPolicy && (
+          {!alreadyClosed && canFinalize && nothingFiled && (
+            <span className="text-xs text-gray-500">
+              Belum ada yang bisa dikirim.
+            </span>
+          )}
+          {!alreadyClosed && canFinalize && !nothingToSubmit && blockedByPolicy && (
             <span className="text-xs text-amber-700">
               Menunggu {waitingDivisions.length > 0 && `${waitingDivisions.length} divisi`}
               {waitingDivisions.length > 0 && pendingPlans > 0 && ' dan '}
               {pendingPlans > 0 && `${pendingPlans} plan yang belum selesai`}.
+            </span>
+          )}
+          {!alreadyClosed && canFinalize && !nothingToSubmit && !blockedByPolicy && countsKnown && (
+            <span className="text-xs text-gray-500">
+              {draftCount} action plan akan dikirim.
             </span>
           )}
         </div>

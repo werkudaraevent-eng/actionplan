@@ -18,6 +18,7 @@ export const CHANGELOG = [
     title: 'Dashboard per Divisi & Perbaikan Penutupan Bulan',
     changes: [
       { type: 'fix', description: 'Tombol penutupan bulan tidak pernah berhasil sejak fitur divisi dirilis — server gagal membaca sesi login dan selalu menolak dengan AUTHENTICATION_REQUIRED, untuk semua role tanpa kecuali. Sekarang berfungsi' },
+      { type: 'fix', description: 'Bulan yang sudah ditutup tidak lagi menawarkan tombol "Tutup bulan" — panel kini tahu berapa plan yang tersisa untuk dikirim, sehingga bulan yang seluruh plannya sudah dinilai ditampilkan sebagai sudah selesai, bukan mengajak menekan tombol yang pasti gagal' },
       { type: 'feature', description: 'Dashboard departemen bisa difilter per divisi — seluruh KPI dan grafik di halaman ikut menyempit, bukan hanya satu widget' },
       { type: 'feature', description: 'Panel Division Breakdown baru: tingkat penyelesaian tiap divisi beserta rincian plan, yang menunggu penilaian, dan skornya. Divisi yang tidak mengisi apa pun tetap ditampilkan, karena justru itu yang perlu terlihat' },
       { type: 'feature', description: 'Admin Dashboard punya dimensi "Division" pada grafik Performance, di samping Department dan PIC' },

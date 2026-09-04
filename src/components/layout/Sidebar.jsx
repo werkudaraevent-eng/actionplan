@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity, Network, Compass } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity, Network, Compass, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -10,7 +10,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../common/Toast';
 import { getLatestVersion } from '../../data/changelog';
-import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme } from '../../data/sidebarThemes';
+import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme, getSavedSidebarCollapsed, saveSidebarCollapsed } from '../../data/sidebarThemes';
 
 // A native <option> inherits its colour from the <select>, but the OS paints the open
 // list on its own background rather than the select's. Every sidebar theme sets pale
@@ -46,6 +46,16 @@ export default function Sidebar() {
     }
     return grouped;
   }, [divisions, hierarchyEnabled]);
+
+  // Collapsed to an icon rail. Everything keeps its place and its icon; only the words
+  // and the controls too wide to survive 64px are withheld.
+  const [collapsed, setCollapsed] = useState(getSavedSidebarCollapsed);
+  const toggleCollapsed = () => {
+    setCollapsed((previous) => {
+      saveSidebarCollapsed(!previous);
+      return !previous;
+    });
+  };
 
   // Sidebar theme state
   const [themeId, setThemeId] = useState(getSavedTheme);
@@ -250,10 +260,10 @@ export default function Sidebar() {
   };
 
   return (
-    <div className={`w-64 min-w-64 flex-shrink-0 ${theme.container} h-full flex flex-col relative z-40`}>
+    <div className={`${collapsed ? 'w-16 min-w-16' : 'w-64 min-w-64'} flex-shrink-0 ${theme.container} h-full flex flex-col relative z-40 transition-[width] duration-200`}>
       {/* Header — Dynamic Tenant Branding */}
-      <div className={`p-4 border-b ${theme.headerBorder} flex-shrink-0`}>
-        <div className="flex items-center gap-3">
+      <div className={`${collapsed ? 'p-2' : 'p-4'} border-b ${theme.headerBorder} flex-shrink-0`}>
+        <div className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'gap-3'}`}>
           <div className="w-9 h-9 flex-shrink-0 rounded-lg overflow-hidden shadow-sm">
             {activeCompany?.logo_url ? (
               <div className="w-full h-full bg-white rounded-lg border border-white/20 p-1 flex items-center justify-center">
@@ -273,19 +283,34 @@ export default function Sidebar() {
               </span>
             </div>
           </div>
-          <div className="min-w-0">
-            <h1 className={`${theme.textPrimary} font-bold text-sm truncate`} title={activeCompany?.name || 'Werkudara Group'}>
-              {activeCompany?.name || 'Werkudara Group'}
-            </h1>
-            <p className={`${theme.textSecondary} text-xs`}>
-              {isSandbox ? 'Sandbox Environment' : 'Action Plan Tracker'}
-            </p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <h1 className={`${theme.textPrimary} font-bold text-sm truncate`} title={activeCompany?.name || 'Werkudara Group'}>
+                {activeCompany?.name || 'Werkudara Group'}
+              </h1>
+              <p className={`${theme.textSecondary} text-xs`}>
+                {isSandbox ? 'Sandbox Environment' : 'Action Plan Tracker'}
+              </p>
+            </div>
+          )}
+
+          {/* Stays reachable in both states: beside the name when open, under the mark
+              when railed, since a rail has no room for anything on the same line. */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? 'Perlebar sidebar' : 'Persempit sidebar'}
+            aria-label={collapsed ? 'Perlebar sidebar' : 'Persempit sidebar'}
+            aria-expanded={!collapsed}
+            className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${theme.navText} ${theme.navHover}`}
+          >
+            {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 
       {/* Company Switcher — visible only to holding_admin with multiple companies */}
-      {canSwitchCompany && (
+      {canSwitchCompany && !collapsed && (
         <div className="px-3 pb-3 flex-shrink-0">
           <div className={`${theme.id === 'light' ? 'bg-[#02378D]/10 border-[#02378D]/20' : 'bg-gradient-to-r from-amber-600/20 to-amber-500/10 border-amber-500/30'} border rounded-lg p-2.5`}>
             <label className={`${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-300'} text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 mb-1.5`}>
@@ -338,29 +363,33 @@ export default function Sidebar() {
       )}
 
       {/* Navigation - Scrollable with thin scrollbar on hover */}
-      <nav className="flex-1 p-3 overflow-y-auto scrollbar-hover">
+      <nav className={`flex-1 overflow-y-auto scrollbar-hover ${collapsed ? 'p-2 [&_button]:justify-center [&_button]:px-0' : 'p-3'}`}>
         {isAdmin || isExecutive ? (
           <>
             {/* ADMIN/EXECUTIVE VIEW: Full menu (read-only for Executive) */}
-            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Overview</p>
+            {collapsed
+              ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+              : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Overview</p>}
             <button
+              title={collapsed ? 'Company Dashboard' : undefined}
               data-tour="nav-dashboard"
               onClick={() => navigate('/dashboard')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/dashboard') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span className="text-sm">Company Dashboard</span>
+              {!collapsed && <span className="text-sm">Company Dashboard</span>}
             </button>
 
             <button
+              title={collapsed ? 'All Action Plans' : undefined}
               data-tour="nav-plans"
               onClick={() => navigate('/plans')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/plans') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <ListChecks className="w-4 h-4" />
-              <span className="text-sm">All Action Plans</span>
+              {!collapsed && <span className="text-sm">All Action Plans</span>}
             </button>
 
             <button
@@ -379,35 +408,45 @@ export default function Sidebar() {
             </button>
 
             <button
+              title={collapsed ? 'Executive Report' : undefined}
               onClick={() => navigate('/reports/monthly-executive')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/reports/monthly-executive') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Presentation className="w-4 h-4" />
-              <span className="text-sm">Executive Report</span>
+              {!collapsed && <span className="text-sm">Executive Report</span>}
             </button>
 
             <button
+              title={collapsed ? 'Submission Matrix' : undefined}
               onClick={() => navigate('/reports/submission-matrix')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/reports/submission-matrix') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <CalendarCheck className="w-4 h-4" />
-              <span className="text-sm">Submission Matrix</span>
+              {!collapsed && <span className="text-sm">Submission Matrix</span>}
             </button>
 
             <button
+              title={collapsed ? 'Usage Analytics' : undefined}
               onClick={() => navigate('/reports/usage-analytics')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-3 ${isActive('/reports/usage-analytics') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Activity className="w-4 h-4" />
-              <span className="text-sm">Usage Analytics</span>
+              {!collapsed && <span className="text-sm">Usage Analytics</span>}
             </button>
 
-            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Departments</p>
+            {collapsed
+
+              ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+
+              : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Departments</p>}
             <div className="space-y-1">
-              {isHoldingContext ? (
+              {/* Three of these four branches are a sentence and nothing else, which a
+                  64px rail cannot show. Only the list of departments survives collapsing. */}
+              {(isHoldingContext || deptLoading || departments.length === 0) && collapsed ? null
+                : isHoldingContext ? (
                 <div className={`flex items-center gap-2 px-3 py-2 ${theme.textSecondary} opacity-80 text-[11px]`}>
                   <Globe className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
                   <span>Select a subsidiary to view departments</span>
@@ -431,17 +470,17 @@ export default function Sidebar() {
                             : isDeptActive ? theme.navActive : `${theme.navText} ${theme.navHover}`
                             }`}
                         >
-                          <span className={`flex-shrink-0 text-center font-mono text-sm ${theme.badgeBg} rounded px-1.5 py-0.5 whitespace-nowrap`}>
+                          <span title={collapsed ? dept.name : undefined} className={`flex-shrink-0 text-center font-mono text-sm ${theme.badgeBg} rounded px-1.5 py-0.5 whitespace-nowrap`}>
                             {isDeptLoading ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
                             ) : dept.code}
                           </span>
-                          <span className="text-sm truncate min-w-0" title={dept.name}>{dept.name}</span>
+                          {!collapsed && <span className="text-sm truncate min-w-0" title={dept.name}>{dept.name}</span>}
                         </button>
 
                         {/* Divisions of the department currently in view. Collapsed for the
                             rest, so a company with many divisions keeps a readable sidebar. */}
-                        {isDeptActive && deptDivisions.length > 0 && (
+                        {!collapsed && isDeptActive && deptDivisions.length > 0 && (
                           <div className="ml-4 pl-3 border-l border-white/15 space-y-0.5 mt-0.5 mb-1">
                             {deptDivisions.map((division) => (
                               <button
@@ -467,48 +506,55 @@ export default function Sidebar() {
             {/* System menu - Admin always sees full menu, others see based on permissions */}
             {isAdmin && (
               <>
-                <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>
+                {collapsed
+                  ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+                  : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>}
                 <button
+                  title={collapsed ? 'Team Management' : undefined}
                   data-tour="nav-users"
                   onClick={() => navigate('/users')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Users className="w-4 h-4" />
-                  <span className="text-sm">Team Management</span>
+                  {!collapsed && <span className="text-sm">Team Management</span>}
                 </button>
                 <button
+                  title={collapsed ? 'Activity Log' : undefined}
                   onClick={() => navigate('/audit-log')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/audit-log') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <History className="w-4 h-4" />
-                  <span className="text-sm">Activity Log</span>
+                  {!collapsed && <span className="text-sm">Activity Log</span>}
                 </button>
                 <button
+                  title={collapsed ? 'Bulk Operations' : undefined}
                   onClick={() => navigate('/bulk-operations')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/bulk-operations') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Layers className="w-4 h-4" />
-                  <span className="text-sm">Bulk Operations</span>
+                  {!collapsed && <span className="text-sm">Bulk Operations</span>}
                 </button>
                 <button
+                  title={collapsed ? 'Access Control' : undefined}
                   onClick={() => navigate('/permissions')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/permissions') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Shield className="w-4 h-4" />
-                  <span className="text-sm">Access Control</span>
+                  {!collapsed && <span className="text-sm">Access Control</span>}
                 </button>
                 <button
+                  title={collapsed ? 'Admin Settings' : undefined}
                   data-tour="nav-settings"
                   onClick={() => navigate('/settings')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/settings') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Settings className="w-4 h-4" />
-                  <span className="text-sm">Admin Settings</span>
+                  {!collapsed && <span className="text-sm">Admin Settings</span>}
                 </button>
               </>
             )}
@@ -516,14 +562,17 @@ export default function Sidebar() {
             {/* Holding Admin — only for holding_admin users */}
             {isHoldingAdmin && (
               <>
-                <p className={`${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-400'} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>Holding Admin</p>
+                {collapsed
+                  ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+                  : <p className={`${theme.id === 'light' ? 'text-[#02378D]' : 'text-amber-400'} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>Holding Admin</p>}
                 <button
+                  title={collapsed ? 'Manage Subsidiaries' : undefined}
                   onClick={() => navigate('/holding')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive('/holding') ? (theme.id === 'light' ? 'bg-[#02378D] text-white' : 'bg-amber-600/80 text-white') : (theme.id === 'light' ? 'text-gray-700 hover:bg-black/5' : 'text-amber-200 hover:bg-amber-700/30')
                     }`}
                 >
                   <Crown className="w-4 h-4" />
-                  <span className="text-sm">Manage Subsidiaries</span>
+                  {!collapsed && <span className="text-sm">Manage Subsidiaries</span>}
                 </button>
               </>
             )}
@@ -531,14 +580,17 @@ export default function Sidebar() {
             {/* Team Management for non-admin users with permission */}
             {!isAdmin && can('user', 'view') && (
               <>
-                <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>
+                {collapsed
+                  ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+                  : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>}
                 <button
+                  title={collapsed ? 'Team Management' : undefined}
                   onClick={() => navigate('/users')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
                 >
                   <Users className="w-4 h-4" />
-                  <span className="text-sm">Team Management</span>
+                  {!collapsed && <span className="text-sm">Team Management</span>}
                 </button>
               </>
             )}
@@ -546,10 +598,12 @@ export default function Sidebar() {
         ) : isStaff ? (
           <>
             {/* STAFF VIEW: My Tasks + Department Overview */}
-            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>
+            {collapsed
+              ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+              : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>}
 
             {/* Department Switcher - Show if staff has multiple departments */}
-            {hasMultipleDepts && (
+            {hasMultipleDepts && !collapsed && (
               <div className="mb-3 px-2">
                 <label className={`block ${theme.textSecondary} text-xs mb-1`}>Department</label>
                 <div className="relative">
@@ -575,23 +629,25 @@ export default function Sidebar() {
             )}
 
             <button
+              title={collapsed ? 'My Action Plans' : undefined}
               data-tour="nav-workspace"
               onClick={() => navigate('/workspace')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/workspace') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <ClipboardList className="w-4 h-4" />
-              <span className="text-sm">My Action Plans</span>
+              {!collapsed && <span className="text-sm">My Action Plans</span>}
             </button>
 
             {/* Allow staff to view department dashboard */}
             <button
+              title={collapsed ? 'Team Overview' : undefined}
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/dashboard`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span className="text-sm">Team Overview</span>
+              {!collapsed && <span className="text-sm">Team Overview</span>}
             </button>
 
             {!hasMultipleDepts && (
@@ -603,10 +659,12 @@ export default function Sidebar() {
         ) : (
           <>
             {/* LEADER VIEW: Dashboard + Manage */}
-            <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>
+            {collapsed
+              ? <div className={`h-px my-3 mx-2 ${theme.divider}`} aria-hidden="true" />
+              : <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>My Workspace</p>}
 
             {/* Department Switcher - Show if leader has multiple departments */}
-            {hasMultipleDepts && (
+            {hasMultipleDepts && !collapsed && (
               <div className="mb-3 px-2">
                 <label className={`block ${theme.textSecondary} text-xs mb-1`}>Department</label>
                 <div className="relative">
@@ -633,24 +691,26 @@ export default function Sidebar() {
 
             {/* Dashboard Link */}
             <button
+              title={collapsed ? 'Dashboard' : undefined}
               data-tour="nav-dashboard"
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive(`/dept/${currentDept}/dashboard`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <LayoutDashboard className="w-4 h-4" />
-              <span className="text-sm">Dashboard</span>
+              {!collapsed && <span className="text-sm">Dashboard</span>}
             </button>
 
             {/* Manage Action Plans Link */}
             <button
+              title={collapsed ? 'Manage Action Plans' : undefined}
               data-tour="nav-plans"
               onClick={() => navigate(`/dept/${currentDept}/plans`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/plans`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
               <Table className="w-4 h-4" />
-              <span className="text-sm">Manage Action Plans</span>
+              {!collapsed && <span className="text-sm">Manage Action Plans</span>}
             </button>
 
             {!hasMultipleDepts && (
@@ -663,11 +723,12 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer — User menu with dropdown */}
-      <div className={`p-3 border-t ${theme.divider} flex-shrink-0 relative`}>
+      <div className={`${collapsed ? 'p-2' : 'p-3'} border-t ${theme.divider} flex-shrink-0 relative`}>
         <button
           data-tour="profile-menu"
           onClick={() => setShowUserMenu(!showUserMenu)}
-          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all ${theme.navText} ${theme.navHover}`}
+          title={collapsed ? profile?.full_name : undefined}
+          className={`w-full flex items-center rounded-lg transition-all ${collapsed ? 'justify-center px-0 py-2' : 'gap-2.5 px-2.5 py-2'} ${theme.navText} ${theme.navHover}`}
         >
           <div className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden ${isHoldingAdmin && !profile?.avatar_url ? 'bg-gradient-to-br from-amber-400 to-amber-600' : `bg-gradient-to-br ${theme.logoFallbackFrom} ${theme.logoFallbackTo}`}`}>
             {profile?.avatar_url ? (
@@ -676,13 +737,17 @@ export default function Sidebar() {
               <span>{isHoldingAdmin ? <Crown className="w-3.5 h-3.5" /> : (profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?')}</span>
             )}
           </div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className={`${theme.textPrimary} font-medium text-sm truncate leading-tight`}>{profile?.full_name}</p>
-            <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
-              {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff` : `Leader`}
-            </p>
-          </div>
-          <ChevronDown className={`w-3.5 h-3.5 ${theme.textSecondary} transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+          {!collapsed && (
+            <>
+              <div className="min-w-0 flex-1 text-left">
+                <p className={`${theme.textPrimary} font-medium text-sm truncate leading-tight`}>{profile?.full_name}</p>
+                <p className={`${theme.textSecondary} text-[10px] truncate leading-tight`}>
+                  {isHoldingAdmin ? 'Holding Admin' : isAdmin ? 'Administrator' : isExecutive ? 'Executive' : isStaff ? `Staff` : `Leader`}
+                </p>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 ${theme.textSecondary} transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+            </>
+          )}
           {hasNewChangelog && (
             <span className="absolute top-2 right-3 w-2 h-2 bg-emerald-400 rounded-full" />
           )}
@@ -692,7 +757,7 @@ export default function Sidebar() {
         {showUserMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-            <div className={`absolute bottom-full left-3 right-3 mb-2 ${theme.id === 'light' ? 'bg-white border-gray-200' : 'bg-gray-900 border-gray-700'} border rounded-xl shadow-xl z-50 overflow-hidden`}>
+            <div className={`absolute bottom-full mb-2 ${collapsed ? 'left-2 w-56' : 'left-3 right-3'} ${theme.id === 'light' ? 'bg-white border-gray-200' : 'bg-gray-900 border-gray-700'} border rounded-xl shadow-xl z-50 overflow-hidden`}>
               <div className="p-1">
                 <button
                   onClick={() => { navigate('/profile'); setShowUserMenu(false); }}

@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.24.0',
+    date: '2026-09-04',
+    title: 'Sidebar Bisa Dipersempit',
+    changes: [
+      { type: 'feature', description: 'Sidebar bisa dipersempit menjadi kolom ikon lewat tombol di pojok atasnya. Semua menu tetap ada dan tetap bisa diklik — hanya tulisannya yang disembunyikan, dan namanya muncul saat kursor diarahkan ke ikonnya' },
+      { type: 'improvement', description: 'Pilihannya diingat per perangkat, jadi sidebar yang dipersempit di laptop kecil tidak ikut menyempit di komputer lain' },
+      { type: 'improvement', description: 'Dalam mode sempit, kode departemen tetap terlihat sementara pemilih workspace dan departemen disembunyikan — keduanya terlalu lebar untuk kolom ikon, dan kembali muncul begitu sidebar dilebarkan' },
+    ],
+  },
+  {
     version: '1.23.0',
     date: '2026-09-04',
     title: 'Panduan Penggunaan untuk Pengguna Baru',

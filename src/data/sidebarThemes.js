@@ -119,3 +119,14 @@ export function getSavedTheme() {
 export function saveTheme(themeId) {
   localStorage.setItem('sidebar_theme', themeId);
 }
+
+// Collapsed sidebar preference. Kept beside the theme because it is the same kind of
+// thing: a per-device display choice, not something that belongs to the account. Someone
+// who narrows the sidebar on a small laptop should not have it narrowed on their desktop.
+export function getSavedSidebarCollapsed() {
+  return localStorage.getItem('sidebar_collapsed') === 'true';
+}
+
+export function saveSidebarCollapsed(collapsed) {
+  localStorage.setItem('sidebar_collapsed', collapsed ? 'true' : 'false');
+}

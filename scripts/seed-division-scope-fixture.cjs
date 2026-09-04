@@ -23,12 +23,17 @@ const MONTH = 'Jun';
 // to there.
 const SECOND_DEPT = 'SO';
 
+// The configuration this is all building towards: one leader per division, each confined
+// to their own and each able to sign their division off, plus an unconfined department
+// head who closes the month once they have. `confined` and `divisionRole` are what make
+// the two-tier month-end exercisable end to end.
 const USERS = [
-  { key: 'admin', email: 'admin@local.test', name: 'Local Admin', role: 'admin', division: null, extra: [] },
-  { key: 'linda', email: 'linda@local.test', name: 'Linda (COMMS lead)', role: 'leader', division: 'COMMS', extra: [SECOND_DEPT] },
-  { key: 'cmcLead', email: 'cmc-lead@local.test', name: 'Rian (CMC lead)', role: 'leader', division: 'CMC', extra: [] },
-  { key: 'deptHead', email: 'dept-head@local.test', name: 'Dewi (SM head)', role: 'leader', division: null, extra: [] },
-  { key: 'staffComms', email: 'staff-comms@local.test', name: 'Bagus (COMMS staff)', role: 'staff', division: 'COMMS', extra: [] },
+  { key: 'admin', email: 'admin@local.test', name: 'Local Admin', role: 'admin', division: null, extra: [], divisionRole: 'member', confined: false },
+  { key: 'linda', email: 'linda@local.test', name: 'Linda (COMMS lead)', role: 'leader', division: 'COMMS', extra: [SECOND_DEPT], divisionRole: 'division_leader', confined: true },
+  { key: 'cmcLead', email: 'cmc-lead@local.test', name: 'Rian (CMC lead)', role: 'leader', division: 'CMC', extra: [], divisionRole: 'division_leader', confined: true },
+  { key: 'bsLead', email: 'bs-lead@local.test', name: 'Sinta (BS lead)', role: 'leader', division: 'BS', extra: [], divisionRole: 'division_leader', confined: true },
+  { key: 'deptHead', email: 'dept-head@local.test', name: 'Dewi (SM head)', role: 'leader', division: null, extra: [], divisionRole: 'member', confined: false },
+  { key: 'staffComms', email: 'staff-comms@local.test', name: 'Bagus (COMMS staff)', role: 'staff', division: 'COMMS', extra: [], divisionRole: 'member', confined: false },
 ];
 
 const DIVISIONS = [
@@ -37,12 +42,17 @@ const DIVISIONS = [
   { code: 'BS', name: 'Business Solutions' },
 ];
 
-// division code (or null for department level), status, whether it carries a score
+// division code (or null for department level), status, score.
+//
+// Every plan is terminal. mark_division_month_ready refuses a division that still has an
+// Open or On Progress plan, and finalize_department_month refuses the department for the
+// same reason, so leaving any of them unfinished makes the month-end flow impossible to
+// walk through. Set one back to Open from the interface to watch either refusal.
 const PLANS = [
-  ['COMMS', 'Open', null], ['COMMS', 'On Progress', null], ['COMMS', 'Achieved', 90], ['COMMS', 'Not Achieved', null],
-  ['CMC', 'Open', null], ['CMC', 'Achieved', 75], ['CMC', 'On Progress', null],
-  ['BS', 'Open', null], ['BS', 'Achieved', 80],
-  [null, 'Open', null], [null, 'On Progress', null],
+  ['COMMS', 'Achieved', 90], ['COMMS', 'Achieved', 85], ['COMMS', 'Not Achieved', null], ['COMMS', 'Achieved', 78],
+  ['CMC', 'Achieved', 75], ['CMC', 'Not Achieved', null], ['CMC', 'Achieved', 88],
+  ['BS', 'Achieved', 80], ['BS', 'Achieved', 92],
+  [null, 'Achieved', 70], [null, 'Not Achieved', null],
 ];
 
 const status = execSync('supabase status -o env', { encoding: 'utf8' });
@@ -112,15 +122,21 @@ async function ensureUser(email) {
     const extra = u.extra.length ? `'{${u.extra.join(',')}}'` : `'{}'`;
     q(`UPDATE public.profiles
          SET full_name = ${lit(u.name)}, role = ${lit(u.role)}, company_id = '${companyId}',
-             department_code = '${DEPT}', additional_departments = ${extra}, division_scoped_access = false
+             department_code = '${DEPT}', additional_departments = ${extra},
+             division_scoped_access = ${u.confined ? 'true' : 'false'}
        WHERE id = '${ids[u.key]}'`);
     if (u.division) {
       q(`INSERT INTO public.division_memberships (user_id, division_id, company_id, department_code, membership_role)
-         VALUES ('${ids[u.key]}', '${divisionIds[u.division]}', '${companyId}', '${DEPT}', 'member')
-         ON CONFLICT (user_id, division_id) DO UPDATE SET membership_role = 'member'`);
+         VALUES ('${ids[u.key]}', '${divisionIds[u.division]}', '${companyId}', '${DEPT}', ${lit(u.divisionRole)})
+         ON CONFLICT (user_id, division_id) DO UPDATE SET membership_role = ${lit(u.divisionRole)}`);
     }
-    console.log(`  ${u.email.padEnd(26)} ${u.role.padEnd(7)} ${DEPT}${u.extra.length ? ` + ${u.extra.join(',')}` : ''} | ${u.division || 'department level'}`);
+    const marks = [u.divisionRole === 'division_leader' ? 'ketua divisi' : null, u.confined ? 'dibatasi' : null].filter(Boolean);
+    console.log(`  ${u.email.padEnd(26)} ${u.role.padEnd(7)} ${DEPT}${u.extra.length ? `+${u.extra.join(',')}` : ''} | ${(u.division || 'tingkat departemen').padEnd(18)} ${marks.join(', ')}`);
   }
+
+  // Readiness is a signature over the division's plans, so rebuilding the plans leaves
+  // any earlier "ready" mark pointing at data that no longer exists.
+  q(`DELETE FROM public.division_month_readiness WHERE company_id='${companyId}' AND department_code='${DEPT}' AND year=${YEAR} AND month='${MONTH}'`);
 
   // Rebuild the fixture's plans so a re-run is a clean slate rather than a pile-up.
   q(`DELETE FROM public.action_plans WHERE company_id='${companyId}' AND department_code IN ('${DEPT}','${SECOND_DEPT}') AND year=${YEAR} AND month='${MONTH}'`);
@@ -161,5 +177,6 @@ async function ensureUser(email) {
                  ) t order by bucket`));
 
   console.log(`\nsign in at the local app with any address above, password: ${PASSWORD}`);
-  console.log('nobody is restricted yet — division_scoped_access is false for all of them.');
+  console.log('every plan is terminal, so each division lead can mark their division ready');
+  console.log('and the department head can then close the month.');
 })().catch((e) => { console.error('FAILED:', e.message); process.exit(1); });

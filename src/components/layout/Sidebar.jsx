@@ -633,6 +633,7 @@ export default function Sidebar({ onRestartTour }) {
 
             {/* Dashboard Link */}
             <button
+              data-tour="nav-dashboard"
               onClick={() => navigate(`/dept/${currentDept}/dashboard`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive(`/dept/${currentDept}/dashboard`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
@@ -643,6 +644,7 @@ export default function Sidebar({ onRestartTour }) {
 
             {/* Manage Action Plans Link */}
             <button
+              data-tour="nav-plans"
               onClick={() => navigate(`/dept/${currentDept}/plans`)}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 ${isActive(`/dept/${currentDept}/plans`) ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}

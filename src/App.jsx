@@ -9,6 +9,8 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 import UpdatePasswordPage from './pages/UpdatePasswordPage';
 import LoadingScreen from './components/common/LoadingScreen';
 import Sidebar from './components/layout/Sidebar';
+import OnboardingTour from './components/onboarding/OnboardingTour';
+import { useOnboarding } from './hooks/useOnboarding';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
 import AdminPermissions from './pages/AdminPermissions';
@@ -264,6 +266,9 @@ function AppRoutes() {
   const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
   const { isSandbox, activeCompanyId } = useCompanyContext();
   const location = useLocation();
+  // Decides for itself whether a first-run introduction is due; nothing renders until it
+  // says so, and it never runs twice for the same person.
+  const onboarding = useOnboarding();
 
   // Track page views (fire-and-forget)
   useEffect(() => {
@@ -411,7 +416,10 @@ function AppRoutes() {
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">
-      <Sidebar />
+      <Sidebar onRestartTour={onboarding.restart} />
+      {onboarding.active && (
+        <OnboardingTour steps={onboarding.steps} onFinish={onboarding.finish} onSkip={onboarding.skip} />
+      )}
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <Routes>
           {/* Default redirect based on role */}

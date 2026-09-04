@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.23.0',
+    date: '2026-09-04',
+    title: 'Panduan Penggunaan untuk Pengguna Baru',
+    changes: [
+      { type: 'feature', description: 'Pengguna yang pertama kali masuk kini disambut panduan singkat yang menyorot langsung bagian penting di layar — bukan gambar, melainkan tombol dan menu yang sebenarnya. Bisa dilewati kapan saja' },
+      { type: 'feature', description: 'Isi panduan menyesuaikan peran: staff diperkenalkan pada rencana miliknya dan cara melampirkan bukti, leader pada penutupan bulan, admin pada antrean penilaian dan pengaturan' },
+      { type: 'improvement', description: 'Panduan bisa dibuka ulang kapan saja dari menu profil di pojok kiri bawah, dan catatan "sudah pernah dilihat" menempel pada akun — bukan pada browser, sehingga tidak muncul lagi saat berganti perangkat' },
+    ],
+  },
+  {
     version: '1.22.0',
     date: '2026-09-03',
     title: 'Dashboard per Divisi & Perbaikan Penutupan Bulan',

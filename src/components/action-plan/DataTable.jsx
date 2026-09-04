@@ -1607,7 +1607,9 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
 
   return (
     <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+      {/* Anchor for the first-run tour. Lives on the component's own root so every page
+          that renders a plan table can be pointed at without each one wiring it up. */}
+      <div data-tour="plans-table" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
         {/* TABLE WRAPPER - Auto height with horizontal scroll only */}
         <div className="overflow-x-auto scrollbar-thin">
           {/* CRITICAL: border-separate + border-spacing-0 fixes sticky column visual detachment */}

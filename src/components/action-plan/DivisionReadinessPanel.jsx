@@ -165,7 +165,7 @@ export default function DivisionReadinessPanel({
   const blockedByPolicy = snapshot.policy === 'REQUIRED' && requiredBlockers > 0 && !snapshot.can_override;
 
   return (
-    <section className="bg-white border border-indigo-200 rounded-xl shadow-sm p-4" aria-labelledby="division-readiness-title">
+    <section data-tour="readiness-panel" className="bg-white border border-indigo-200 rounded-xl shadow-sm p-4" aria-labelledby="division-readiness-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id="division-readiness-title" className="font-semibold text-gray-800">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity, Network } from 'lucide-react';
+import { Building2, LogOut, LayoutDashboard, ClipboardList, Table, Settings, Users, ListChecks, UserCircle, ChevronDown, Inbox, History, Shield, Gavel, Crown, Globe, Loader2, ScrollText, Sun, Moon, Layers, Presentation, CalendarCheck, Activity, Network, Compass } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDepartmentContext } from '../../context/DepartmentContext';
 import { useCompanyContext } from '../../context/CompanyContext';
@@ -22,7 +22,7 @@ import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme } from '../../d
 // platforms, instead of depending on whatever the popup happens to be drawn with.
 const OPTION_LIST_STYLES = '[&>option]:bg-white [&>option]:text-gray-900 [&>option:disabled]:text-gray-400';
 
-export default function Sidebar() {
+export default function Sidebar({ onRestartTour }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, isAdmin, isHoldingAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
@@ -344,6 +344,7 @@ export default function Sidebar() {
             {/* ADMIN/EXECUTIVE VIEW: Full menu (read-only for Executive) */}
             <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 px-2`}>Overview</p>
             <button
+              data-tour="nav-dashboard"
               onClick={() => navigate('/dashboard')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/dashboard') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
@@ -353,6 +354,7 @@ export default function Sidebar() {
             </button>
 
             <button
+              data-tour="nav-plans"
               onClick={() => navigate('/plans')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/plans') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
@@ -362,6 +364,7 @@ export default function Sidebar() {
             </button>
 
             <button
+              data-tour="nav-action-center"
               onClick={() => navigate('/action-center')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/action-center') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
@@ -466,6 +469,7 @@ export default function Sidebar() {
               <>
                 <p className={`${theme.textSecondary} text-xs uppercase tracking-wider mb-2 mt-4 px-2`}>System</p>
                 <button
+                  data-tour="nav-users"
                   onClick={() => navigate('/users')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/users') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
@@ -498,6 +502,7 @@ export default function Sidebar() {
                   <span className="text-sm">Access Control</span>
                 </button>
                 <button
+                  data-tour="nav-settings"
                   onClick={() => navigate('/settings')}
                   className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/settings') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                     }`}
@@ -570,6 +575,7 @@ export default function Sidebar() {
             )}
 
             <button
+              data-tour="nav-workspace"
               onClick={() => navigate('/workspace')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/workspace') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
@@ -657,6 +663,7 @@ export default function Sidebar() {
       {/* Footer — User menu with dropdown */}
       <div className={`p-3 border-t ${theme.divider} flex-shrink-0 relative`}>
         <button
+          data-tour="profile-menu"
           onClick={() => setShowUserMenu(!showUserMenu)}
           className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all ${theme.navText} ${theme.navHover}`}
         >
@@ -691,6 +698,13 @@ export default function Sidebar() {
                 >
                   <UserCircle className="w-4 h-4" />
                   My Profile
+                </button>
+                <button
+                  onClick={() => { setShowUserMenu(false); onRestartTour?.(); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-800'}`}
+                >
+                  <Compass className="w-4 h-4" />
+                  Panduan Penggunaan
                 </button>
                 <button
                   onClick={() => { navigate('/changelog'); setShowUserMenu(false); }}

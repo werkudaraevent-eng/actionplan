@@ -35,3 +35,6 @@ scripts/*.png
 
 # Office lock files
 ~$*
+
+# Local Supabase dev overrides
+.env.localdev

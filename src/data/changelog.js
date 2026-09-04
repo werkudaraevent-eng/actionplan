@@ -30,6 +30,7 @@ export const CHANGELOG = [
       { type: 'fix', description: 'Perubahan departemen yang dilakukan admin bisa kembali sendiri saat halaman dimuat ulang. Sinkronisasi struktur organisasi memakai catatan per 22 Juli yang tidak pernah ikut diperbarui oleh Team Management, sehingga perpindahan sesudah tanggal itu dibatalkan diam-diam. Dua belas profil terdampak dan sudah dikembalikan sesuai struktur sekarang' },
       { type: 'fix', description: 'Departemen sekunder tidak lagi bisa menggeser departemen utama seseorang saat sinkronisasi struktur organisasi berjalan' },
       { type: 'feature', description: 'Opsi baru di form user: "Batasi ke divisinya saja". Leader yang dicentang hanya melihat dan mengubah action plan di divisinya, bukan seluruh departemen — sebelumnya kepala satu divisi ikut membaca pekerjaan divisi lain. Berlaku untuk lihat, tambah, ubah, dan hapus, dan yang bersangkutan tidak bisa melepas batasannya sendiri' },
+      { type: 'improvement', description: 'Batasan divisi hanya berlaku di departemen yang memang punya divisi. Leader yang juga bertugas di departemen tanpa divisi tetap memegang departemen itu sepenuhnya — tidak ada divisi di sana untuk membatasinya' },
       { type: 'improvement', description: 'Batasan divisi terpisah dari status Division Leader: yang satu membatasi pandangan, yang lain memberi wewenang menandai bulan siap. Menunjuk seseorang jadi Division Leader tidak akan diam-diam mencabut aksesnya' },
     ],
   },

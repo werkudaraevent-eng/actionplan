@@ -15,6 +15,7 @@ import { validateBlockerReason, getMinReasonLength, buildBlockerResetFields, get
 import { checkCarryOverDuplicate, getNextMonthYear } from '../../utils/carryOverDuplicateCheck';
 import { fetchDropPolicySettings, isDropApprovalRequired } from '../../utils/resolutionWizardUtils';
 import EvidenceManager from './EvidenceManager';
+import CompletionRequirementsHint from './CompletionRequirementsHint';
 import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
 export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, editData, departmentCode, staffMode = false, onRecall }) {
@@ -2339,6 +2340,10 @@ export default function ActionPlanModal({ isOpen, onClose, onSave, onCarryOver, 
               )}
             </div>
           )}
+
+          {/* States what a completion status asks for, and what happens after, right above
+              the fields it is asking about. */}
+          <CompletionRequirementsHint status={formData.status} />
 
           {/* Row 8: Proof of Evidence (Full Width) */}
           {/* Enabled for: Full edit mode OR Submission mode (unless graded) */}

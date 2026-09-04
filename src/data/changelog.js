@@ -20,6 +20,9 @@ export const CHANGELOG = [
       { type: 'feature', description: 'Pengguna yang pertama kali masuk kini disambut panduan singkat yang menyorot langsung bagian penting di layar — bukan gambar, melainkan tombol dan menu yang sebenarnya. Bisa dilewati kapan saja' },
       { type: 'feature', description: 'Isi panduan menyesuaikan peran: staff diperkenalkan pada rencana miliknya dan cara melampirkan bukti, leader pada penutupan bulan, admin pada antrean penilaian dan pengaturan' },
       { type: 'improvement', description: 'Panduan bisa dibuka ulang kapan saja dari menu profil di pojok kiri bawah, dan catatan "sudah pernah dilihat" menempel pada akun — bukan pada browser, sehingga tidak muncul lagi saat berganti perangkat' },
+      { type: 'feature', description: 'Saat memilih Achieved atau Not Achieved, muncul keterangan apa saja yang wajib diisi untuk status itu — tepat di atas kolom yang menanyakannya, bukan hanya tanda bintang merah' },
+      { type: 'improvement', description: 'Keterangan itu juga menyebut akibatnya: rencana Achieved masuk antrean penilaian, sedangkan Not Achieved otomatis dinilai 0 dan tidak dinilai siapa pun. Kalau pekerjaannya masih berjalan, pilih On Progress — sebelumnya hal ini tidak tertulis di mana pun' },
+      { type: 'improvement', description: 'Area bukti menjelaskan kapan memakai berkas dan kapan memakai tautan, serta mengingatkan bahwa tautan yang aksesnya terkunci tidak bisa dibaca penilai' },
     ],
   },
   {

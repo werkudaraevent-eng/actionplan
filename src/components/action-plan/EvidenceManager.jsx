@@ -393,6 +393,9 @@ export default function EvidenceManager({ value = [], onChange, planId, disabled
                                 <span className="text-blue-600 font-medium">Click to upload</span> or drag and drop
                             </p>
                             <p className="text-xs text-gray-400">PDF, Images, Excel, Word, CSV — max 10 MB</p>
+                            {/* Which of the two tabs to use is the question people actually
+                                have; the tabs themselves only say what they do. */}
+                            <p className="text-xs text-gray-500 mt-1">Pakai ini untuk berkas jadi, misalnya laporan atau foto kegiatan.</p>
                         </div>
                     )}
                 </div>
@@ -401,6 +404,10 @@ export default function EvidenceManager({ value = [], onChange, planId, disabled
             {/* ─── Tab B: Add Link ─── */}
             {activeTab === 'link' && (
                 <div className="space-y-2">
+                    <p className="text-xs text-gray-500">
+                        Pakai ini untuk bukti yang tinggal di tempat lain — Google Drive, Spreadsheet, dashboard.
+                        Pastikan aksesnya terbuka, tautan yang terkunci tidak bisa dibaca penilai.
+                    </p>
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
                             <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

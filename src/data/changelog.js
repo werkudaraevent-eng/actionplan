@@ -23,6 +23,8 @@ export const CHANGELOG = [
       { type: 'feature', description: 'Saat memilih Achieved atau Not Achieved, muncul keterangan apa saja yang wajib diisi untuk status itu — tepat di atas kolom yang menanyakannya, bukan hanya tanda bintang merah' },
       { type: 'improvement', description: 'Keterangan itu juga menyebut akibatnya: rencana Achieved masuk antrean penilaian, sedangkan Not Achieved otomatis dinilai 0 dan tidak dinilai siapa pun. Kalau pekerjaannya masih berjalan, pilih On Progress — sebelumnya hal ini tidak tertulis di mana pun' },
       { type: 'improvement', description: 'Area bukti menjelaskan kapan memakai berkas dan kapan memakai tautan, serta mengingatkan bahwa tautan yang aksesnya terkunci tidak bisa dibaca penilai' },
+      { type: 'feature', description: 'Halaman Panduan baru berisi langkah-langkah untuk hal yang sering ditanyakan: mengubah status, melampirkan bukti, menyaring tabel, menutup bulan, membaca dan mengatur dashboard. Bisa dicari, dan isinya menyesuaikan peran sehingga tidak ada instruksi untuk layar yang tidak bisa Anda buka' },
+      { type: 'improvement', description: 'Menu profil kini membuka halaman Panduan, dan perkenalan singkat bisa diputar ulang dari sana' },
     ],
   },
   {

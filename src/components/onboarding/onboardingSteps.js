@@ -18,7 +18,7 @@ const COMMON_INTRO = {
 const PROFILE_OUTRO = {
   target: 'profile-menu',
   title: 'Selesai',
-  body: 'Panduan ini bisa dibuka lagi kapan saja dari sini. Selamat bekerja.',
+  body: 'Dari sini Anda bisa membuka halaman Panduan — berisi langkah-langkah untuk hal yang sering ditanyakan, dan tombol untuk memutar perkenalan ini lagi.',
 };
 
 const STEPS_BY_ROLE = {

@@ -24,6 +24,7 @@ import DepartmentView from './pages/DepartmentView';
 import StaffWorkspace from './pages/StaffWorkspace';
 import UserProfile from './pages/UserProfile';
 import ChangelogPage from './pages/ChangelogPage';
+import UserGuidePage from './pages/UserGuidePage';
 import HoldingManagement from './pages/HoldingManagement';
 import BulkOperationsPage from './pages/BulkOperationsPage';
 import MonthlyExecutiveReport from './pages/MonthlyExecutiveReport';
@@ -416,7 +417,7 @@ function AppRoutes() {
         </div>
       )}
       <div className="flex flex-1 overflow-hidden">
-      <Sidebar onRestartTour={onboarding.restart} />
+      <Sidebar />
       {onboarding.active && (
         <OnboardingTour steps={onboarding.steps} onFinish={onboarding.finish} onSkip={onboarding.skip} />
       )}
@@ -530,6 +531,8 @@ function AppRoutes() {
 
           {/* Changelog - accessible to all authenticated users */}
           <Route path="/changelog" element={<ChangelogPage />} />
+
+          <Route path="/panduan" element={<UserGuidePage onRestartTour={onboarding.restart} />} />
 
           {/* Catch-all redirect */}
           <Route path="*" element={<DefaultRedirect />} />

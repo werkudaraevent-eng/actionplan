@@ -22,7 +22,7 @@ import { SIDEBAR_THEMES, SANDBOX_THEME, getSavedTheme, saveTheme } from '../../d
 // platforms, instead of depending on whatever the popup happens to be drawn with.
 const OPTION_LIST_STYLES = '[&>option]:bg-white [&>option]:text-gray-900 [&>option:disabled]:text-gray-400';
 
-export default function Sidebar({ onRestartTour }) {
+export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, isAdmin, isHoldingAdmin, isExecutive, isStaff, isLeader, departmentCode, signOut } = useAuth();
@@ -702,7 +702,7 @@ export default function Sidebar({ onRestartTour }) {
                   My Profile
                 </button>
                 <button
-                  onClick={() => { setShowUserMenu(false); onRestartTour?.(); }}
+                  onClick={() => { navigate('/panduan'); setShowUserMenu(false); }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${theme.id === 'light' ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-800'}`}
                 >
                   <Compass className="w-4 h-4" />

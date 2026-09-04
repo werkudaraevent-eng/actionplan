@@ -10,6 +10,7 @@ import { useDepartments } from '../../hooks/useDepartments';
 import { usePicProfiles } from '../../hooks/usePicProfiles';
 import { getPicDisplayName, isUserPicOfPlan } from '../../utils/picUtils';
 import { isPlanLocked, getLockStatus, getLockStatusMessage, checkLockStatusServerSide } from '../../utils/lockUtils';
+import { CodeChip, PhraseChip } from './TableChip';
 import { getBlockedDays, getBlockedSeverity, getBlockedDaysLabel } from '../../utils/escalationUtils';
 import { getCarryOverVisual } from '../../utils/resolutionWizardUtils';
 import { useToast } from '../../components/common/Toast';
@@ -981,7 +982,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     const headerConfig = {
       month: <SortableHeader key={colId} columnKey="month">MONTH</SortableHeader>,
       division: <SortableHeader key={colId} columnKey="division">DIVISION</SortableHeader>,
-      category: <SortableHeader key={colId} columnKey="category" className="min-w-[100px]">CATEGORY</SortableHeader>,
+      category: <SortableHeader key={colId} columnKey="category" className="min-w-[120px]">CATEGORY</SortableHeader>,
       area_focus: <SortableHeader key={colId} columnKey="area_focus" className="min-w-[150px]">AREA TO BE FOCUS</SortableHeader>,
       goal_strategy: <SortableHeader key={colId} columnKey="goal_strategy" className="min-w-[200px]">GOAL/STRATEGI</SortableHeader>,
       action_plan: <SortableHeader key={colId} columnKey="action_plan" className="min-w-[250px]">ACTION PLAN</SortableHeader>,
@@ -1015,9 +1016,9 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
               // column carries the unit it actually belonged to.
               <span className="text-gray-400" title={`Department-level plan filed under ${item.pre_conversion_department_code} before the move`}>Department level</span>
             ) : item.division_id ? (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+              <CodeChip className="bg-indigo-50 text-indigo-700">
                 {item.division?.code || item.division_code || item.division_id.slice(0, 8)}
-              </span>
+              </CodeChip>
             ) : <span className="text-gray-400">Department level</span>}
           </td>
         );
@@ -1025,7 +1026,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         return (
           <td key={colId} className={cellClass}>
             {item.category ? (
-              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${item.category.includes('High') || item.category === 'Urgent'
+              <CodeChip className={`${item.category.includes('High') || item.category === 'Urgent'
                 ? 'bg-red-50 text-red-700'
                 : item.category.includes('Medium')
                   ? 'bg-amber-50 text-amber-700'
@@ -1034,7 +1035,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                     : 'bg-purple-50 text-purple-700'
                 }`}>
                 {item.category}
-              </span>
+              </CodeChip>
             ) : (
               <span className="text-gray-400">—</span>
             )}
@@ -1044,9 +1045,9 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
         return (
           <td key={colId} className={cellClass}>
             {item.area_focus ? (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+              <PhraseChip className="bg-blue-50 text-blue-700">
                 {item.area_focus}
-              </span>
+              </PhraseChip>
             ) : (
               <span className="text-gray-400">—</span>
             )}

@@ -13,6 +13,15 @@
 
 export const CHANGELOG = [
   {
+    version: '1.24.1',
+    date: '2026-09-04',
+    title: 'Perbaikan Bentuk Label pada Tabel',
+    changes: [
+      { type: 'fix', description: 'Label pada kolom Area to be Focus tidak lagi tertabrak lengkungnya sendiri. Bentuk kapsul membuat radius ikut membesar mengikuti tinggi, sehingga teks yang membungkus tiga baris terpotong di sudut atas dan bawah; kini bentuknya persegi bersudut lembut yang tidak berubah berapa pun panjang teksnya' },
+      { type: 'improvement', description: 'Label prioritas seperti "UH (Ultra High)" dijaga tetap satu baris, dan lebar kolomnya disesuaikan agar tidak berubah-ubah mengikuti isi' },
+    ],
+  },
+  {
     version: '1.24.0',
     date: '2026-09-04',
     title: 'Sidebar Bisa Dipersempit',

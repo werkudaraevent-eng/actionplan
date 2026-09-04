@@ -12,7 +12,7 @@ const ROLES = [
   { value: 'staff', label: 'Staff', icon: User, description: 'View and update own assigned tasks only', color: 'gray' },
 ];
 
-export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], allDepartments = [], divisions = [], currentDivisionId = '', isAdmin = false }) {
+export default function UserModal({ isOpen, onClose, onSave, editData, departments = [], allDepartments = [], divisions = [], currentDivisionId = '', currentDivisionRole = 'member', isAdmin = false }) {
   const { profile } = useAuth();
   const isHoldingAdmin = profile?.role === 'holding_admin';
 
@@ -26,6 +26,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
     division_id: '',
     additional_departments: [],
     division_scoped_access: false,
+    division_membership_role: 'member',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -66,6 +67,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           division_id: currentDivisionId || '',
           additional_departments: editData.additional_departments || [],
           division_scoped_access: editData.division_scoped_access === true,
+          division_membership_role: currentDivisionRole === 'division_leader' ? 'division_leader' : 'member',
         });
       } else {
         // Reset for Add mode
@@ -77,6 +79,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
           division_id: '',
           additional_departments: [],
           division_scoped_access: false,
+          division_membership_role: 'member',
         });
       }
       setError('');
@@ -85,7 +88,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
       setShowPassword(false);
       setSecurityMessage({ type: '', text: '' });
     }
-  }, [isOpen, editData, currentDivisionId]);
+  }, [isOpen, editData, currentDivisionId, currentDivisionRole]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -364,6 +367,29 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
                       ))}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">Assigns division membership; the primary department stays {formData.department_code}</p>
+
+                    {/* Marking the division ready at month end is the division leader's
+                        job, and until now it could only be granted from Admin Settings,
+                        far from where people are managed. */}
+                    {formData.division_id && (
+                      <label className="flex items-start gap-2.5 mt-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.division_membership_role === 'division_leader'}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            division_membership_role: e.target.checked ? 'division_leader' : 'member',
+                          })}
+                          className="mt-0.5 w-4 h-4 text-blue-700 border-gray-300 rounded focus:ring-blue-600"
+                        />
+                        <span className="text-sm">
+                          <span className="font-medium text-gray-800">Ketua divisi</span>
+                          <span className="block text-xs text-gray-600 mt-0.5">
+                            Boleh menandai divisinya siap saat penutupan bulan. Terpisah dari batasan di bawah — ini memberi wewenang, bukan membatasi.
+                          </span>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 )}
 

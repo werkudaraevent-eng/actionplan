@@ -282,10 +282,23 @@ export default function UserManagement({ initialFilter = '' }) {
 
   // A user belongs to at most one division, so a change replaces the previous membership.
   // Leaving the division blank drops it and returns the user to department level.
-  const syncDivisionMembership = async (userId, departmentCode, divisionId) => {
+  const syncDivisionMembership = async (userId, departmentCode, divisionId, membershipRole = 'member') => {
     if (!activeCompanyId || !userId) return;
     const current = divisionByUser.get(userId);
-    if ((current?.id || '') === (divisionId || '')) return;
+    const role = membershipRole === 'division_leader' ? 'division_leader' : 'member';
+    // Appointing or standing down a division leader changes nothing about which division
+    // somebody is in, so bailing out on an unchanged division would silently drop it.
+    if ((current?.id || '') === (divisionId || '')) {
+      if (!divisionId || (current?.membership_role || 'member') === role) return;
+      const { error: roleError } = await supabase
+        .from('division_memberships')
+        .update({ membership_role: role })
+        .eq('user_id', userId)
+        .eq('division_id', divisionId)
+        .eq('company_id', activeCompanyId);
+      if (roleError) throw roleError;
+      return;
+    }
 
     const { error: removeError } = await supabase
       .from('division_memberships')
@@ -300,7 +313,7 @@ export default function UserManagement({ initialFilter = '' }) {
       division_id: divisionId,
       company_id: activeCompanyId,
       department_code: departmentCode,
-      membership_role: current?.membership_role === 'division_leader' ? 'division_leader' : 'member',
+      membership_role: role,
     });
     if (addError) throw addError;
   };
@@ -410,7 +423,7 @@ export default function UserManagement({ initialFilter = '' }) {
           );
         }
 
-        await syncDivisionMembership(userModal.editData.id, formData.department_code, formData.division_id);
+        await syncDivisionMembership(userModal.editData.id, formData.department_code, formData.division_id, formData.division_membership_role);
 
         toast({ title: 'User Updated', description: `"${formData.full_name}" updated successfully.`, variant: 'success' });
       } else {
@@ -457,7 +470,7 @@ export default function UserManagement({ initialFilter = '' }) {
             .eq('company_id', activeCompanyId)
             .maybeSingle();
           if (created?.id) {
-            await syncDivisionMembership(created.id, formData.department_code, formData.division_id);
+            await syncDivisionMembership(created.id, formData.department_code, formData.division_id, formData.division_membership_role);
             // The edge function builds the profile and knows nothing about this flag, so
             // it is written here — after the membership exists for it to restrict to.
             if (divisionScopedAccess) {
@@ -962,6 +975,7 @@ export default function UserManagement({ initialFilter = '' }) {
         allDepartments={allDepartments}
         divisions={divisions}
         currentDivisionId={userModal.editData ? (divisionByUser.get(userModal.editData.id)?.id || '') : ''}
+        currentDivisionRole={userModal.editData ? (divisionByUser.get(userModal.editData.id)?.membership_role || 'member') : 'member'}
         isAdmin={isAdmin}
       />
 

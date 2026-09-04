@@ -40,6 +40,9 @@ const MONTHS_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const MONTH_INDEX = Object.fromEntries(MONTHS_ORDER.map((m, i) => [m, i]));
 
 export default function DepartmentView({ departmentCode, initialStatusFilter = '', highlightPlanId = '' }) {
+  // A blocker named in the readiness panel opens its row in the table, the same way a
+  // deep link does. Separate from highlightPlanId, which arrives from the route.
+  const [focusedPlanId, setFocusedPlanId] = useState('');
   const { isAdmin, isExecutive, isLeader } = useAuth();
   const { activeCompanyId, loading: companyLoading } = useCompanyContext();
   const { toast } = useToast();
@@ -2081,6 +2084,8 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
             departmentCode={departmentCode}
             year={CURRENT_YEAR}
             month={selectedMonth}
+            plans={plans}
+            onFocusPlan={setFocusedPlanId}
             onRefresh={refetch}
           />
         )}
@@ -2260,7 +2265,7 @@ export default function DepartmentView({ departmentCode, initialStatusFilter = '
           columnOrder={columnOrder}
           isReadOnly={isExecutive}
           showPendingOnly={showPendingOnly}
-          highlightPlanId={highlightPlanId}
+          highlightPlanId={focusedPlanId || highlightPlanId}
           onEditModalClosed={editModalClosedCounter}
         />
       </main>

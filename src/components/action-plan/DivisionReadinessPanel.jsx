@@ -54,6 +54,8 @@ export default function DivisionReadinessPanel({
   departmentCode,
   year,
   month,
+  plans = [],
+  onFocusPlan,
   onRefresh,
 }) {
   const { toast } = useToast();
@@ -91,6 +93,22 @@ export default function DivisionReadinessPanel({
   if (!snapshot?.feature_enabled) return null;
 
   const divisions = snapshot.divisions || [];
+
+  // Named from the plans the page already holds rather than from the snapshot, which
+  // only carries a count. Those plans arrive through RLS, so a confined leader is listed
+  // their own division's blockers and nobody else's — the same rows they see in the table.
+  const blockingPlans = (plans || []).filter((plan) => (
+    plan
+    && plan.month === month
+    && (plan.year || year) === year
+    && !plan.deleted_at
+    && (!plan.submission_status || plan.submission_status === 'draft')
+    && plan.status !== 'Achieved'
+    && plan.status !== 'Not Achieved'
+  ));
+
+  // The server's count stays authoritative for whether anything blocks at all; the list
+  // above only puts names to it. They agree unless the page is mid-refresh.
   const pendingPlans = snapshot.department_level_nonterminal_count || 0;
   const waitingDivisions = divisions.filter((division) => !division.ready);
   const requiredBlockers = snapshot.policy === 'REQUIRED'
@@ -192,13 +210,45 @@ export default function DivisionReadinessPanel({
         </button>
       </div>
 
-      {pendingPlans > 0 && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>
-            <strong>{pendingPlans} action plan</strong> masih berstatus Open atau On Progress.
-            Semuanya harus jadi Achieved atau Not Achieved sebelum bulan bisa ditutup.
-          </span>
+      {blockingPlans.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>
+              <strong>{blockingPlans.length} action plan</strong> masih berstatus Open atau On Progress.
+              Semuanya harus jadi Achieved atau Not Achieved sebelum bulan bisa ditutup.
+            </span>
+          </div>
+          {/* Naming them is the difference between knowing something is wrong and knowing
+              what to do about it. The list comes from the plans already on the page, so it
+              is filtered to the reader by the same rules as the table. */}
+          <ul className="mt-2 space-y-1 pl-6">
+            {blockingPlans.slice(0, 4).map((plan) => (
+              <li key={plan.id}>
+                <button
+                  type="button"
+                  onClick={() => onFocusPlan?.(plan.id)}
+                  disabled={!onFocusPlan}
+                  className="w-full flex items-center gap-2 text-left rounded px-1.5 py-1 -ml-1.5 enabled:hover:bg-amber-100 disabled:cursor-default"
+                >
+                  <span className="flex-1 min-w-0 truncate text-amber-900">
+                    {plan.action_plan || plan.indicator || 'Tanpa judul'}
+                  </span>
+                  {plan.division?.code && (
+                    <span className="shrink-0 font-mono text-[10px] text-amber-700">{plan.division.code}</span>
+                  )}
+                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                    {plan.status || 'Open'}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {blockingPlans.length > 4 && (
+            <p className="mt-1 pl-6 text-xs text-amber-700">
+              …dan {blockingPlans.length - 4} lainnya.
+            </p>
+          )}
         </div>
       )}
 

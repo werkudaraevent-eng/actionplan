@@ -112,7 +112,7 @@ export default function AdminDashboard({ onNavigate }) {
   // When in holding context, pass null to get consolidated data from ALL companies
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
-  const { departments } = useDepartments(effectiveCompanyId);
+  const { departments, nameAt } = useDepartments(effectiveCompanyId);
   // Holding context spans companies, and divisions are defined per company, so the
   // division breakdown is offered only when a single company is in view.
   const { divisions, hierarchyEnabled } = useDivisions(effectiveCompanyId);
@@ -1309,7 +1309,12 @@ export default function AdminDashboard({ onNavigate }) {
   // Leaderboard is now just the stats.byDepartment (filtering is done at the data level)
   const filteredLeaderboard = stats.byDepartment;
 
-  function getDeptName(code) { const dept = departments.find((d) => d.code === code); return dept ? dept.name : code; }
+  // Charts are drawn for the selected period, so a unit renamed mid-year keeps the name
+  // it held during the months being shown rather than the one it carries today.
+  function getDeptName(code) {
+    const sample = effectivePlans.find((plan) => plan.department_code === code);
+    return nameAt(code, sample?.year, sample?.month);
+  }
   const getRankIcon = (index) => {
     if (index === 0) return <Trophy className="w-5 h-5 text-yellow-500" />;
     if (index === 1) return <Medal className="w-5 h-5 text-gray-400" />;

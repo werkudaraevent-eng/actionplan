@@ -581,7 +581,7 @@ function ActionCell({ item, isAdmin, isStaff, isLeader, profile, onGrade, onQuic
 export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCompletionStatusChange, onGrade, onQuickReset, onRequestUnlock, onCarryOver, onRefresh, loading, showDepartmentColumn = false, visibleColumns: externalVisibleColumns, columnOrder: externalColumnOrder, isReadOnly = false, showPendingOnly = false, highlightPlanId = '', onEditModalClosed }) {
   const { isAdmin, isStaff, isLeader, profile } = useAuth();
   const { activeCompanyId } = useCompanyContext();
-  const { departments } = useDepartments(activeCompanyId);
+  const { nameAt } = useDepartments(activeCompanyId);
 
   // Batch-resolve PIC UUIDs to display names
   const { profileMap } = usePicProfiles(data);
@@ -703,11 +703,10 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
     fetchLockSettings();
   }, []);
 
-  // Helper to get department name from code
-  const getDeptName = (code) => {
-    const dept = departments.find(d => d.code === code);
-    return dept?.name || code;
-  };
+  // A plan belongs to a month, so it carries the name the department had that month. A
+  // report from June should not start claiming the unit was always called what it was
+  // renamed to in October.
+  const getDeptNameForPlan = (item) => nameAt(item.department_code, item.year, item.month);
   const [historyModal, setHistoryModal] = useState({ isOpen: false, planId: null, planTitle: '' });
   const [viewPlan, setViewPlan] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
@@ -1737,7 +1736,7 @@ export default function DataTable({ data, onEdit, onDelete, onStatusChange, onCo
                         }`}>{indexOfFirstItem + index + 1}</td>
                       {showDepartmentColumn && (
                         <td className="px-4 py-3 border-b border-gray-100">
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-[#02378D]" title={getDeptName(item.department_code)}>
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-[#02378D]" title={getDeptNameForPlan(item)}>
                             {item.department_code}
                           </span>
                         </td>

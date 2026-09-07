@@ -106,6 +106,9 @@ function DepartmentsTab({ onNavigateToUsers }) {
   const [loading, setLoading] = useState(true);
   const [editingCode, setEditingCode] = useState(null);
   const [editName, setEditName] = useState('');
+  // Which month the new name starts applying from. Reports before it keep the old name,
+  // which is the whole reason a rename is recorded rather than overwritten.
+  const [editEffective, setEditEffective] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -236,9 +239,30 @@ function DepartmentsTab({ onNavigateToUsers }) {
 
   const handleSaveEdit = async (code) => {
     if (!editName.trim()) return;
+    const [effectiveYear, effectiveMonth] = (editEffective || '').split('-').map(Number);
+    if (!effectiveYear || !effectiveMonth) {
+      toast({ title: 'Bulan berlaku belum diisi', description: 'Tentukan sejak bulan mana nama baru ini berlaku.', variant: 'warning' });
+      return;
+    }
     setSaving(true);
 
     try {
+      // Two writes, in this order. The history is what reports read for past months; the
+      // departments row is what everything reads for today. Recording the history first
+      // means a failure between them leaves the label unchanged rather than leaving a
+      // renamed department with no record of what it used to be called.
+      const { error: historyError } = await supabase
+        .from('department_name_history')
+        .upsert({
+          company_id: activeCompanyId,
+          department_code: code,
+          name: editName.trim(),
+          effective_year: effectiveYear,
+          effective_month: effectiveMonth,
+        }, { onConflict: 'company_id,department_code,effective_year,effective_month' });
+
+      if (historyError) throw historyError;
+
       const { error } = await supabase
         .from('departments')
         .update({ name: editName.trim() })
@@ -250,7 +274,12 @@ function DepartmentsTab({ onNavigateToUsers }) {
       await fetchData();
       setEditingCode(null);
       setEditName('');
-      toast({ title: 'Department Updated', description: `${code} has been updated.`, variant: 'success' });
+      setEditEffective('');
+      toast({
+        title: 'Department Updated',
+        description: `${code} bernama "${editName.trim()}" sejak ${effectiveMonth}/${effectiveYear}. Bulan sebelumnya tetap memakai nama lama.`,
+        variant: 'success',
+      });
     } catch (error) {
       console.error('Update error:', error);
       toast({ title: 'Failed to Update', description: error.message || 'Unknown error', variant: 'error' });
@@ -307,6 +336,9 @@ function DepartmentsTab({ onNavigateToUsers }) {
   const startEdit = (dept) => {
     setEditingCode(dept.code);
     setEditName(dept.name);
+    // Defaults to this month: renaming with no stated date almost always means "from now".
+    const now = new Date();
+    setEditEffective(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
     setIsAdding(false);
   };
 
@@ -432,7 +464,15 @@ function DepartmentsTab({ onNavigateToUsers }) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     />
                   </div>
-                  <div className="col-span-3 text-gray-400 text-sm">—</div>
+                  <div className="col-span-3">
+                    <input
+                      type="month"
+                      value={editEffective}
+                      onChange={(e) => setEditEffective(e.target.value)}
+                      title="Nama baru berlaku sejak bulan ini; bulan sebelumnya tetap memakai nama lama"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  </div>
                   <div className="col-span-2 text-gray-400 text-sm">—</div>
                   <div className="col-span-2 flex justify-end gap-2">
                     <button onClick={() => handleSaveEdit(dept.code)} disabled={saving} className="p-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800">

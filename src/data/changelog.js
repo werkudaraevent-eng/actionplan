@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.25.0',
+    date: '2026-09-07',
+    title: 'Ganti Nama Departemen Berlaku Sejak Bulan Tertentu',
+    changes: [
+      { type: 'feature', description: 'Mengganti nama departemen kini disertai bulan mulai berlakunya. Laporan bulan-bulan sebelumnya tetap memakai nama lama, sehingga laporan Januari tidak berubah bunyinya hanya karena unitnya berganti nama di Oktober' },
+      { type: 'improvement', description: 'Nama sesuai periode dipakai di tabel action plan, laporan bulanan, dan grafik dashboard — di mana pun angka yang ditampilkan terikat pada satu periode' },
+      { type: 'improvement', description: 'Kode departemen tidak ikut berubah, jadi seluruh action plan, riwayat, dan penugasan yang menunjuk kode itu tetap utuh' },
+    ],
+  },
+  {
     version: '1.24.1',
     date: '2026-09-04',
     title: 'Perbaikan Bentuk Label pada Tabel',

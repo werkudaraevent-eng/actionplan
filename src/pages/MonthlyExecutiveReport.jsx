@@ -354,7 +354,7 @@ export default function MonthlyExecutiveReport() {
   const { activeCompanyId, activeCompany, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
-  const { departments } = useDepartments(effectiveCompanyId);
+  const { departments, nameAt } = useDepartments(effectiveCompanyId);
   const { profileMap } = usePicProfiles(plans);
 
   const [selectedMonth, setSelectedMonth] = useState(MONTHS[new Date().getMonth()]);
@@ -464,12 +464,14 @@ export default function MonthlyExecutiveReport() {
 
     const departmentRows = listUnitsFromPlans(periodPlans, departments).map((dept) => {
       const rows = periodPlans.filter((plan) => plan.department_code === dept.code);
+      // The report is about one period, so the unit carries the name it had then.
+      const periodSample = rows[0];
       const deptAchieved = rows.filter((plan) => plan.status === 'Achieved').length;
       const atRisk = rows.filter((plan) => ['Blocked', 'Not Achieved'].includes(plan.status)).length;
       return {
         id: dept.code,
         code: dept.code,
-        name: dept.name,
+        name: nameAt(dept.code, periodSample?.year, periodSample?.month) || dept.name,
         activePeriod: describeActivePeriod(rows),
         total: rows.length,
         achieved: deptAchieved,

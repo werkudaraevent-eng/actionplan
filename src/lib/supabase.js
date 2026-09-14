@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { captureRecoveryFromUrl } from '../utils/passwordRecovery';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -8,6 +9,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('VITE_SUPABASE_URL:', supabaseUrl);
   console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'Set' : 'Missing');
 }
+
+// Must run before createClient: the client reads the reset link's hash and then erases it.
+captureRecoveryFromUrl();
 
 export const supabase = supabaseUrl && supabaseAnonKey 
   ? createClient(supabaseUrl, supabaseAnonKey, {

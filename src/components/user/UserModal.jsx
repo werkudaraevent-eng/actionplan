@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, User, Shield, Users, Mail, Key, Eye, EyeOff, AlertTriangle, Crown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { passwordResetRedirectUrl } from '../../utils/passwordRecovery';
 import { useAuth } from '../../context/AuthContext';
 import SubsidiaryBanner from '../common/SubsidiaryBanner';
 
@@ -127,7 +128,7 @@ export default function UserModal({ isOpen, onClose, onSave, editData, departmen
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: passwordResetRedirectUrl(),
       });
 
       if (error) throw error;

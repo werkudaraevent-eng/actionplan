@@ -6,7 +6,7 @@ import { DepartmentProvider } from './context/DepartmentContext';
 import { ToastProvider } from './components/common/Toast';
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
-import UpdatePasswordPage from './pages/UpdatePasswordPage';
+import { PASSWORD_RESET_PATH } from './utils/passwordRecovery';
 import LoadingScreen from './components/common/LoadingScreen';
 import Sidebar from './components/layout/Sidebar';
 import OnboardingTour from './components/onboarding/OnboardingTour';
@@ -264,7 +264,7 @@ function DefaultRedirect() {
 
 // Main App Content with Routes
 function AppRoutes() {
-  const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut } = useAuth();
+  const { user, profile, loading, profileError, isAdmin, isExecutive, isStaff, departmentCode, signOut, passwordRecoveryPending } = useAuth();
   const { isSandbox, activeCompanyId } = useCompanyContext();
   const location = useLocation();
   // Decides for itself whether a first-run introduction is due; nothing renders until it
@@ -351,13 +351,21 @@ function AppRoutes() {
   // Show loading screen while checking auth
   if (loading) return <LoadingScreen />;
 
-  // Allow reset-password and update-password pages without authentication
-  if (location.pathname === '/reset-password') {
+  // A session opened by a password-reset link must set a new password before anything
+  // else, wherever the link happened to land (a redirect URL missing from Supabase's
+  // allowlist sends it to the site root).
+  if (user && passwordRecoveryPending && location.pathname !== PASSWORD_RESET_PATH) {
+    return <Navigate to={PASSWORD_RESET_PATH} replace />;
+  }
+
+  // Allow the reset page without authentication
+  if (location.pathname === PASSWORD_RESET_PATH) {
     return <ResetPasswordPage />;
   }
 
+  // Older reset emails pointed here; the page it used to render was a duplicate.
   if (location.pathname === '/update-password') {
-    return <UpdatePasswordPage />;
+    return <Navigate to={PASSWORD_RESET_PATH} replace />;
   }
 
   // Show login if not authenticated

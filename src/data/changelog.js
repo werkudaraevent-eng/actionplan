@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.25.1',
+    date: '2026-09-14',
+    title: 'Link Reset Password Meminta Password Baru',
+    changes: [
+      { type: 'security', description: 'Membuka link reset password dari email kini selalu diarahkan ke form password baru, tidak lagi langsung masuk ke dashboard. Selama password baru belum disimpan, halaman lain tidak bisa dibuka dengan sesi dari link tersebut' },
+      { type: 'fix', description: 'Semua tombol reset password (halaman login, halaman reset, dan Team Management) kini mengirim link ke halaman yang sama, sehingga perilakunya tidak lagi berbeda tergantung dari mana link diminta' },
+      { type: 'improvement', description: 'Di form password baru tersedia tombol batal yang langsung keluar dari akun, karena sesi dari link reset tidak bisa dipakai untuk membuka halaman lain' },
+    ],
+  },
+  {
     version: '1.25.0',
     date: '2026-09-07',
     title: 'Ganti Nama Departemen Berlaku Sejak Bulan Tertentu',

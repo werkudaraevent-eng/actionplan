@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { supabase, withTimeout } from '../lib/supabase';
 import { trackEvent } from '../utils/usageTracking';
+import { isRecoveryPending, markRecoveryPending, clearRecoveryPending } from '../utils/passwordRecovery';
 
 const AuthContext = createContext({});
 
@@ -27,6 +28,9 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [profileError, setProfileError] = useState(null);
+  // True while the session in hand came from a password-reset link and no new password has
+  // been set yet. The app routes such a session to the new-password form, not the dashboard.
+  const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(isRecoveryPending);
   const profileFetchedRef = useRef(false); // Track if profile was already fetched for current user
 
   const fetchProfile = useCallback(async (userId, force = false, trackLogin = false) => {
@@ -113,6 +117,10 @@ export function AuthProvider({ children }) {
         setUser(session.user);
         fetchProfile(session.user.id);
       } else {
+        // A recovery flag without a session is a dead link (expired, already used); keeping
+        // it would force the next ordinary login through a password change.
+        clearRecoveryPending();
+        setPasswordRecoveryPending(false);
         setLoading(false);
       }
     });
@@ -125,11 +133,22 @@ export function AuthProvider({ children }) {
         if (!mounted) return;
 
         if (event === 'SIGNED_OUT') {
+          clearRecoveryPending();
+          setPasswordRecoveryPending(false);
           setUser(null);
           setProfile(null);
           setProfileError(null);
           setLoading(false);
           profileFetchedRef.current = false;
+          return;
+        }
+
+        if (event === 'PASSWORD_RECOVERY' && session?.user) {
+          markRecoveryPending();
+          setPasswordRecoveryPending(true);
+          profileFetchedRef.current = false;
+          setUser(session.user);
+          fetchProfile(session.user.id);
           return;
         }
 
@@ -154,6 +173,10 @@ export function AuthProvider({ children }) {
     profileFetchedRef.current = false;
 
     try {
+      // Signing in with a password proves the person has one; an abandoned reset link in
+      // this browser should not ambush them afterwards.
+      clearRecoveryPending();
+      setPasswordRecoveryPending(false);
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -201,6 +224,7 @@ export function AuthProvider({ children }) {
     isLeader: profile?.role === 'leader' || profile?.role === 'dept_head', // Support both during migration
     isStaff: profile?.role === 'staff',
     departmentCode: profile?.department_code,
+    passwordRecoveryPending,
     signIn,
     signOut,
     refreshProfile: () => user && fetchProfile(user.id, true),

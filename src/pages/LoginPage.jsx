@@ -3,6 +3,7 @@ import { Building2, Mail, Lock, Loader2, AlertCircle, ArrowLeft, CheckCircle, Ke
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/common/Toast';
 import { supabase } from '../lib/supabase';
+import { passwordResetRedirectUrl } from '../utils/passwordRecovery';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -124,7 +125,7 @@ export default function LoginPage() {
 
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/update-password`,
+        redirectTo: passwordResetRedirectUrl(),
       });
 
       if (resetError) throw resetError;

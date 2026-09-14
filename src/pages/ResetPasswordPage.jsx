@@ -14,9 +14,12 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import { passwordResetRedirectUrl } from '../utils/passwordRecovery';
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const { user, passwordRecoveryPending } = useAuth();
 
   // ─── Mode: 'loading' → 'request' (email form) | 'update' (password form) | 'success'
   const [mode, setMode] = useState('loading');
@@ -55,6 +58,15 @@ export default function ResetPasswordPage() {
         window.history.replaceState(null, '', window.location.pathname);
         return;
       }
+    }
+
+    // 1b) The app already knows this session came from a reset link (captured from the URL
+    //     before supabase-js erased it). Trust that over re-reading a hash that is gone.
+    if (passwordRecoveryPending && user) {
+      setMode('update');
+      modeRef.current = 'update';
+      window.history.replaceState(null, '', window.location.pathname);
+      return;
     }
 
     // 2) Set up the auth state listener FIRST (before session check)
@@ -123,7 +135,7 @@ export default function ResetPasswordPage() {
       subscription.unsubscribe();
       clearTimeout(checkTimeout);
     };
-  }, []);
+  }, [passwordRecoveryPending, user]);
 
   // ─── HANDLERS ─────────────────────────────────────────────────────
 
@@ -134,7 +146,7 @@ export default function ResetPasswordPage() {
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(
         email,
-        { redirectTo: window.location.origin + '/reset-password' }
+        { redirectTo: passwordResetRedirectUrl() }
       );
       if (resetError) throw resetError;
       setRequestSent(true);
@@ -171,6 +183,11 @@ export default function ResetPasswordPage() {
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleCancelUpdate = async () => {
+    await supabase.auth.signOut();
+    navigate('/login', { replace: true });
   };
 
   // ─── RENDER: Loading ──────────────────────────────────────────────
@@ -388,12 +405,25 @@ export default function ResetPasswordPage() {
 
         {/* Footer */}
         <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 font-medium"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back to Login
-          </Link>
+          {mode === 'update' ? (
+            // A reset session cannot go anywhere else in the app, so backing out means
+            // signing out; the link can be requested again later.
+            <button
+              type="button"
+              onClick={handleCancelUpdate}
+              disabled={updating}
+              className="inline-flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 font-medium disabled:opacity-50"
+            >
+              <ArrowLeft className="w-4 h-4" /> Cancel and back to Login
+            </button>
+          ) : (
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 font-medium"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back to Login
+            </Link>
+          )}
         </div>
       </div>
     </div>

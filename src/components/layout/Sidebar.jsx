@@ -259,6 +259,9 @@ export default function Sidebar() {
     return location.pathname === path;
   };
 
+  const actionCenterCount = pendingDropCount + (isAdmin ? pendingCount : 0);
+  const actionCenterCountLabel = actionCenterCount > 99 ? '99+' : actionCenterCount;
+
   return (
     <div className={`${collapsed ? 'w-16 min-w-16' : 'w-64 min-w-64'} flex-shrink-0 ${theme.container} h-full flex flex-col relative z-40 transition-[width] duration-200`}>
       {/* Header — Dynamic Tenant Branding */}
@@ -393,16 +396,27 @@ export default function Sidebar() {
             </button>
 
             <button
+              title={collapsed ? (actionCenterCount > 0 ? `Action Center (${actionCenterCountLabel})` : 'Action Center') : undefined}
               data-tour="nav-action-center"
               onClick={() => navigate('/action-center')}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-2 mb-1 ${isActive('/action-center') ? theme.navActive : `${theme.navText} ${theme.navHover}`
                 }`}
             >
-              <Gavel className="w-4 h-4" />
-              <span className="text-sm flex-1">Action Center</span>
-              {(pendingDropCount + (isAdmin ? pendingCount : 0)) > 0 && (
+              {/* In the rail there is no room beside the icon, so the count hangs off the
+                  icon's corner — anchored to the icon, not the button, so "99+" grows away
+                  from the glyph instead of across it. */}
+              <span className="relative flex">
+                <Gavel className="w-4 h-4" />
+                {collapsed && actionCenterCount > 0 && (
+                  <span className="absolute -top-2 left-2.5 bg-red-500 text-white text-[10px] font-bold leading-4 px-1 rounded-full min-w-[16px] text-center">
+                    {actionCenterCountLabel}
+                  </span>
+                )}
+              </span>
+              {!collapsed && <span className="text-sm flex-1">Action Center</span>}
+              {!collapsed && actionCenterCount > 0 && (
                 <span className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                  {(() => { const total = pendingDropCount + (isAdmin ? pendingCount : 0); return total > 99 ? '99+' : total; })()}
+                  {actionCenterCountLabel}
                 </span>
               )}
             </button>

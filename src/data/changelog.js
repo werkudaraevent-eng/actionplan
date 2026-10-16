@@ -13,6 +13,15 @@
 
 export const CHANGELOG = [
   {
+    version: '1.25.2',
+    date: '2026-10-16',
+    title: 'Perbaikan Sidebar Sempit',
+    changes: [
+      { type: 'fix', description: 'Menu Action Center tidak lagi memunculkan tulisannya saat sidebar dipersempit — tulisan itu meluber keluar kotak dan menutupi ikonnya. Kini tampil sebagai ikon seperti menu lain, dengan nama yang muncul saat kursor diarahkan' },
+      { type: 'improvement', description: 'Jumlah item yang menunggu di Action Center tetap terlihat dalam mode sempit, sebagai angka kecil di pojok ikon' },
+    ],
+  },
+  {
     version: '1.25.1',
     date: '2026-09-14',
     title: 'Link Reset Password Meminta Password Baru',

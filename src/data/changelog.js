@@ -13,6 +13,16 @@
 
 export const CHANGELOG = [
   {
+    version: '1.25.3',
+    date: '2026-10-22',
+    title: 'Request Revision Kembali Berfungsi',
+    changes: [
+      { type: 'fix', description: 'Tombol Request Revision di Action Center tidak lagi gagal dengan pesan ACTION_PLAN_FINALIZATION_RPC_REQUIRED. Pengaman penutupan bulan ternyata ikut menolak setiap aksi yang mengembalikan plan ke draft, padahal yang perlu dijaga hanya arah sebaliknya: plan menjadi terkirim' },
+      { type: 'fix', description: 'Perbaikan yang sama memulihkan aksi lain yang terhalang pengaman tersebut: putusan revisi untuk plan Not Achieved, membuka kunci satu plan, menarik kembali laporan bulan, dan reset nilai, baik satu per satu maupun massal' },
+      { type: 'security', description: 'Plan tetap hanya bisa berstatus terkirim lewat penutupan bulan resmi. Mengubah waktu atau pengirim pada plan yang sudah terkirim juga tetap ditolak' },
+    ],
+  },
+  {
     version: '1.25.2',
     date: '2026-10-16',
     title: 'Perbaikan Sidebar Sempit',

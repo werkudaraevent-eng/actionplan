@@ -514,11 +514,25 @@ export default function ExecutiveActionCenter() {
         setGradeModal({ isOpen: true, plan: item });
     };
 
+    // The grade modal sends every outcome through onGrade, so the toast has to say which one happened
+    const gradeToast = (gradeData) => {
+        if (gradeData.submission_status === 'draft' || gradeData._verdict === 'revision') {
+            return { title: 'Revision Requested', description: 'The plan has been returned to the team for revision.' };
+        }
+        if (gradeData._verdict === 'carry_over') {
+            return { title: 'Plan Carried Over', description: 'Graded Not Achieved and carried over to the next month.' };
+        }
+        if (gradeData._verdict === 'failed') {
+            return { title: 'Plan Dropped', description: 'Graded Not Achieved and dropped.' };
+        }
+        return { title: 'Grading Complete', description: 'Verification score has been recorded.' };
+    };
+
     const handleGrade = async (planId, gradeData) => {
         try {
             await gradePlan(planId, gradeData);
             setGradeModal({ isOpen: false, plan: null });
-            toast({ title: 'Grading Complete', description: 'Verification score has been recorded.', variant: 'success' });
+            toast({ ...gradeToast(gradeData), variant: 'success' });
         } catch (error) {
             console.error('Grade failed:', error);
             if (error.code === 'ITEM_RECALLED') {

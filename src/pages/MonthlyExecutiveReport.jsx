@@ -315,11 +315,16 @@ function AiTopicPanel({ state, onRetry, dense = false }) {
   );
 }
 
+// plan.division is the joined { code, name } row, so it has to be reduced to text before it is shown.
+function planDivisionCode(plan) {
+  return plan.division?.code || plan.division_code || (plan.division_id ? plan.division_id.slice(0, 8) : 'Department level');
+}
+
 function planDetail(plan, profileMap) {
   return {
     title: String(plan.action_plan || 'Untitled').slice(0, 120),
     department: plan.department_code,
-    division: plan.division?.code || plan.division_code || (plan.division_id ? plan.division_id.slice(0, 8) : 'Department level'),
+    division: planDivisionCode(plan),
     pic: getPicDisplayName(plan, profileMap),
     priority: getPriority(plan),
     status: plan.status,
@@ -824,7 +829,7 @@ export default function MonthlyExecutiveReport() {
                   rows={report.actionItems.slice(0, 10)}
                   columns={[
                     { key: 'department_code', label: 'Dept' },
-                    { key: 'division', label: 'Division', render: (row) => row.division || 'Department level' },
+                    { key: 'division', label: 'Division', render: planDivisionCode },
                     { key: 'severity', label: 'Severity', render: (row) => actionSeverity(row) },
                     { key: 'action_plan', label: 'Action Plan', render: (row) => String(row.action_plan || 'Untitled').slice(0, 56) },
                   ]}

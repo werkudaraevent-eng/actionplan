@@ -172,11 +172,17 @@ export function exportDashboardJSON({ title, period, stats, failureAnalysis, dep
     })) || [],
   };
 
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  downloadJSON(data, `Dashboard_${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`);
+}
+
+// data may be an object, or JSON text that is already serialized.
+export function downloadJSON(data, filename) {
+  const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Dashboard_${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }

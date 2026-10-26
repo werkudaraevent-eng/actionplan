@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download, FileSpreadsheet, FileJson, Copy, FileImage, Check, Loader2 } from 'lucide-react';
-import { buildMarkdownSummary, exportDashboardExcel, exportDashboardJSON, exportDashboardPDF } from '../../utils/dashboardExportUtils';
+import { buildMarkdownSummary, exportDashboardExcel, exportDashboardJSON, exportDashboardPDF, downloadJSON } from '../../utils/dashboardExportUtils';
+import { snapshotToMarkdown, snapshotFileName, serializeSnapshot } from '../../utils/dashboardSnapshot';
 
 const EXPORT_OPTIONS = [
   {
@@ -29,7 +30,18 @@ const EXPORT_OPTIONS = [
   },
 ];
 
-export default function DashboardExportButton({ dashboardData, dashboardElementId, title }) {
+// Wording for dashboards that pass buildSnapshot, whose JSON and copy carry the whole dashboard.
+const SNAPSHOT_DESCRIPTIONS = {
+  json: 'Semua data dashboard + detail plan, lengkap dengan penjelasan relasinya — unggah ke ChatGPT atau Claude',
+  clipboard: 'Ringkasan semua widget + definisinya — paste langsung ke ChatGPT atau Claude',
+};
+
+/**
+ * @param {function} [buildSnapshot] - Returns a dashboard snapshot (utils/dashboardSnapshot) when
+ *   called. When given, JSON and Copy for AI use it instead of dashboardData. It is called only on
+ *   click, so the snapshot is not rebuilt on every render.
+ */
+export default function DashboardExportButton({ dashboardData, dashboardElementId, title, buildSnapshot }) {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -45,10 +57,15 @@ export default function DashboardExportButton({ dashboardData, dashboardElementI
           exportDashboardExcel(dashboardData);
           break;
         case 'json':
-          exportDashboardJSON(dashboardData);
+          if (buildSnapshot) {
+            const snapshot = buildSnapshot();
+            downloadJSON(serializeSnapshot(snapshot), snapshotFileName(snapshot));
+          } else {
+            exportDashboardJSON(dashboardData);
+          }
           break;
         case 'clipboard': {
-          const md = buildMarkdownSummary(dashboardData);
+          const md = buildSnapshot ? snapshotToMarkdown(buildSnapshot()) : buildMarkdownSummary(dashboardData);
           await navigator.clipboard.writeText(md);
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
@@ -104,7 +121,7 @@ export default function DashboardExportButton({ dashboardData, dashboardElementI
                       <p className="text-sm font-medium text-gray-900">
                         {isCopied ? 'Copied!' : option.label}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{option.description}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{(buildSnapshot && SNAPSHOT_DESCRIPTIONS[option.id]) || option.description}</p>
                     </div>
                   </button>
                 );

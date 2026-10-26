@@ -13,6 +13,19 @@
 
 export const CHANGELOG = [
   {
+    version: '1.26.0',
+    date: '2026-10-26',
+    title: 'Ekspor Dashboard yang Langsung Dipahami AI',
+    changes: [
+      { type: 'feature', description: 'Export as JSON di Company Dashboard kini memuat semua yang tampil di dashboard untuk periode dan filter yang dipilih: kartu KPI, tren per bulan dan tahun pembanding, kinerja per departemen, divisi, prioritas, focus area, strategi, dan PIC, serta alasan gagal per departemen' },
+      { type: 'feature', description: 'File JSON juga memuat detail tiap plan (evidence, catatan reviewer, gap analysis, rantai carry-over), dikelompokkan per inisiatif, dan diawali penjelasan arti setiap angka serta hubungan antar datanya. AI yang menerima file ini bisa langsung membaca dan menghitung ulang tanpa penjelasan tambahan' },
+      { type: 'improvement', description: 'Copy for AI Analysis kini menyalin ringkasan semua widget beserta definisinya, tidak hanya angka KPI' },
+      { type: 'fix', description: 'Verification Score di file ekspor kini sama dengan yang tampil di kartu. Sebelumnya dihitung dengan rumus berbeda, sehingga selisih beberapa persepuluh' },
+      { type: 'fix', description: 'Request Revision, Carry Over, dan Drop di Action Center kini memunculkan notifikasi yang sesuai, tidak lagi selalu "Grading Complete"' },
+      { type: 'fix', description: 'Monthly Executive Report tidak lagi menjadi layar putih saat periode yang dipilih memiliki action plan berdivisi yang belum selesai' },
+    ],
+  },
+  {
     version: '1.25.3',
     date: '2026-10-22',
     title: 'Request Revision Kembali Berfungsi',

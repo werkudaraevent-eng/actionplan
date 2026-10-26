@@ -18,6 +18,7 @@ import StrategyComboChart from '../components/dashboard/StrategyComboChart';
 import BottleneckChart from '../components/dashboard/BottleneckChart';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
 import DashboardExportButton from '../components/dashboard/DashboardExportButton';
+import { buildDashboardSnapshot } from '../utils/dashboardSnapshot';
 import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -107,12 +108,12 @@ function SortDropdown({ value, onChange }) {
 
 export default function AdminDashboard({ onNavigate }) {
   const navigate = useNavigate();
-  const { activeCompanyId, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
+  const { activeCompanyId, activeCompany, companies, isHoldingContext, sandboxCompanyIds } = useCompanyContext();
   const sandboxExcludeKey = sandboxCompanyIds.join(',');
   // When in holding context, pass null to get consolidated data from ALL companies
   const effectiveCompanyId = isHoldingContext ? null : activeCompanyId;
   const { plans, loading, refetch } = useActionPlans(null, effectiveCompanyId, isHoldingContext ? sandboxCompanyIds : []);
-  const { departments, nameAt } = useDepartments(effectiveCompanyId);
+  const { departments, nameAt, currentName } = useDepartments(effectiveCompanyId);
   // Holding context spans companies, and divisions are defined per company, so the
   // division breakdown is offered only when a single company is in view.
   const { divisions, hierarchyEnabled } = useDivisions(effectiveCompanyId);
@@ -1424,6 +1425,40 @@ export default function AdminDashboard({ onNavigate }) {
 
   // Dynamic titles based on isCompletionView toggle
   const activeMetricLabel = isCompletionView ? 'Completion Rate' : 'Verification Score';
+  // Everything on this dashboard for the selected period, for Export as JSON and Copy for AI.
+  // Built on click rather than per render: it walks every plan in view.
+  const buildExportSnapshot = () => {
+    const companyNames = new Map(companies.map((company) => [company.id, company.name]));
+    return buildDashboardSnapshot({
+      dashboard: 'Company Dashboard',
+      companyName: isHoldingContext ? 'Werkudara Group (consolidated)' : (activeCompany?.name || ''),
+      consolidated: isHoldingContext,
+      year: selectedYear,
+      months: isYTDMode
+        ? MONTHS_ORDER.slice(0, currentMonthIndex + 1)
+        : MONTHS_ORDER.slice(MONTH_MAP[startMonth] ?? 0, (MONTH_MAP[endMonth] ?? 11) + 1),
+      periodLabel,
+      filters: { department: selectedDept, priority: selectedCategory },
+      plans: effectivePlans,
+      departments,
+      departmentNameAt: nameAt,
+      currentDepartmentName: currentName,
+      picNames: (plan) => getPicKeysForAggregation(plan, picProfileMap),
+      supportPicNames: (plan) => (plan.support_pic_ids || [])
+        .map((id) => picProfileMap.get(id)?.full_name)
+        .filter(Boolean),
+      divisionOf: (plan) => {
+        const division = plan.division_id ? divisionById.get(plan.division_id) : null;
+        return division ? `${division.department_code} > ${division.code}` : null;
+      },
+      companyOf: (plan) => companyNames.get(plan.company_id) || null,
+      target: annualTarget,
+      trend: yoyChartData,
+      comparisonYear: hasComparisonData ? comparisonYearValue : null,
+      historicalStats: filteredHistoricalStats,
+    });
+  };
+
   const orgTitle = orgMetric === 'department_code'
     ? `${activeMetricLabel} by Department`
     : orgMetric === 'division'
@@ -1483,6 +1518,7 @@ export default function AdminDashboard({ onNavigate }) {
                   categoryStats,
                   plans: effectivePlans,
                 }}
+                buildSnapshot={buildExportSnapshot}
               />
               <button
                 onClick={handleRefresh}

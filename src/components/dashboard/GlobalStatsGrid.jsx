@@ -1,19 +1,13 @@
 import { useMemo } from 'react';
 import { Target, CheckCircle2, Clock, XCircle, Star, TrendingUp, TrendingDown, PieChart, AlertTriangle, CircleDashed, Layers } from 'lucide-react';
 import KPICard from './KPICard';
-import { isVerifiedAchieved, isPendingVerification } from '../../utils/completionUtils';
+import { computePlanStats } from '../../utils/dashboardSnapshot';
 
 // Constants
 // NOTE: Both completion and verification targets are now driven by the dynamic
 // targetPercentage prop, fed from the annual_targets table.
 // The default is 80% for backward compatibility when no prop is passed.
 const DEFAULT_TARGET = 80;
-
-// Month mapping for YTD calculations
-const MONTH_ORDER = {
-  'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-  'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-};
 
 /**
  * GlobalStatsGrid - Unified stats card component for all dashboards
@@ -70,133 +64,9 @@ export default function GlobalStatsGrid({
   // Get current month index for fair scoring calculations
   const currentMonthIndex = new Date().getMonth();
 
-  // Calculate all stats from plans data
-  // RAW COUNTS: Use plans directly (respects parent's date filter)
-  // FAIR SCORING: Use "due plans" subset (excludes future Open plans from denominator)
-  const stats = useMemo(() => {
-    if (!plans || plans.length === 0) {
-      return {
-        total: 0,
-        uniqueInitiatives: 0,
-        achieved: 0,
-        verifiedAchieved: 0,
-        pendingVerification: 0,
-        inProgress: 0,
-        open: 0,
-        notAchieved: 0,
-        completionRate: 0,
-        qualityScore: null,
-        gradedCount: 0,
-        assessableCount: 0
-      };
-    }
-
-    // RAW COUNTS - Respect the parent's filter for all status cards
-    const total = plans.length;
-
-    // CONSOLIDATED COUNT - collapse monthly repetition into unique initiatives.
-    // Two plans are the "same initiative" if they share a recurring_group_id
-    // (created together via import range / repeat) OR are linked by a carry-over
-    // chain (origin_plan_id points from a child back to its parent).
-    // Union-find over the currently-visible plans; distinct roots = unique count.
-    const parent = {};
-    const find = (x) => {
-      while (parent[x] !== x) {
-        parent[x] = parent[parent[x]];
-        x = parent[x];
-      }
-      return x;
-    };
-    const union = (a, b) => {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra !== rb) parent[ra] = rb;
-    };
-    plans.forEach(p => { if (p.id != null) parent[p.id] = p.id; });
-    const recurringBuckets = {};
-    plans.forEach(p => {
-      if (p.id == null) return;
-      // Link carry-over child to its parent (only if parent is in view)
-      if (p.origin_plan_id != null && parent[p.origin_plan_id] !== undefined) {
-        union(p.id, p.origin_plan_id);
-      }
-      // Group recurring instances
-      if (p.recurring_group_id != null) {
-        if (!recurringBuckets[p.recurring_group_id]) recurringBuckets[p.recurring_group_id] = p.id;
-        else union(p.id, recurringBuckets[p.recurring_group_id]);
-      }
-    });
-    const roots = new Set();
-    plans.forEach(p => { if (p.id != null) roots.add(find(p.id)); });
-    const uniqueInitiatives = roots.size;
-    const achieved = plans.filter(p => p.status === 'Achieved').length;
-    const verifiedAchieved = plans.filter(isVerifiedAchieved).length;
-    const pendingVerification = plans.filter(isPendingVerification).length;
-    const inProgress = plans.filter(p => p.status === 'On Progress').length;
-    const open = plans.filter(p => p.status === 'Open').length;
-    const notAchieved = plans.filter(p => p.status === 'Not Achieved').length;
-
-    // FAIR SCORING - Create "assessable plans" subset for Completion Rate & Verification Score
-    // A plan is "assessable" (valid for scoring) if:
-    // 1. Its month is in the past or present (already due)
-    // 2. OR its status is already 'Achieved' or 'Not Achieved' (already resolved, even if future)
-    // This prevents future "Open" plans from unfairly penalizing the completion rate
-    const assessablePlans = plans.filter(p => {
-      const planMonthStr = p.month ? p.month.substring(0, 3) : '';
-      const planMonthIndex = MONTH_ORDER[planMonthStr];
-      const isFuture = planMonthIndex !== undefined && planMonthIndex > currentMonthIndex;
-      const isResolved = p.status === 'Achieved' || p.status === 'Not Achieved';
-      // Include if NOT future, OR if already resolved
-      return !isFuture || isResolved;
-    });
-
-    // Completion Rate: VERIFIED Achieved / Assessable Plans (fair denominator)
-    // Only admin-verified achievements (quality_score != null) count toward the official rate;
-    // plans claimed Achieved but not yet scored are surfaced separately as pendingVerification.
-    const assessableCount = assessablePlans.length;
-    const assessableVerifiedAchieved = assessablePlans.filter(isVerifiedAchieved).length;
-    const assessablePending = assessablePlans.filter(isPendingVerification).length;
-    const completionRate = assessableCount > 0 ? Number(((assessableVerifiedAchieved / assessableCount) * 100).toFixed(1)) : 0;
-    // Provisional rate if all currently-pending claims were verified — shown in the badge/tooltip.
-    const claimedCompletionRate = assessableCount > 0 ? Number((((assessableVerifiedAchieved + assessablePending) / assessableCount) * 100).toFixed(1)) : 0;
-
-    // Verification Score: Average quality_score of all GRADED finalized items
-    // Include: plans with quality_score != null (both Achieved and Not Achieved)
-    // Exclude: plans still awaiting grading (quality_score IS null)
-    // This gives a true average of actual scores, not a proxy for completion rate
-    const gradedFinalizedPlans = assessablePlans.filter(p =>
-      (p.status === 'Achieved' || p.status === 'Not Achieved') && p.quality_score != null
-    );
-
-    let qualityScore = null;
-    let gradedCount = 0;
-
-    if (gradedFinalizedPlans.length > 0) {
-      const totalScore = gradedFinalizedPlans.reduce((acc, plan) => {
-        return acc + parseInt(plan.quality_score, 10);
-      }, 0);
-
-      qualityScore = Number((totalScore / gradedFinalizedPlans.length).toFixed(1));
-      gradedCount = gradedFinalizedPlans.length;
-    }
-
-    return {
-      total,
-      uniqueInitiatives,
-      achieved,
-      verifiedAchieved,
-      pendingVerification,
-      inProgress,
-      open,
-      notAchieved,
-      completionRate,
-      claimedCompletionRate,
-      assessablePending,
-      qualityScore,
-      gradedCount,
-      assessableCount
-    };
-  }, [plans, currentMonthIndex]);
+  // Calculate all stats from plans data. The same function feeds the dashboard export, so the
+  // exported KPI block always matches these cards.
+  const stats = useMemo(() => computePlanStats(plans, currentMonthIndex), [plans, currentMonthIndex]);
 
   // Dynamic labels based on scope and period
   // If periodLabel is provided, use it; otherwise show generic "Completion Rate"

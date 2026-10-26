@@ -17,6 +17,7 @@ import PriorityFocusWidget from '../components/dashboard/PriorityFocusWidget';
 import GlobalStatsGrid from '../components/dashboard/GlobalStatsGrid';
 import DivisionBreakdownWidget from '../components/dashboard/DivisionBreakdownWidget';
 import DashboardExportButton from '../components/dashboard/DashboardExportButton';
+import { getFailureReason } from '../utils/failureReasonUtils';
 import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -519,19 +520,10 @@ export default function DepartmentDashboard({ departmentCode, onNavigate }) {
       return { reasons: [], topBlocker: null, totalFailed: 0 };
     }
 
-    // Read failure reason from gap_category (primary) with legacy remark fallback
+    // Same categorisation as the company dashboard and the All Action Plans reason filter
     const reasonCounts = {};
     failedPlans.forEach((plan) => {
-      let reason = 'Unspecified';
-      if (plan.gap_category) {
-        reason = plan.gap_category === 'Other' && plan.specify_reason
-          ? plan.specify_reason
-          : plan.gap_category;
-      } else {
-        // Legacy fallback: parse [Cause: ...] from remark field
-        const match = plan.remark?.match(/\[Cause: (.*?)\]/);
-        if (match?.[1]) reason = match[1].trim();
-      }
+      const reason = getFailureReason(plan);
       reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
 

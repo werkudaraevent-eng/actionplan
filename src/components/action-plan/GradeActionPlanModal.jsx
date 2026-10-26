@@ -117,6 +117,14 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [carryOverSettings, setCarryOverSettings] = useState(null);
 
+  // Failure reason for a plan the department reported Achieved but that falls short at review.
+  // The department was never asked why, so the reviewer picks the category, from the same list
+  // the department uses when it marks a plan Not Achieved itself.
+  const [failureReasons, setFailureReasons] = useState([]);
+  const [failureCategory, setFailureCategory] = useState('');
+  const [failureOther, setFailureOther] = useState('');
+  const [showReasonError, setShowReasonError] = useState(false);
+
   // Validation & Confirmation states
   const [showError, setShowError] = useState(false);
   const [showConfirmReject, setShowConfirmReject] = useState(false);
@@ -158,6 +166,23 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       });
   }, [isOpen, activeCompanyId]);
 
+  // The plan's own company: in the holding view the active company is not the plan's.
+  const reasonCompanyId = plan?.company_id || activeCompanyId;
+  useEffect(() => {
+    if (!isOpen || !reasonCompanyId) return;
+    supabase
+      .from('dropdown_options')
+      .select('id, label, sort_order')
+      .eq('category', 'failure_reason')
+      .eq('is_active', true)
+      .eq('company_id', reasonCompanyId)
+      .order('sort_order', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error('[GradeModal] Failed to fetch failure reasons:', error);
+        setFailureReasons(data || []);
+      });
+  }, [isOpen, reasonCompanyId]);
+
   // CRITICAL: Reset all state when modal opens or plan changes
   useEffect(() => {
     if (isOpen && plan) {
@@ -175,6 +200,9 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
       setLoading(false);
       setDuplicateWarning(null);
       setCheckingDuplicate(false);
+      setFailureCategory('');
+      setFailureOther('');
+      setShowReasonError(false);
       resetAiAssessment();
 
       // Fetch carry-over settings for isFinal detection
@@ -240,6 +268,10 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
 
   // Derived: will this score result in "Not Achieved"?
   const willFail = gradingConfig.strict ? strictNotAchieved : false;
+  // Carry over and drop close the month as Not Achieved, so they need a reason; a revision hands
+  // the plan back instead. With no reasons configured there is nothing to pick, so it is not required.
+  const needsFailureReason = willFail && (verdict === 'carry_over' || verdict === 'failed') && failureReasons.length > 0;
+  const failureReasonComplete = failureCategory !== '' && (failureCategory !== 'Other' || failureOther.trim().length >= 3);
   const aiResult = latestAssessment?.analysis_result || null;
   const estimatedPromptTokens = Math.ceil(JSON.stringify({
     goal_strategy: plan.goal_strategy,
@@ -290,6 +322,10 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
         setShowError(true);
         return;
       }
+      if (needsFailureReason && !failureReasonComplete) {
+        setShowReasonError(true);
+        return;
+      }
       setShowConfirmVerdict(true);
       return;
     }
@@ -336,6 +372,10 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
         reviewed_at: new Date().toISOString(),
         _verdict: verdict, // Special field processed by gradePlan in hook
         _revisionDays: verdict === 'revision' ? revisionDays : undefined, // Grace period for revision
+        _failureReason: needsFailureReason ? {
+          gap_category: failureCategory,
+          specify_reason: failureCategory === 'Other' ? failureOther.trim() : null,
+        } : undefined,
       });
       onClose();
     } catch (error) {
@@ -990,6 +1030,47 @@ export default function GradeActionPlanModal({ isOpen, onClose, onGrade, plan })
                           </div>
                         </label>
                       </div>
+
+                      {/* Reason for non-achievement: carry over and drop only */}
+                      {(verdict === 'carry_over' || verdict === 'failed') && failureReasons.length > 0 && (
+                        <div className="pt-1">
+                          <label className="block text-xs font-semibold text-rose-800 mb-1">
+                            Reason for Non-Achievement <span className="text-rose-500">*</span>
+                          </label>
+                          <p className="text-xs text-rose-700/80 mb-1.5">
+                            The department reported this plan as achieved, so the reason it fell short comes from your review. Risk &amp; Bottleneck groups failures by this reason.
+                          </p>
+                          <select
+                            value={failureCategory}
+                            onChange={(e) => {
+                              setFailureCategory(e.target.value);
+                              if (e.target.value !== 'Other') setFailureOther('');
+                              setShowReasonError(false);
+                            }}
+                            className={`w-full px-3 py-2 border rounded-lg bg-white text-sm focus:ring-2 focus:ring-rose-400 focus:border-rose-400 ${showReasonError && !failureCategory ? 'border-red-500 bg-red-50' : 'border-rose-300'}`}
+                          >
+                            <option value="">-- Select Reason --</option>
+                            {failureReasons.map((reason) => (
+                              <option key={reason.id} value={reason.label}>{reason.label}</option>
+                            ))}
+                          </select>
+                          {failureCategory === 'Other' && (
+                            <input
+                              type="text"
+                              value={failureOther}
+                              onChange={(e) => { setFailureOther(e.target.value); setShowReasonError(false); }}
+                              placeholder="Describe the reason..."
+                              className={`mt-2 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:border-rose-400 ${showReasonError && failureOther.trim().length < 3 ? 'border-red-500 bg-red-50' : 'border-rose-300'}`}
+                            />
+                          )}
+                          {showReasonError && !failureReasonComplete && (
+                            <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {failureCategory === 'Other' ? 'Please describe the reason (at least 3 characters).' : 'Select the reason this plan was not achieved.'}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 

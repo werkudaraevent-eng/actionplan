@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AlertTriangle, CheckCircle2, Trophy, Medal, Award, Building2, FileWarning } from 'lucide-react';
+import { BELOW_VERIFICATION_TARGET } from '../../utils/failureReasonUtils';
 
 const MONTH_ORDER = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
 
@@ -329,6 +330,11 @@ export default function BottleneckChart({ plans, getDeptName, failureReasons = [
                             style={{ width: `${item.percentage}%` }}
                           />
                         </div>
+                        {item.reason === BELOW_VERIFICATION_TARGET && (
+                          <p className="text-[11px] text-gray-400 leading-snug">
+                            Reported achieved by the department, scored below the priority target at review. See the reviewer's note for why.
+                          </p>
+                        )}
                       </RowTag>
                     );
                   });

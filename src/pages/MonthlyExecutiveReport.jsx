@@ -6,6 +6,7 @@ import { useCompanyContext } from '../context/CompanyContext';
 import { useDepartments } from '../hooks/useDepartments';
 import { usePicProfiles } from '../hooks/usePicProfiles';
 import { getPicDisplayName } from '../utils/picUtils';
+import { getFailureReason } from '../utils/failureReasonUtils';
 import { supabase } from '../lib/supabase';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -44,12 +45,6 @@ function avg(values) {
 function parseCause(plan) {
   const match = plan.remark?.match(/\[Cause: (.*?)\]/);
   return match?.[1]?.trim() || null;
-}
-
-function getFailureReason(plan) {
-  if (plan.gap_category === 'Other' && plan.specify_reason) return String(plan.specify_reason).trim();
-  if (plan.gap_category) return String(plan.gap_category).trim();
-  return parseCause(plan) || 'Unspecified';
 }
 
 function getPriority(plan) {

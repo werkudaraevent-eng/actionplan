@@ -985,9 +985,11 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
     // Extract verdict (if any) before spreading to DB
     const verdict = gradeData._verdict;
     const revisionDays = gradeData._revisionDays || 3; // Admin-configurable grace period (default: 3 days)
+    const failureReason = gradeData._failureReason; // { gap_category, specify_reason } picked by the reviewer
     const cleanGradeData = { ...gradeData };
     delete cleanGradeData._verdict; // Don't send this to the DB
     delete cleanGradeData._revisionDays; // Don't send this to the DB
+    delete cleanGradeData._failureReason; // Written separately, before the grade (see below)
 
     // ── VERDICT PATH: Admin chose a consequence for a failed plan ──
     if (verdict) {
@@ -1045,9 +1047,39 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
       }
 
       // CARRY_OVER or FAILED VERDICT: Grade as "Not Achieved" via RPC first
+      const original = plans.find((p) => p.id === id);
       setPlans((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, ...cleanGradeData, updated_at: new Date().toISOString() } : p))
+        prev.map((p) => (p.id === id ? { ...p, ...cleanGradeData, ...(failureReason || {}), updated_at: new Date().toISOString() } : p))
       );
+
+      // The reviewer's reason goes on the row BEFORE the grade. grade_action_plan sets only the
+      // score, status and review fields, and the audit trigger writes "Root Cause: ..." from the
+      // row as the status turns Not Achieved, so a reason written afterwards would leave that
+      // entry reading "Not specified". Writing gap_category alone is not audited. If the grade
+      // then fails, or does not end Not Achieved, the reason is put back as it was.
+      const restoreReason = async () => {
+        const { error: restoreError } = await supabase
+          .from('action_plans')
+          .update({ gap_category: original?.gap_category ?? null, specify_reason: original?.specify_reason ?? null })
+          .eq('id', id);
+        if (restoreError) console.warn('[gradePlan] Could not put the failure reason back:', restoreError.message);
+      };
+      if (failureReason?.gap_category) {
+        const { data: tagged, error: tagError } = await supabase
+          .from('action_plans')
+          .update({ gap_category: failureReason.gap_category, specify_reason: failureReason.specify_reason ?? null })
+          .eq('id', id)
+          .eq('submission_status', 'submitted')
+          .select('id');
+        if (tagError) { await fetchPlans(); throw tagError; }
+        if (!tagged || tagged.length === 0) {
+          await fetchPlans();
+          const recalledError = new Error('ITEM_RECALLED');
+          recalledError.code = 'ITEM_RECALLED';
+          recalledError.message = 'This item has been RECALLED by the department. The grade was not saved.';
+          throw recalledError;
+        }
+      }
 
       try {
         // Step 1: Grade via RPC (marks as Not Achieved with score)
@@ -1062,7 +1094,12 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
           10000
         );
 
+        if (!error && failureReason?.gap_category && result?.final_status !== 'Not Achieved') {
+          await restoreReason();
+        }
+
         if (error) {
+          if (failureReason?.gap_category) await restoreReason();
           await fetchPlans();
           if (error.message?.includes('recalled') || error.message?.includes('not in submitted status')) {
             const recalledError = new Error('ITEM_RECALLED');
@@ -1148,6 +1185,10 @@ export function useActionPlans(departmentCode = null, companyId = null, excludeC
                 resolution_type: 'dropped',
                 quality_score: cleanGradeData.quality_score,
                 verdict: 'dropped_by_admin',
+                ...(failureReason?.gap_category && {
+                  gap_category: failureReason.gap_category,
+                  specify_reason: failureReason.specify_reason ?? null,
+                }),
               },
               description: `❌ Dropped by Admin: Plan marked as Not Achieved and closed (score: ${cleanGradeData.quality_score}%). No carry-over.`,
             });

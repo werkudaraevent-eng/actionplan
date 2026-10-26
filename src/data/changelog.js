@@ -13,6 +13,17 @@
 
 export const CHANGELOG = [
   {
+    version: '1.26.1',
+    date: '2026-10-26',
+    title: 'Alasan Gagal yang Lebih Jujur',
+    changes: [
+      { type: 'fix', description: 'Plan yang dilaporkan Achieved oleh departemen tetapi skornya di bawah target prioritas saat dinilai reviewer kini tercatat sebagai "Below Verification Target", bukan "Unspecified". Untuk Jan–Apr 2026, ini menjelaskan semua 110 plan yang sebelumnya tidak beralasan' },
+      { type: 'feature', description: 'Saat reviewer memilih Carry Over atau Drop untuk plan yang skornya di bawah target, modal penilaian kini meminta alasan gagal dari daftar yang sama dengan yang dipakai departemen, sehingga Risk & Bottleneck menampilkan penyebab sebenarnya' },
+      { type: 'improvement', description: 'Riwayat plan langsung mencatat alasan tersebut pada perubahan status menjadi Not Achieved, tidak lagi "Root Cause: Not specified"' },
+      { type: 'improvement', description: 'Department Dashboard dan Monthly Executive Report kini mengelompokkan alasan gagal dengan cara yang sama seperti Company Dashboard dan filter All Action Plans' },
+    ],
+  },
+  {
     version: '1.26.0',
     date: '2026-10-26',
     title: 'Ekspor Dashboard yang Langsung Dipahami AI',

@@ -13,6 +13,17 @@
 
 export const CHANGELOG = [
   {
+    version: '1.30.0',
+    date: '2026-11-18',
+    title: 'AI Membaca Link OneDrive',
+    changes: [
+      { type: 'feature', description: 'AI Evidence Assessment kini membuka link OneDrive (1drv.ms) lewat akun Microsoft pembaca yang dihubungkan admin. Word, Excel, PowerPoint, PDF dan gambar dibaca isinya seperti file yang di-upload' },
+      { type: 'feature', description: 'Untuk link folder OneDrive, AI membaca daftar file di dalamnya beserta isi hingga 3 file pertama yang bisa dibaca' },
+      { type: 'feature', description: 'Kartu baru OneDrive Links di Settings → System: hubungkan akun pembaca dengan kode masuk Microsoft, lihat akun yang terhubung, putuskan, dan uji satu link sebelum dipakai' },
+      { type: 'improvement', description: 'Alamat onedrive.live.com yang disalin dari address bar browser setelah membuka link 1drv kini juga terbaca. Alamat halaman yang bukan link share diberi catatan agar PIC memakai Share → Copy link' },
+    ],
+  },
+  {
     version: '1.29.0',
     date: '2026-11-18',
     title: 'AI Membaca Link Google Drive dan SharePoint',

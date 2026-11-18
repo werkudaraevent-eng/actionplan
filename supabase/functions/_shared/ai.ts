@@ -118,28 +118,47 @@ async function withVault<T>(run: (sql: any) => Promise<T>): Promise<T> {
   }
 }
 
-export async function readStoredKey(companyId: string, provider: AiProvider): Promise<string | null> {
+export async function readVaultSecret(name: string): Promise<string | null> {
   return withVault(async (sql) => {
-    const rows = await sql`select decrypted_secret from vault.decrypted_secrets where name = ${secretName(companyId, provider)} limit 1`
+    const rows = await sql`select decrypted_secret from vault.decrypted_secrets where name = ${name} limit 1`
     return rows[0]?.decrypted_secret || null
   })
 }
 
-export async function saveStoredKey(companyId: string, provider: AiProvider, apiKey: string, userId: string) {
-  const name = secretName(companyId, provider)
-  const description = JSON.stringify({ hint: keyHint(apiKey), updated_by: userId })
+// The description is left as it was when null is passed for an existing secret.
+export async function writeVaultSecret(name: string, value: string, description: string | null) {
   await withVault(async (sql) => {
     const [existing] = await sql`select id from vault.secrets where name = ${name}`
     if (existing) {
-      await sql`select vault.update_secret(${existing.id}, ${apiKey}, ${name}, ${description})`
+      await sql`select vault.update_secret(${existing.id}, ${value}, ${name}, ${description})`
     } else {
-      await sql`select vault.create_secret(${apiKey}, ${name}, ${description})`
+      await sql`select vault.create_secret(${value}, ${name}, ${description ?? ''})`
     }
   })
 }
 
+export async function deleteVaultSecret(name: string) {
+  await withVault((sql) => sql`delete from vault.secrets where name = ${name}`)
+}
+
+// The non-secret part of a stored secret: its description and when it last changed.
+export async function readVaultMeta(name: string): Promise<{ description: string | null, updated_at: string | null } | null> {
+  const rows = await withVault<{ description: string | null, updated_at: string | null }[]>((sql) => sql`
+    select description, updated_at from vault.secrets where name = ${name} limit 1
+  `)
+  return rows[0] || null
+}
+
+export function readStoredKey(companyId: string, provider: AiProvider): Promise<string | null> {
+  return readVaultSecret(secretName(companyId, provider))
+}
+
+export async function saveStoredKey(companyId: string, provider: AiProvider, apiKey: string, userId: string) {
+  await writeVaultSecret(secretName(companyId, provider), apiKey, JSON.stringify({ hint: keyHint(apiKey), updated_by: userId }))
+}
+
 export async function deleteStoredKey(companyId: string, provider: AiProvider) {
-  await withVault((sql) => sql`delete from vault.secrets where name = ${secretName(companyId, provider)}`)
+  await deleteVaultSecret(secretName(companyId, provider))
 }
 
 export async function getKeyStatus(companyId: string) {

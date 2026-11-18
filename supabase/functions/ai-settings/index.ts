@@ -13,6 +13,16 @@ import {
   resolveTimeoutMs,
   saveStoredKey,
 } from '../_shared/ai.ts'
+import {
+  disconnectOneDrive,
+  getGraphToken,
+  getOneDriveStatus,
+  getSharedItem,
+  isOneDriveLink,
+  OneDriveError,
+  pollOneDriveLogin,
+  startOneDriveLogin,
+} from '../_shared/onedrive.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -76,7 +86,35 @@ serve(async (req) => {
       throw new Error('Forbidden: these settings belong to another company')
     }
 
-    if (action === 'status') return jsonResponse(await getKeyStatus(companyId))
+    if (action === 'status') {
+      const [keys, onedrive] = await Promise.all([getKeyStatus(companyId), getOneDriveStatus(companyId)])
+      return jsonResponse({ ...keys, onedrive })
+    }
+
+    // ── OneDrive reader account (Microsoft device code sign-in) ──
+    if (action === 'onedrive_connect') {
+      return jsonResponse(await startOneDriveLogin(companyId, String(body.client_id || '').trim()))
+    }
+    if (action === 'onedrive_poll') {
+      const result = await pollOneDriveLogin(companyId, user.id)
+      return jsonResponse({ ...result, onedrive: await getOneDriveStatus(companyId) })
+    }
+    if (action === 'onedrive_disconnect') {
+      await disconnectOneDrive(companyId)
+      return jsonResponse({ onedrive: await getOneDriveStatus(companyId) })
+    }
+    if (action === 'onedrive_test') {
+      // Like list_models, a failure here is an answer for the admin, so it comes back as 200.
+      const url = String(body.url || '').trim()
+      if (!isOneDriveLink(url)) return jsonResponse({ ok: false, error: 'Paste a OneDrive link (1drv.ms or onedrive.live.com).' })
+      try {
+        const item = await getSharedItem(await getGraphToken(companyId), url, AbortSignal.timeout(20000))
+        return jsonResponse({ ok: true, name: item.name, is_folder: item.isFolder, size: item.size, child_count: item.childCount })
+      } catch (error) {
+        const message = error instanceof OneDriveError ? error.message : `OneDrive could not be reached: ${error instanceof Error ? error.message : 'unknown error'}`
+        return jsonResponse({ ok: false, error: message })
+      }
+    }
 
     const provider = parseProvider(body.provider)
 

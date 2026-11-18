@@ -23,10 +23,11 @@ export type LinkSource = 'google_doc' | 'google_sheet' | 'google_slides' | 'goog
 
 export type LinkPlan =
   | { source: LinkSource, fetchUrl: string, kind?: FileKind }
+  // Personal OneDrive opens only for a signed-in account, so these go through Microsoft Graph.
+  | { source: 'onedrive', shareUrl: string }
   | { source: 'not_readable', limitation: string }
 
 const NOT_READ = {
-  onedrive: 'Personal OneDrive links (1drv.ms, onedrive.live.com) open only after signing in, so only the link was analyzed. Upload the file, or share it from SharePoint or Google Drive with "Anyone with the link".',
   sharepointFolder: 'SharePoint folder links are not opened, so only the link was analyzed. Link the file itself, or upload it.',
   sharepointOther: 'Only SharePoint sharing links (Share, then Copy link with "Anyone with the link") are opened, so only this link was analyzed.',
   googleOther: 'This kind of Google link is not opened, so only the link was analyzed. Link a Google Doc, Sheet, Slides deck, Drive file or Drive folder.',
@@ -51,7 +52,7 @@ export function planLink(raw: string): LinkPlan | null {
   const resourceKey = url.searchParams.get('resourcekey')
   const keyParam = resourceKey ? `&resourcekey=${encodeURIComponent(resourceKey)}` : ''
 
-  if (host === '1drv.ms' || host === 'onedrive.live.com') return { source: 'not_readable', limitation: NOT_READ.onedrive }
+  if (host === '1drv.ms' || host === 'onedrive.live.com') return { source: 'onedrive', shareUrl: url.toString() }
 
   if (host === 'docs.google.com') {
     const match = url.pathname.match(/^\/(?:a\/[^/]+\/)?(document|spreadsheets|presentation)\/d\/([\w-]{10,})/)
@@ -99,7 +100,8 @@ function fileNameOf(disposition: string | null) {
   return disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1] || disposition.match(/filename\s*=\s*([^;]+)/i)?.[1]?.trim() || null
 }
 
-async function readCapped(response: Response, max: number) {
+// The body, or null once it passes max bytes (checked against Content-Length first when sent).
+export async function readCapped(response: Response, max: number) {
   if (Number(response.headers.get('content-length')) > max) {
     await response.body?.cancel()
     return null

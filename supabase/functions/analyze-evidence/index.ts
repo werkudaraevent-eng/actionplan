@@ -13,6 +13,7 @@ import {
 } from '../_shared/ai.ts'
 import { detectKind, extractText, type FileKind, MAX_TEXT_CHARS_PER_FILE, sniffKind, toAttachedFile } from './files.ts'
 import { fetchLink, folderListing, planLink } from './links.ts'
+import { readOneDriveLink } from './onedrive.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,7 +22,8 @@ const corsHeaders = {
 
 // v2: uploaded PDFs, images and Office files are read, not just named.
 // v3: Google Drive/Docs and SharePoint links are read too.
-const PROMPT_VERSION = 'v3'
+// v4: personal OneDrive links are read through Microsoft Graph, folders included.
+const PROMPT_VERSION = 'v4'
 const EVIDENCE_BUCKET = 'evidence-attachments'
 const MAX_ATTACHMENTS = 3
 // Base64 adds a third, so this keeps one request under the API's 32 MB limit with room for the prompt.
@@ -172,30 +174,58 @@ async function readUpload(supabaseAdmin: SupabaseClient, item: Attachment, meta:
   return fromBytes(meta, kind, new Uint8Array(await data.arrayBuffer()), String(meta.name), attachFiles)
 }
 
-async function readLink(url: string, meta: Record<string, unknown>, attachFiles: boolean): Promise<ReadResult> {
+type ReadContext = { supabaseAdmin: SupabaseClient, attachFiles: boolean, companyId: string | null }
+
+// A OneDrive file is one entry; a folder is an entry with its item list, followed by one entry for
+// each file read from it.
+async function readOneDrive(url: string, meta: Record<string, unknown>, ctx: ReadContext): Promise<ReadResult[]> {
+  const read = await readOneDriveLink(ctx.companyId, url)
+  if (!read.ok) return [{ entry: { ...meta, link_source: 'onedrive', extracted_text: null, limitation: read.limitation } }]
+
+  if ('file' in read) {
+    const { name, mimeType, bytes } = read.file
+    const kind = await sniffKind(bytes, mimeType, name)
+    return [await fromBytes({ ...meta, link_source: 'onedrive_file', file_name: name }, kind, bytes, name, ctx.attachFiles)]
+  }
+
+  const { folder } = read
+  const note = folder.read
+    ? `The folder's item list was read, plus its first ${folder.read} readable file${folder.read === 1 ? '' : 's'}, which follow as separate attachments; other files were judged by name only.`
+    : 'Only the names of the files in the folder were read: none of them is a type the AI reads.'
+  const children = await Promise.all(folder.files.map((file) => {
+    const childMeta = { type: 'link', name: `${folder.name}/${file.name}`, link_source: 'onedrive_folder_file', from_link: meta.url }
+    if ('limitation' in file) return { entry: { ...childMeta, extracted_text: null, limitation: file.limitation } } as ReadResult
+    return sniffKind(file.bytes, file.mimeType, file.name)
+      .then((kind) => fromBytes({ ...childMeta, mime: file.mimeType, size: file.bytes.byteLength }, kind, file.bytes, file.name, ctx.attachFiles))
+  }))
+  return [{ entry: { ...meta, link_source: 'onedrive_folder', extracted_text: folder.listing, limitation: note } }, ...children]
+}
+
+async function readLink(url: string, meta: Record<string, unknown>, ctx: ReadContext): Promise<ReadResult[]> {
   const plan = planLink(url)
-  if (!plan) return { entry: { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' } }
-  if (plan.source === 'not_readable') return { entry: { ...meta, extracted_text: null, limitation: plan.limitation } }
+  if (!plan) return [{ entry: { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' } }]
+  if (plan.source === 'not_readable') return [{ entry: { ...meta, extracted_text: null, limitation: plan.limitation } }]
+  if (plan.source === 'onedrive') return readOneDrive(plan.shareUrl, meta, ctx)
 
   const linkMeta = { ...meta, link_source: plan.source }
   const isFolder = plan.source === 'google_drive_folder'
   const fetched = await fetchLink(plan.fetchUrl, isFolder ? 'page' : 'file')
-  if (!fetched.ok) return { entry: { ...linkMeta, extracted_text: null, limitation: fetched.limitation } }
+  if (!fetched.ok) return [{ entry: { ...linkMeta, extracted_text: null, limitation: fetched.limitation } }]
 
   if (isFolder) {
     const listing = folderListing(new TextDecoder().decode(fetched.bytes))
-    if (!listing.count) return { entry: { ...linkMeta, extracted_text: null, limitation: 'The Google Drive folder is empty, or not shared with "Anyone with the link". Only the link was analyzed.' } }
-    return { entry: { ...linkMeta, extracted_text: listing.text, limitation: 'Only the names of the files in the folder were read, not their content.' } }
+    if (!listing.count) return [{ entry: { ...linkMeta, extracted_text: null, limitation: 'The Google Drive folder is empty, or not shared with "Anyone with the link". Only the link was analyzed.' } }]
+    return [{ entry: { ...linkMeta, extracted_text: listing.text, limitation: 'Only the names of the files in the folder were read, not their content.' } }]
   }
 
   const kind = plan.kind || await sniffKind(fetched.bytes, fetched.contentType, fetched.fileName)
   const name = fetched.fileName || String(meta.name)
-  return fromBytes(fetched.fileName ? { ...linkMeta, file_name: fetched.fileName } : linkMeta, kind, fetched.bytes, name, attachFiles)
+  return [await fromBytes(fetched.fileName ? { ...linkMeta, file_name: fetched.fileName } : linkMeta, kind, fetched.bytes, name, ctx.attachFiles)]
 }
 
 // Text, Word, Excel and PowerPoint files become extracted_text for every provider. PDFs and images
 // go to Claude as files when attachFiles is set; the proxy path still gets only their metadata.
-function readAttachment(supabaseAdmin: SupabaseClient, item: Attachment, attachFiles: boolean): Promise<ReadResult> {
+async function readAttachment(item: Attachment, ctx: ReadContext): Promise<ReadResult[]> {
   const meta = {
     type: item.type || 'unknown',
     name: item.name || item.title || item.url || 'Untitled attachment',
@@ -205,15 +235,15 @@ function readAttachment(supabaseAdmin: SupabaseClient, item: Attachment, attachF
     storage_path: getStoragePath(item),
   }
   return item.type === 'link' && item.url
-    ? readLink(item.url, meta, attachFiles)
-    : readUpload(supabaseAdmin, item, meta, attachFiles)
+    ? readLink(item.url, meta, ctx)
+    : [await readUpload(ctx.supabaseAdmin, item, meta, ctx.attachFiles)]
 }
 
 function buildPrompt(snapshot: Record<string, unknown>) {
   return [
     'You are an evidence assessment assistant for corporate action plan grading.',
     'Compare target evidence requirements with submitted evidence. Be strict, practical, and concise.',
-    'Attachments marked attached_to_message are the PDFs and images placed before this text, whether uploaded or downloaded from a link. extracted_text holds the content of text and Office files, of shared Google Docs, Sheets and Slides, and of SharePoint files; for a Google Drive folder it lists only the file names. Judge the evidence by what these files actually contain, and say which file supports or contradicts each finding.',
+    'Attachments marked attached_to_message are the PDFs and images placed before this text, whether uploaded or downloaded from a link. extracted_text holds the content of text and Office files, of shared Google Docs, Sheets and Slides, and of SharePoint and OneDrive files; for a shared folder it lists the items in it, and files read from a OneDrive folder follow as their own attachments named folder/file. Judge the evidence by what these files actually contain, and say which file supports or contradicts each finding.',
     'Return JSON only with keys: summary, evidence_match_score, recommended_score_min, recommended_score_max, recommended_verdict, missing_evidence, risks_or_inconsistencies, follow_up_questions, confidence, limitations, rationale.',
     'recommended_verdict must be one of: approve, revision, carry_over, fail.',
     'AI is advisory only; do not claim authenticity certainty.',
@@ -386,7 +416,8 @@ serve(async (req) => {
     }
 
     // Read in parallel: each link can take up to its own download deadline.
-    const results = await Promise.all(attachments.map((item) => readAttachment(supabaseAdmin, item, provider === 'anthropic').catch((error) => ({
+    const readContext: ReadContext = { supabaseAdmin, attachFiles: provider === 'anthropic', companyId }
+    const results = (await Promise.all(attachments.map((item) => readAttachment(item, readContext).catch((error) => [{
       entry: {
         type: item?.type || 'unknown',
         name: item?.name || item?.title || item?.url || 'Untitled attachment',
@@ -395,7 +426,7 @@ serve(async (req) => {
         extracted_text: null,
         limitation: `Attachment could not be processed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       },
-    } as ReadResult))))
+    } as ReadResult])))).flat()
 
     const analyzedAttachments: Record<string, unknown>[] = []
     const files: AttachedFile[] = []

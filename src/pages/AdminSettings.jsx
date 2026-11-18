@@ -10,6 +10,7 @@ import { useToast } from '../components/common/Toast';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmailSettingsSection from '../components/settings/EmailSettingsSection';
 import AiSettingsSection from '../components/settings/AiSettingsSection';
+import OneDriveReaderCard from '../components/settings/OneDriveReaderCard';
 import OptionManager from '../components/settings/OptionManager';
 import DepartmentDivisionsPanel from '../components/settings/DepartmentDivisionsPanel';
 import ScopeSwitchDialog from '../components/settings/ScopeSwitchDialog';
@@ -2082,6 +2083,8 @@ function SystemSettingsTab() {
         initialConfig={aiConfig}
         onSaveConfig={(config) => saveSystemSettings({ ai_config: config })}
       />
+
+      <OneDriveReaderCard key={`onedrive-${activeCompanyId}`} companyId={activeCompanyId} />
 
       {/* Auto-Lock Control Center */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

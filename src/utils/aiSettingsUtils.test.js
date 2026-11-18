@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAiConfigPayload, buildModelOptions, inferAiProvider, modelsToTest, normalizeAiConfig } from './aiSettingsUtils';
+import { buildAiConfigPayload, buildModelOptions, describeOneDriveItem, inferAiProvider, isMicrosoftClientId, modelsToTest, normalizeAiConfig } from './aiSettingsUtils';
 
 describe('inferAiProvider', () => {
   it('keeps an explicit provider', () => {
@@ -100,5 +100,32 @@ describe('modelsToTest', () => {
   it('has nothing to test for Anthropic without a model, but tests the proxy default', () => {
     expect(modelsToTest({ provider: 'anthropic', model_fast: '', model_reasoning: '' })).toEqual([]);
     expect(modelsToTest({ provider: 'openai_compatible', model_fast: '', model_reasoning: '' })).toEqual([{ role: 'Fast', model: '' }]);
+  });
+});
+
+describe('isMicrosoftClientId', () => {
+  it('accepts the GUID shown as Application (client) ID, with stray spaces', () => {
+    expect(isMicrosoftClientId('12345678-90ab-4cde-8f01-23456789abcd')).toBe(true);
+    expect(isMicrosoftClientId('  12345678-90AB-4CDE-8F01-23456789ABCD ')).toBe(true);
+  });
+
+  it('rejects anything else, such as a secret value or the object ID label', () => {
+    expect(isMicrosoftClientId('')).toBe(false);
+    expect(isMicrosoftClientId(null)).toBe(false);
+    expect(isMicrosoftClientId('12345678-90ab-4cde-8f01')).toBe(false);
+    expect(isMicrosoftClientId('abc8Q~secretvalue.with-chars')).toBe(false);
+  });
+});
+
+describe('describeOneDriveItem', () => {
+  it('names a file with its size', () => {
+    expect(describeOneDriveItem({ name: 'Laporan.xlsx', is_folder: false, size: 51383 })).toBe('Opened "Laporan.xlsx" (50 KB).');
+    expect(describeOneDriveItem({ name: 'Deck.pptx', is_folder: false, size: 5353475 })).toBe('Opened "Deck.pptx" (5.1 MB).');
+    expect(describeOneDriveItem({ name: 'a.txt', is_folder: false, size: 12 })).toBe('Opened "a.txt" (12 B).');
+  });
+
+  it('names a folder with its item count', () => {
+    expect(describeOneDriveItem({ name: 'Evidence Juni', is_folder: true, child_count: 3 })).toBe('Opened folder "Evidence Juni" with 3 items.');
+    expect(describeOneDriveItem({ name: 'One', is_folder: true, child_count: 1 })).toBe('Opened folder "One" with 1 item.');
   });
 });

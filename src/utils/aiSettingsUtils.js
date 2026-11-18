@@ -79,6 +79,23 @@ export function buildModelOptions(models, selectedIds = [], { listLoaded = true 
   return options;
 }
 
+// The Application (client) ID of an app registration in Microsoft Entra.
+export function isMicrosoftClientId(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function sizeLabel(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+// One line for what the OneDrive link test opened.
+export function describeOneDriveItem({ name, is_folder: isFolder, size, child_count: childCount }) {
+  if (isFolder) return `Opened folder "${name}" with ${childCount} item${childCount === 1 ? '' : 's'}.`;
+  return `Opened "${name}" (${sizeLabel(Number(size) || 0)}).`;
+}
+
 // The distinct models a Test run should call: the fast model, and the reasoning model when it
 // differs. The executive report falls back to the fast model when no reasoning model is set.
 export function modelsToTest(form) {

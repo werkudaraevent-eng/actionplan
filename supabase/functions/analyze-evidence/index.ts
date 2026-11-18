@@ -1,31 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import {
+  type AttachedFile,
   describeAiError,
   generateJson,
   getAiConfig,
+  isRequestRejected,
   resolveApiKey,
   resolveProvider,
   resolveProxyUrl,
   resolveTimeoutMs,
 } from '../_shared/ai.ts'
+import { detectKind, extractText, MAX_TEXT_CHARS_PER_FILE, toAttachedFile } from './files.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const PROMPT_VERSION = 'v1'
+// v2: uploaded PDFs, images and Office files are read, not just named.
+const PROMPT_VERSION = 'v2'
 const EVIDENCE_BUCKET = 'evidence-attachments'
 const MAX_ATTACHMENTS = 3
-const MAX_TEXT_CHARS_PER_FILE = 20000
-const TEXT_MIME_PREFIXES = ['text/']
-const TEXT_MIME_TYPES = new Set([
-  'application/json',
-  'application/xml',
-  'application/csv',
-  'text/csv',
-])
 
 type Attachment = {
   type?: string
@@ -117,15 +113,6 @@ async function sha256Hex(input: string) {
   return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function isTextLike(mime?: string, name?: string) {
-  const lowerMime = (mime || '').toLowerCase()
-  const lowerName = (name || '').toLowerCase()
-  return TEXT_MIME_PREFIXES.some((prefix) => lowerMime.startsWith(prefix))
-    || TEXT_MIME_TYPES.has(lowerMime)
-    || ['.txt', '.csv', '.json', '.md', '.log'].some((ext) => lowerName.endsWith(ext))
-}
-
-
 function getStoragePath(item: Attachment) {
   if (item.storage_path || item.path) return item.storage_path || item.path
   if (!item.url) return null
@@ -135,7 +122,13 @@ function getStoragePath(item: Attachment) {
   return decodeURIComponent(item.url.substring(idx + marker.length))
 }
 
-async function readTextAttachment(supabaseAdmin: ReturnType<typeof createClient>, item: Attachment) {
+// Text, Word, Excel and PowerPoint files become extracted_text for every provider. PDFs and images
+// go to Claude as files when attachFiles is set; the proxy path still gets only their metadata.
+async function readAttachment(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  item: Attachment,
+  attachFiles: boolean,
+): Promise<{ entry: Record<string, unknown>, file?: AttachedFile }> {
   const storagePath = getStoragePath(item)
   const meta = {
     type: item.type || 'unknown',
@@ -147,40 +140,55 @@ async function readTextAttachment(supabaseAdmin: ReturnType<typeof createClient>
   }
 
   if (item.type === 'link') {
-    return { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' }
+    return { entry: { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' } }
   }
 
   if (!storagePath) {
-    return { ...meta, extracted_text: null, limitation: 'Uploaded file has no resolvable storage path.' }
+    return { entry: { ...meta, extracted_text: null, limitation: 'Uploaded file has no resolvable storage path.' } }
   }
 
-  if (!isTextLike(item.mime, item.name)) {
+  const kind = detectKind(item.mime, item.name)
+  const isVisual = kind === 'pdf' || kind === 'image'
+  if (kind === 'other' || (isVisual && !attachFiles)) {
     const { data } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).createSignedUrl(storagePath, 60 * 15)
     return {
-      ...meta,
-      signed_url: data?.signedUrl || null,
-      extracted_text: null,
-      limitation: 'Binary document content was provided as metadata/signed URL only. Full content analysis depends on 9router model URL/file support.',
+      entry: {
+        ...meta,
+        signed_url: data?.signedUrl || null,
+        extracted_text: null,
+        limitation: 'Binary document content was provided as metadata/signed URL only. Full content analysis depends on 9router model URL/file support.',
+      },
     }
   }
 
   try {
     const { data, error } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).download(storagePath)
     if (error || !data) {
-      return { ...meta, extracted_text: null, limitation: `File could not be downloaded: ${error?.message || 'Unknown error'}` }
+      return { entry: { ...meta, extracted_text: null, limitation: `File could not be downloaded: ${error?.message || 'Unknown error'}` } }
+    }
+    const bytes = new Uint8Array(await data.arrayBuffer())
+
+    if (isVisual) {
+      const attached = toAttachedFile(kind, bytes, meta.name, item.mime)
+      if ('limitation' in attached) return { entry: { ...meta, extracted_text: null, limitation: attached.limitation } }
+      return { entry: { ...meta, extracted_text: null, attached_to_message: true }, file: attached.file }
     }
 
-    const text = await data.text()
+    const text = await extractText(kind, bytes)
     return {
-      ...meta,
-      extracted_text: text.slice(0, MAX_TEXT_CHARS_PER_FILE),
-      truncated: text.length > MAX_TEXT_CHARS_PER_FILE,
+      entry: {
+        ...meta,
+        extracted_text: text.slice(0, MAX_TEXT_CHARS_PER_FILE),
+        truncated: text.length > MAX_TEXT_CHARS_PER_FILE,
+      },
     }
   } catch (error) {
     return {
-      ...meta,
-      extracted_text: null,
-      limitation: `Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      entry: {
+        ...meta,
+        extracted_text: null,
+        limitation: `Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      },
     }
   }
 }
@@ -189,6 +197,7 @@ function buildPrompt(snapshot: Record<string, unknown>) {
   return [
     'You are an evidence assessment assistant for corporate action plan grading.',
     'Compare target evidence requirements with submitted evidence. Be strict, practical, and concise.',
+    'Attachments marked attached_to_message are the PDFs and images placed before this text; extracted_text holds the content of text and Office files. Judge the evidence by what these files actually contain, and say which file supports or contradicts each finding.',
     'Return JSON only with keys: summary, evidence_match_score, recommended_score_min, recommended_score_max, recommended_verdict, missing_evidence, risks_or_inconsistencies, follow_up_questions, confidence, limitations, rationale.',
     'recommended_verdict must be one of: approve, revision, carry_over, fail.',
     'AI is advisory only; do not claim authenticity certainty.',
@@ -353,10 +362,13 @@ serve(async (req) => {
     const aiKey = await resolveApiKey(companyId, provider)
 
     const attachments = Array.isArray(plan.attachments) ? plan.attachments.slice(0, MAX_ATTACHMENTS) : []
-    const analyzedAttachments = []
+    const analyzedAttachments: Record<string, unknown>[] = []
+    const files: AttachedFile[] = []
     for (const item of attachments) {
       try {
-        analyzedAttachments.push(await readTextAttachment(supabaseAdmin, item))
+        const { entry, file } = await readAttachment(supabaseAdmin, item, provider === 'anthropic')
+        analyzedAttachments.push(entry)
+        if (file) files.push(file)
       } catch (error) {
         analyzedAttachments.push({
           type: item?.type || 'unknown',
@@ -394,7 +406,13 @@ serve(async (req) => {
       },
     }
 
-    const inputHash = await sha256Hex(JSON.stringify({ snapshot, promptVersion: PROMPT_VERSION }))
+    // Signed URLs change on every call, so they are left out of the hash or the cache would never hit.
+    // The attached files' bytes go in, so replacing a file under the same name misses the cache.
+    const inputHash = await sha256Hex(JSON.stringify({
+      snapshot,
+      files: await Promise.all(files.map((file) => sha256Hex(file.data))),
+      promptVersion: PROMPT_VERSION,
+    }, (key, value) => (key === 'signed_url' ? undefined : value)))
 
     if (!force) {
       const { data: cached } = await supabaseAdmin
@@ -413,22 +431,36 @@ serve(async (req) => {
     const prompt = buildPrompt(snapshot)
     const estimatedInputTokens = estimateTokens(prompt)
 
+    const request = {
+      provider,
+      apiKey: aiKey,
+      baseUrl: aiUrl,
+      model: aiModel,
+      system: 'Return valid JSON only. No markdown.',
+      prompt,
+      schema: ANALYSIS_SCHEMA,
+      timeoutMs,
+      vision: aiConfig.vision ?? true,
+      temperature: 0.2,
+      files,
+    }
     let generated
     try {
-      generated = await generateJson({
-        provider,
-        apiKey: aiKey,
-        baseUrl: aiUrl,
-        model: aiModel,
-        system: 'Return valid JSON only. No markdown.',
-        prompt,
-        schema: ANALYSIS_SCHEMA,
-        timeoutMs,
-        vision: aiConfig.vision ?? true,
-        temperature: 0.2,
-      })
+      generated = await generateJson(request)
     } catch (error) {
-      throw new Error(describeAiError(error, { model: aiModel, timeoutMs }))
+      // A damaged or password-protected PDF fails the whole request, so it is retried once on text alone.
+      if (!files.length || !isRequestRejected(error)) throw new Error(describeAiError(error, { model: aiModel, timeoutMs }))
+      console.warn('analyze-evidence: attached files rejected, retrying without them', error instanceof Error ? error.message : error)
+      const note = 'The AI could not open this file, so it was judged by name only.'
+      for (const entry of analyzedAttachments) {
+        if (entry.attached_to_message) Object.assign(entry, { attached_to_message: false, limitation: note })
+      }
+      attachmentLimitations.push('The AI could not open the attached PDF or image files, so they were judged by name only.')
+      try {
+        generated = await generateJson({ ...request, prompt: buildPrompt(snapshot), files: [] })
+      } catch (retryError) {
+        throw new Error(describeAiError(retryError, { model: aiModel, timeoutMs }))
+      }
     }
 
     const providerResponse: any = typeof generated.raw === 'string'

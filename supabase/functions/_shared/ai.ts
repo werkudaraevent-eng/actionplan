@@ -13,6 +13,14 @@ export type AiConfig = {
   vision?: boolean
 }
 
+// A PDF or image Claude reads directly. data is base64.
+export type AttachedFile = {
+  kind: 'pdf' | 'image'
+  mediaType: string
+  data: string
+  name: string
+}
+
 export type GenerateJsonOptions = {
   provider: AiProvider
   apiKey: string
@@ -22,6 +30,8 @@ export type GenerateJsonOptions = {
   prompt: string
   schema: Record<string, unknown>
   timeoutMs: number
+  // Sent ahead of the prompt on the Anthropic path; the proxy path does not take files.
+  files?: AttachedFile[]
   // The OpenAI-compatible proxy path keeps the request shape it always sent.
   vision?: boolean
   temperature?: number
@@ -220,13 +230,31 @@ export function describeAiError(error: unknown, context: { model?: string, timeo
   return error instanceof Error ? error.message : 'Unknown AI error'
 }
 
+// True when Anthropic refused the request itself (400), for instance over a file it cannot open.
+export function isRequestRejected(error: unknown) {
+  return error instanceof Anthropic.BadRequestError
+}
+
+function claudeContent(options: GenerateJsonOptions) {
+  if (!options.files?.length) return options.prompt
+  const blocks: any[] = []
+  options.files.forEach((file, index) => {
+    blocks.push({ type: 'text', text: `Attachment ${index + 1}: ${file.name}` })
+    blocks.push(file.kind === 'pdf'
+      ? { type: 'document', source: { type: 'base64', media_type: file.mediaType, data: file.data }, title: file.name }
+      : { type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.data } })
+  })
+  blocks.push({ type: 'text', text: options.prompt })
+  return blocks
+}
+
 async function generateWithClaude(options: GenerateJsonOptions): Promise<GenerateJsonResult> {
   const client = new Anthropic({ apiKey: options.apiKey, timeout: options.timeoutMs, maxRetries: 1 })
   const body = {
     model: options.model,
     max_tokens: 16000,
     system: options.system,
-    messages: [{ role: 'user' as const, content: options.prompt }],
+    messages: [{ role: 'user' as const, content: claudeContent(options) }],
     output_config: { format: { type: 'json_schema' as const, schema: options.schema } },
   }
   // One deadline for the call and its retry, so the function answers before the browser gives up.

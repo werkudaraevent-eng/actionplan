@@ -13,6 +13,17 @@
 
 export const CHANGELOG = [
   {
+    version: '1.28.0',
+    date: '2026-11-18',
+    title: 'AI Membaca Isi File Evidence',
+    changes: [
+      { type: 'feature', description: 'AI Evidence Assessment kini membaca isi file yang di-upload, tidak hanya namanya. PDF dan gambar (JPG, PNG, GIF, WebP) dibaca langsung oleh Claude bila provider Anthropic dipilih, termasuk scan dan foto dokumen' },
+      { type: 'feature', description: 'Isi file Word (.docx), PowerPoint (.pptx) dan Excel (.xlsx, .xls) kini diambil sebagai teks dan dinilai oleh AI, baik lewat Anthropic maupun proxy' },
+      { type: 'improvement', description: 'Bila AI tidak bisa membuka sebuah PDF atau gambar (rusak, terkunci password, terlalu besar), penilaian tetap berjalan dan catatan Limitations menyebut file mana yang hanya dinilai dari namanya' },
+      { type: 'fix', description: 'Plan dengan file PDF atau gambar kini memakai hasil penilaian tersimpan bila evidence-nya tidak berubah. Sebelumnya setiap penilaian ulang selalu memanggil AI lagi dan memakan token' },
+    ],
+  },
+  {
     version: '1.27.0',
     date: '2026-11-18',
     title: 'Pengaturan AI: API Key, Pilihan Model, dan Tes Koneksi',

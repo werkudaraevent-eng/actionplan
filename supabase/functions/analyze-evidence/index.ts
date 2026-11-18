@@ -149,6 +149,16 @@ async function readAttachment(
 
   const kind = detectKind(item.mime, item.name)
   const isVisual = kind === 'pdf' || kind === 'image'
+  // Claude can't open URLs, so on that path a file type it doesn't read gets a note instead of a signed URL.
+  if (kind === 'other' && attachFiles) {
+    return {
+      entry: {
+        ...meta,
+        extracted_text: null,
+        limitation: 'The AI does not read this file type, so only its name was analyzed. Upload it as PDF, an image, .docx, .xlsx or .pptx to have its content read.',
+      },
+    }
+  }
   if (kind === 'other' || (isVisual && !attachFiles)) {
     const { data } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).createSignedUrl(storagePath, 60 * 15)
     return {

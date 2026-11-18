@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.27.0',
+    date: '2026-11-18',
+    title: 'Pengaturan AI: API Key, Pilihan Model, dan Tes Koneksi',
+    changes: [
+      { type: 'feature', description: 'Admin kini bisa memilih provider AI (Anthropic langsung atau proxy seperti 9router) dan menyimpan API key-nya langsung dari Settings → System, tanpa membuka Supabase. Key disimpan terenkripsi di server dan setelah disimpan hanya tampil sebagai potongan awal dan akhirnya' },
+      { type: 'feature', description: 'Fast Model dan Reasoning Model kini dipilih dari daftar model yang benar-benar bisa dipakai oleh key tersebut, tidak perlu mengetik nama model' },
+      { type: 'feature', description: 'Tombol Test Connection mengirim satu permintaan singkat ke setiap model yang dipilih dan menunjukkan apakah berhasil, berapa lama, atau apa yang salah (key ditolak, model tidak tersedia, waktu habis)' },
+      { type: 'fix', description: 'AI Evidence Assessment dan narasi Executive Report kini memakai Claude API secara langsung bila provider Anthropic dipilih. Sebelumnya permintaan dikirim dalam format proxy dengan key 9router, sehingga ditolak sebagai "Invalid Anthropic API Key"' },
+      { type: 'security', description: 'API key tidak pernah disimpan di pengaturan sistem yang bisa dibaca semua pengguna, dan tidak pernah dikirim kembali ke browser' },
+    ],
+  },
+  {
     version: '1.26.1',
     date: '2026-10-26',
     title: 'Alasan Gagal yang Lebih Jujur',

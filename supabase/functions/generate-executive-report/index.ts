@@ -1,18 +1,42 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import {
+  describeAiError,
+  generateJson,
+  getAiConfig,
+  resolveApiKey,
+  resolveProvider,
+  resolveProxyUrl,
+  resolveTimeoutMs,
+} from '../_shared/ai.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-type AiConfig = {
-  enabled?: boolean
-  proxy_url?: string | null
-  model_fast?: string | null
-  model_reasoning?: string | null
-  timeout_ms?: number | string | null
-  vision?: boolean
+// The shape buildTopicPrompt asks for, enforced through structured outputs on the Anthropic path.
+const TOPIC_SCHEMA = {
+  type: 'object',
+  properties: {
+    headline: { type: 'string' },
+    narrative: { type: 'array', items: { type: 'string' } },
+    highlights: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          value: { type: 'string' },
+          tone: { type: 'string', enum: ['positive', 'negative', 'warning', 'neutral'] },
+        },
+        required: ['label', 'value', 'tone'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['headline', 'narrative', 'highlights'],
+  additionalProperties: false,
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -20,19 +44,6 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
-}
-
-function resolveChatCompletionsUrl(baseUrl: string) {
-  const trimmed = baseUrl.replace(/\/+$/, '')
-  if (trimmed.endsWith('/chat/completions') || trimmed.endsWith('/responses')) return trimmed
-  if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`
-  return `${trimmed}/v1/chat/completions`
-}
-
-function resolveTimeoutMs(value: unknown, fallback: number) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.max(5000, Math.min(300000, parsed))
 }
 
 function extractJsonFromText(text: string) {
@@ -80,18 +91,6 @@ function parseSseChatCompletion(text: string) {
 
   if (!content) return null
   return { content, usage, model }
-}
-
-async function getAiConfig(supabaseAdmin: ReturnType<typeof createClient>, companyId: string | null): Promise<AiConfig> {
-  if (!companyId) return {}
-
-  const { data } = await supabaseAdmin
-    .from('system_settings')
-    .select('ai_config')
-    .eq('company_id', companyId)
-    .maybeSingle()
-
-  return data?.ai_config || {}
 }
 
 const TOPIC_CONFIG: Record<string, { title: string; focus: string }> = {
@@ -225,13 +224,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const envAiUrl = Deno.env.get('AI_PROXY_URL') || Deno.env.get('NINEROUTER_API_URL') || ''
-    const aiKey = Deno.env.get('AI_PROXY_KEY') || Deno.env.get('NINEROUTER_API_KEY') || ''
     const envAiModel = Deno.env.get('AI_MODEL_REASONING') || Deno.env.get('AI_MODEL_FAST') || Deno.env.get('NINEROUTER_MODEL') || ''
     const envTimeoutMs = Number(Deno.env.get('AI_TIMEOUT_MS') || '90000')
 
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Missing Supabase environment variables')
-    if (!aiKey) throw new Error('Missing AI_PROXY_KEY or NINEROUTER_API_KEY Supabase secret')
 
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) throw new Error('Missing authorization header')
@@ -268,72 +264,61 @@ serve(async (req) => {
     const aiConfig = await getAiConfig(supabaseAdmin, companyId)
     if (aiConfig.enabled === false) throw new Error('AI report narrative is disabled in system settings')
 
-    const aiUrl = String(aiConfig.proxy_url || envAiUrl || '').trim()
-    const aiModel = String(aiConfig.model_reasoning || aiConfig.model_fast || envAiModel || '').trim()
+    const provider = resolveProvider(aiConfig)
+    // The AI_MODEL_* secrets name proxy models, so Claude only takes the models picked in Settings.
+    const aiModel = String(aiConfig.model_reasoning || aiConfig.model_fast || (provider === 'anthropic' ? '' : envAiModel) || '').trim()
     const timeoutMs = resolveTimeoutMs(aiConfig.timeout_ms, envTimeoutMs || 90000)
-    const aiVision = aiConfig.vision ?? true
+    const aiUrl = provider === 'anthropic' ? undefined : resolveProxyUrl(aiConfig.proxy_url)
 
-    if (!aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
+    if (provider === 'anthropic' && !aiModel) throw new Error('Pick a Reasoning Model in Settings → System → AI Evidence Assessment')
+    if (provider !== 'anthropic' && !aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
+    const aiKey = await resolveApiKey(companyId, provider)
 
     const prompt = buildTopicPrompt(topic, payload)
 
-    const providerPayload = {
-      model: aiModel || undefined,
-      vision: aiVision,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
-    }
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
+    let generated
     try {
-      const aiResponse = await fetch(resolveChatCompletionsUrl(aiUrl), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${aiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(providerPayload),
-        signal: controller.signal,
+      generated = await generateJson({
+        provider,
+        apiKey: aiKey,
+        baseUrl: aiUrl,
+        model: aiModel,
+        system: systemPrompt,
+        prompt,
+        schema: TOPIC_SCHEMA,
+        timeoutMs,
+        vision: aiConfig.vision ?? true,
+        temperature: 0.3,
+        maxTokens: 1200,
       })
-
-      const responseText = await aiResponse.text()
-      if (!aiResponse.ok) {
-        throw new Error(`9router request failed (${aiResponse.status}): ${responseText.slice(0, 500)}`)
-      }
-
-      const providerResponse = extractJsonFromText(responseText) || responseText
-      const result = normalizeTopicResult(topic, providerResponse)
-
-      // Persist so completed slides survive page navigation and reloads.
-      if (companyId) {
-        await supabaseAdmin
-          .from('executive_report_insights')
-          .upsert({
-            company_id: companyId,
-            report_year: Number(payload?.period?.year) || new Date().getFullYear(),
-            report_month: String(payload?.period?.month || ''),
-            department_scope: String(payload?.department_scope || 'All'),
-            topic,
-            headline: result.headline,
-            narrative: result.narrative,
-            highlights: result.highlights,
-            model: aiModel || null,
-            generated_by: user.id,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'company_id,report_year,report_month,department_scope,topic' })
-      }
-
-      return jsonResponse({ result })
-    } finally {
-      clearTimeout(timeoutId)
+    } catch (error) {
+      throw new Error(describeAiError(error, { model: aiModel, timeoutMs }))
     }
+
+    const providerResponse = generated.parsed
+      ?? (typeof generated.raw === 'string' ? extractJsonFromText(generated.raw) || generated.raw : generated.raw)
+    const result = normalizeTopicResult(topic, providerResponse)
+
+    // Persist so completed slides survive page navigation and reloads.
+    if (companyId) {
+      await supabaseAdmin
+        .from('executive_report_insights')
+        .upsert({
+          company_id: companyId,
+          report_year: Number(payload?.period?.year) || new Date().getFullYear(),
+          report_month: String(payload?.period?.month || ''),
+          department_scope: String(payload?.department_scope || 'All'),
+          topic,
+          headline: result.headline,
+          narrative: result.narrative,
+          highlights: result.highlights,
+          model: aiModel || null,
+          generated_by: user.id,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'company_id,report_year,report_month,department_scope,topic' })
+    }
+
+    return jsonResponse({ result })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     const status = message.startsWith('Forbidden') ? 403 : 400

@@ -1,5 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import {
+  describeAiError,
+  generateJson,
+  getAiConfig,
+  resolveApiKey,
+  resolveProvider,
+  resolveProxyUrl,
+  resolveTimeoutMs,
+} from '../_shared/ai.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -43,13 +52,31 @@ type AnalysisResult = {
   rationale?: string
 }
 
-type AiConfig = {
-  enabled?: boolean
-  proxy_url?: string | null
-  model_fast?: string | null
-  model_reasoning?: string | null
-  timeout_ms?: number | string | null
-  vision?: boolean
+const VERDICTS = ['approve', 'revision', 'carry_over', 'fail']
+const stringList = { type: 'array', items: { type: 'string' } }
+
+// The keys buildPrompt asks for, enforced through structured outputs on the Anthropic path.
+// Ranges live in descriptions because structured outputs reject numeric bounds; clampScore applies them.
+const ANALYSIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    evidence_match_score: { type: 'integer', description: '0 to 100' },
+    recommended_score_min: { type: 'integer', description: '0 to 100' },
+    recommended_score_max: { type: 'integer', description: '0 to 100, not below recommended_score_min' },
+    recommended_verdict: { type: 'string', enum: VERDICTS },
+    missing_evidence: stringList,
+    risks_or_inconsistencies: stringList,
+    follow_up_questions: stringList,
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    limitations: stringList,
+    rationale: { type: 'string' },
+  },
+  required: [
+    'summary', 'evidence_match_score', 'recommended_score_min', 'recommended_score_max', 'recommended_verdict',
+    'missing_evidence', 'risks_or_inconsistencies', 'follow_up_questions', 'confidence', 'limitations', 'rationale',
+  ],
+  additionalProperties: false,
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -71,7 +98,7 @@ function clampScore(value: unknown) {
 
 function normalizeVerdict(value: unknown) {
   const verdict = String(value || '').toLowerCase().trim()
-  if (['approve', 'revision', 'carry_over', 'fail'].includes(verdict)) return verdict
+  if (VERDICTS.includes(verdict)) return verdict
   if (verdict === 'approved' || verdict === 'achieved') return 'approve'
   if (verdict === 'revise' || verdict === 'request_revision') return 'revision'
   if (verdict === 'carryover' || verdict === 'carry-over') return 'carry_over'
@@ -218,31 +245,6 @@ function parseSseChatCompletion(text: string) {
   return { content, usage, model }
 }
 
-function resolveChatCompletionsUrl(baseUrl: string) {
-  const trimmed = baseUrl.replace(/\/+$/, '')
-  if (trimmed.endsWith('/chat/completions') || trimmed.endsWith('/responses')) return trimmed
-  if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`
-  return `${trimmed}/v1/chat/completions`
-}
-
-function resolveTimeoutMs(value: unknown, fallback: number) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.max(5000, Math.min(300000, parsed))
-}
-
-async function getAiConfig(supabaseAdmin: ReturnType<typeof createClient>, companyId: string | null): Promise<AiConfig> {
-  if (!companyId) return {}
-
-  const { data } = await supabaseAdmin
-    .from('system_settings')
-    .select('ai_config')
-    .eq('company_id', companyId)
-    .maybeSingle()
-
-  return data?.ai_config || {}
-}
-
 function normalizeProviderResult(providerResponse: any): { result: AnalysisResult, outputText: string, usage: any, model?: string } {
   if (typeof providerResponse === 'string') {
     const stream = parseSseChatCompletion(providerResponse)
@@ -293,13 +295,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const envAiUrl = Deno.env.get('AI_PROXY_URL') || Deno.env.get('NINEROUTER_API_URL') || ''
-    const aiKey = Deno.env.get('AI_PROXY_KEY') || Deno.env.get('NINEROUTER_API_KEY') || ''
     const envAiModel = Deno.env.get('AI_MODEL_FAST') || Deno.env.get('NINEROUTER_MODEL') || ''
     const envTimeoutMs = Number(Deno.env.get('AI_TIMEOUT_MS') || '60000')
 
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Missing Supabase environment variables')
-    if (!aiKey) throw new Error('Missing AI_PROXY_KEY or NINEROUTER_API_KEY Supabase secret')
 
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) throw new Error('Missing authorization header')
@@ -339,15 +338,19 @@ serve(async (req) => {
       throw new Error('Forbidden: action plan belongs to another company')
     }
 
-    const aiConfig = await getAiConfig(supabaseAdmin, plan.company_id || profile.company_id || null)
+    const companyId = plan.company_id || profile.company_id || null
+    const aiConfig = await getAiConfig(supabaseAdmin, companyId)
     if (aiConfig.enabled === false) throw new Error('AI evidence assessment is disabled in system settings')
 
-    const aiUrl = String(aiConfig.proxy_url || envAiUrl || '').trim()
-    const aiModel = String(aiConfig.model_fast || envAiModel || '').trim()
+    const provider = resolveProvider(aiConfig)
+    // The AI_MODEL_FAST secret names a proxy model, so Claude only takes the model picked in Settings.
+    const aiModel = String(aiConfig.model_fast || (provider === 'anthropic' ? '' : envAiModel) || '').trim()
     const timeoutMs = resolveTimeoutMs(aiConfig.timeout_ms, envTimeoutMs || 60000)
-    const aiVision = aiConfig.vision ?? true
+    const aiUrl = provider === 'anthropic' ? undefined : resolveProxyUrl(aiConfig.proxy_url)
 
-    if (!aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
+    if (provider === 'anthropic' && !aiModel) throw new Error('Pick a Fast Model in Settings → System → AI Evidence Assessment')
+    if (provider !== 'anthropic' && !aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
+    const aiKey = await resolveApiKey(companyId, provider)
 
     const attachments = Array.isArray(plan.attachments) ? plan.attachments.slice(0, MAX_ATTACHMENTS) : []
     const analyzedAttachments = []
@@ -410,43 +413,30 @@ serve(async (req) => {
     const prompt = buildPrompt(snapshot)
     const estimatedInputTokens = estimateTokens(prompt)
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-    const providerPayload = {
-      model: aiModel || undefined,
-      vision: aiVision,
-      messages: [
-        { role: 'system', content: 'Return valid JSON only. No markdown.' },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-    }
-
-    let providerResponse: any
+    let generated
     try {
-      const aiResponse = await fetch(resolveChatCompletionsUrl(aiUrl), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${aiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(providerPayload),
-        signal: controller.signal,
+      generated = await generateJson({
+        provider,
+        apiKey: aiKey,
+        baseUrl: aiUrl,
+        model: aiModel,
+        system: 'Return valid JSON only. No markdown.',
+        prompt,
+        schema: ANALYSIS_SCHEMA,
+        timeoutMs,
+        vision: aiConfig.vision ?? true,
+        temperature: 0.2,
       })
-
-      const responseText = await aiResponse.text()
-      if (!aiResponse.ok) {
-        throw new Error(`9router request failed (${aiResponse.status}): ${responseText.slice(0, 500)}`)
-      }
-
-      providerResponse = extractJsonFromText(responseText) || responseText
-    } finally {
-      clearTimeout(timeoutId)
+    } catch (error) {
+      throw new Error(describeAiError(error, { model: aiModel, timeoutMs }))
     }
 
-    const { result, outputText, usage, model: providerModel } = normalizeProviderResult(providerResponse)
+    const providerResponse: any = typeof generated.raw === 'string'
+      ? extractJsonFromText(generated.raw) || generated.raw
+      : generated.raw
+    const { result, outputText, usage, model: providerModel } = generated.parsed
+      ? { result: generated.parsed as AnalysisResult, outputText: String(generated.raw), usage: generated.usage, model: generated.model || undefined }
+      : normalizeProviderResult(providerResponse)
     const normalizedResult = {
       summary: result.summary || 'No summary provided.',
       evidence_match_score: clampScore(result.evidence_match_score),
@@ -473,7 +463,7 @@ serve(async (req) => {
       action_plan_id: plan.id,
       company_id: plan.company_id,
       requested_by: user.id,
-      provider: '9router',
+      provider: provider === 'anthropic' ? 'anthropic' : '9router',
       model: aiModel || providerModel || providerResponse?.model || null,
       prompt_version: PROMPT_VERSION,
       input_hash: inputHash,

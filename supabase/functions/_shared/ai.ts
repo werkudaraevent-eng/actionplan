@@ -144,7 +144,7 @@ export async function deleteStoredKey(companyId: string, provider: AiProvider) {
 
 export async function getKeyStatus(companyId: string) {
   const providers: AiProvider[] = ['anthropic', 'openai_compatible']
-  const rows = await withVault((sql) => sql`
+  const rows = await withVault<{ name: string, description: string | null, updated_at: string | null }[]>((sql) => sql`
     select name, description, updated_at from vault.secrets
     where name in ${sql(providers.map((p) => secretName(companyId, p)))}
   `)
@@ -152,7 +152,7 @@ export async function getKeyStatus(companyId: string) {
   const keys: Record<string, { stored: boolean, hint: string | null, updated_at: string | null }> = {}
   const secretFallback: Record<string, string | null> = {}
   for (const provider of providers) {
-    const row = rows.find((r: any) => r.name === secretName(companyId, provider))
+    const row = rows.find((r) => r.name === secretName(companyId, provider))
     let hint = null
     try { hint = JSON.parse(row?.description || '{}').hint || null } catch (_) { /* hand-edited description */ }
     keys[provider] = { stored: !!row, hint, updated_at: row?.updated_at ? new Date(row.updated_at).toISOString() : null }
@@ -230,9 +230,10 @@ export function describeAiError(error: unknown, context: { model?: string, timeo
   return error instanceof Error ? error.message : 'Unknown AI error'
 }
 
-// True when Anthropic refused the request itself (400), for instance over a file it cannot open.
+// True when Anthropic refused the request itself: 400 for a file it cannot open or a prompt over
+// the context window, 413 for a request body over the size limit.
 export function isRequestRejected(error: unknown) {
-  return error instanceof Anthropic.BadRequestError
+  return error instanceof Anthropic.BadRequestError || (error instanceof Anthropic.APIError && error.status === 413)
 }
 
 function claudeContent(options: GenerateJsonOptions) {

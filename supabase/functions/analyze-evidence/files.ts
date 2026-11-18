@@ -39,7 +39,7 @@ export function detectKind(mime?: string | null, name?: string | null): FileKind
   return 'other'
 }
 
-function decodeXml(text: string) {
+export function decodeXml(text: string) {
   return text
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
@@ -191,8 +191,40 @@ function countPdfPages(bytes: Uint8Array) {
   return (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length
 }
 
+// Compared as bytes: TextDecoder's 'latin1' is really windows-1252, which turns PNG's 0x89 into ‰.
+function startsWith(bytes: Uint8Array, signature: number[], offset = 0) {
+  return signature.every((byte, i) => bytes[offset + i] === byte)
+}
+const ascii = (text: string) => [...text].map((char) => char.charCodeAt(0))
+
+function imageTypeOf(bytes: Uint8Array) {
+  if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47])) return 'image/png'
+  if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg'
+  if (startsWith(bytes, ascii('GIF8'))) return 'image/gif'
+  if (startsWith(bytes, ascii('RIFF')) && startsWith(bytes, ascii('WEBP'), 8)) return 'image/webp'
+  return null
+}
+
+// The kind of a file that arrived without a reliable name, e.g. a SharePoint download sent with
+// no filename or a Drive file sent as application/octet-stream: by name and type, then by content.
+export async function sniffKind(bytes: Uint8Array, mime?: string | null, name?: string | null): Promise<FileKind> {
+  const byLabel = detectKind(mime === 'application/octet-stream' ? null : mime, name)
+  if (byLabel !== 'other') return byLabel
+  if (startsWith(bytes, ascii('%PDF-'))) return 'pdf'
+  if (imageTypeOf(bytes)) return 'image'
+  if (startsWith(bytes, ascii('PK'))) {
+    try {
+      const zip = await JSZip.loadAsync(bytes)
+      if (zip.file('word/document.xml')) return 'docx'
+      if (zip.file('xl/workbook.xml')) return 'spreadsheet'
+      if (zip.file('ppt/presentation.xml')) return 'pptx'
+    } catch { /* not a readable zip */ }
+  }
+  return 'other'
+}
+
 // Turns a downloaded PDF or image into a file Claude reads directly, or says why it can't.
-export function toAttachedFile(kind: 'pdf' | 'image', bytes: Uint8Array, name: string, mime?: string | null):
+export function toAttachedFile(kind: 'pdf' | 'image', bytes: Uint8Array, name: string):
   { file: AttachedFile } | { limitation: string } {
   if (kind === 'pdf') {
     if (bytes.byteLength > MAX_PDF_BYTES) return { limitation: `PDF is ${(bytes.byteLength / 1048576).toFixed(1)} MB, over the ${MAX_PDF_BYTES / 1048576} MB the AI reads.` }
@@ -201,8 +233,9 @@ export function toAttachedFile(kind: 'pdf' | 'image', bytes: Uint8Array, name: s
     return { file: { kind: 'pdf', mediaType: 'application/pdf', data: encodeBase64(bytes), name } }
   }
 
-  const ext = name.toLowerCase().split('.').pop() || ''
-  const mediaType = IMAGE_TYPES[ext] || (Object.values(IMAGE_TYPES).includes(String(mime)) ? String(mime) : 'image/jpeg')
+  // The bytes decide, not the name: the API rejects an image whose declared type doesn't match it.
+  const mediaType = imageTypeOf(bytes)
+  if (!mediaType) return { limitation: 'The image is not in a format the AI reads (JPEG, PNG, GIF or WebP).' }
   if (bytes.byteLength > MAX_IMAGE_BYTES) return { limitation: `Image is ${(bytes.byteLength / 1048576).toFixed(1)} MB, over the 3.75 MB the AI reads.` }
   return { file: { kind: 'image', mediaType, data: encodeBase64(bytes), name } }
 }

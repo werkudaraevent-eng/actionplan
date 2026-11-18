@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
 import {
   type AttachedFile,
   describeAiError,
@@ -11,7 +11,8 @@ import {
   resolveProxyUrl,
   resolveTimeoutMs,
 } from '../_shared/ai.ts'
-import { detectKind, extractText, MAX_TEXT_CHARS_PER_FILE, toAttachedFile } from './files.ts'
+import { detectKind, extractText, type FileKind, MAX_TEXT_CHARS_PER_FILE, sniffKind, toAttachedFile } from './files.ts'
+import { fetchLink, folderListing, planLink } from './links.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,9 +20,12 @@ const corsHeaders = {
 }
 
 // v2: uploaded PDFs, images and Office files are read, not just named.
-const PROMPT_VERSION = 'v2'
+// v3: Google Drive/Docs and SharePoint links are read too.
+const PROMPT_VERSION = 'v3'
 const EVIDENCE_BUCKET = 'evidence-attachments'
 const MAX_ATTACHMENTS = 3
+// Base64 adds a third, so this keeps one request under the API's 32 MB limit with room for the prompt.
+const MAX_TOTAL_ATTACHED_BYTES = 20 * 1024 * 1024
 
 type Attachment = {
   type?: string
@@ -122,44 +126,36 @@ function getStoragePath(item: Attachment) {
   return decodeURIComponent(item.url.substring(idx + marker.length))
 }
 
-// Text, Word, Excel and PowerPoint files become extracted_text for every provider. PDFs and images
-// go to Claude as files when attachFiles is set; the proxy path still gets only their metadata.
-async function readAttachment(
-  supabaseAdmin: ReturnType<typeof createClient>,
-  item: Attachment,
-  attachFiles: boolean,
-): Promise<{ entry: Record<string, unknown>, file?: AttachedFile }> {
-  const storagePath = getStoragePath(item)
-  const meta = {
-    type: item.type || 'unknown',
-    name: item.name || item.title || item.url || 'Untitled attachment',
-    mime: item.mime || null,
-    size: item.size || null,
-    url: item.type === 'link' ? item.url : null,
-    storage_path: storagePath,
-  }
+type ReadResult = { entry: Record<string, unknown>, file?: AttachedFile }
 
-  if (item.type === 'link') {
-    return { entry: { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' } }
-  }
+const UNREAD_TYPE = 'The AI does not read this file type, so only its name was analyzed. Use PDF, an image, .docx, .xlsx or .pptx to have its content read.'
 
-  if (!storagePath) {
-    return { entry: { ...meta, extracted_text: null, limitation: 'Uploaded file has no resolvable storage path.' } }
+// One file's bytes as a snapshot entry: text, Word, Excel and PowerPoint become extracted_text for
+// every provider; PDFs and images go to Claude as files when attachFiles is set.
+async function fromBytes(meta: Record<string, unknown>, kind: FileKind, bytes: Uint8Array, name: string, attachFiles: boolean): Promise<ReadResult> {
+  try {
+    if (kind === 'pdf' || kind === 'image') {
+      if (!attachFiles) return { entry: { ...meta, extracted_text: null, limitation: 'PDF and image content is read only when the AI provider is Anthropic, so only the name was analyzed.' } }
+      const attached = toAttachedFile(kind, bytes, name)
+      if ('limitation' in attached) return { entry: { ...meta, extracted_text: null, limitation: attached.limitation } }
+      return { entry: { ...meta, extracted_text: null, attached_to_message: true }, file: attached.file }
+    }
+    if (kind === 'other') return { entry: { ...meta, extracted_text: null, limitation: UNREAD_TYPE } }
+    const text = await extractText(kind, bytes)
+    return { entry: { ...meta, extracted_text: text.slice(0, MAX_TEXT_CHARS_PER_FILE), truncated: text.length > MAX_TEXT_CHARS_PER_FILE } }
+  } catch (error) {
+    return { entry: { ...meta, extracted_text: null, limitation: `Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}` } }
   }
+}
+
+async function readUpload(supabaseAdmin: SupabaseClient, item: Attachment, meta: Record<string, unknown>, attachFiles: boolean): Promise<ReadResult> {
+  const storagePath = meta.storage_path as string | null
+  if (!storagePath) return { entry: { ...meta, extracted_text: null, limitation: 'Uploaded file has no resolvable storage path.' } }
 
   const kind = detectKind(item.mime, item.name)
-  const isVisual = kind === 'pdf' || kind === 'image'
   // Claude can't open URLs, so on that path a file type it doesn't read gets a note instead of a signed URL.
-  if (kind === 'other' && attachFiles) {
-    return {
-      entry: {
-        ...meta,
-        extracted_text: null,
-        limitation: 'The AI does not read this file type, so only its name was analyzed. Upload it as PDF, an image, .docx, .xlsx or .pptx to have its content read.',
-      },
-    }
-  }
-  if (kind === 'other' || (isVisual && !attachFiles)) {
+  if (kind === 'other' && attachFiles) return { entry: { ...meta, extracted_text: null, limitation: UNREAD_TYPE } }
+  if (kind === 'other' || ((kind === 'pdf' || kind === 'image') && !attachFiles)) {
     const { data } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).createSignedUrl(storagePath, 60 * 15)
     return {
       entry: {
@@ -171,43 +167,53 @@ async function readAttachment(
     }
   }
 
-  try {
-    const { data, error } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).download(storagePath)
-    if (error || !data) {
-      return { entry: { ...meta, extracted_text: null, limitation: `File could not be downloaded: ${error?.message || 'Unknown error'}` } }
-    }
-    const bytes = new Uint8Array(await data.arrayBuffer())
+  const { data, error } = await supabaseAdmin.storage.from(EVIDENCE_BUCKET).download(storagePath)
+  if (error || !data) return { entry: { ...meta, extracted_text: null, limitation: `File could not be downloaded: ${error?.message || 'Unknown error'}` } }
+  return fromBytes(meta, kind, new Uint8Array(await data.arrayBuffer()), String(meta.name), attachFiles)
+}
 
-    if (isVisual) {
-      const attached = toAttachedFile(kind, bytes, meta.name, item.mime)
-      if ('limitation' in attached) return { entry: { ...meta, extracted_text: null, limitation: attached.limitation } }
-      return { entry: { ...meta, extracted_text: null, attached_to_message: true }, file: attached.file }
-    }
+async function readLink(url: string, meta: Record<string, unknown>, attachFiles: boolean): Promise<ReadResult> {
+  const plan = planLink(url)
+  if (!plan) return { entry: { ...meta, extracted_text: null, limitation: 'External link content was not fetched; only URL/title metadata was analyzed.' } }
+  if (plan.source === 'not_readable') return { entry: { ...meta, extracted_text: null, limitation: plan.limitation } }
 
-    const text = await extractText(kind, bytes)
-    return {
-      entry: {
-        ...meta,
-        extracted_text: text.slice(0, MAX_TEXT_CHARS_PER_FILE),
-        truncated: text.length > MAX_TEXT_CHARS_PER_FILE,
-      },
-    }
-  } catch (error) {
-    return {
-      entry: {
-        ...meta,
-        extracted_text: null,
-        limitation: `Text extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      },
-    }
+  const linkMeta = { ...meta, link_source: plan.source }
+  const isFolder = plan.source === 'google_drive_folder'
+  const fetched = await fetchLink(plan.fetchUrl, isFolder ? 'page' : 'file')
+  if (!fetched.ok) return { entry: { ...linkMeta, extracted_text: null, limitation: fetched.limitation } }
+
+  if (isFolder) {
+    const listing = folderListing(new TextDecoder().decode(fetched.bytes))
+    if (!listing.count) return { entry: { ...linkMeta, extracted_text: null, limitation: 'The Google Drive folder is empty, or not shared with "Anyone with the link". Only the link was analyzed.' } }
+    return { entry: { ...linkMeta, extracted_text: listing.text, limitation: 'Only the names of the files in the folder were read, not their content.' } }
   }
+
+  const kind = plan.kind || await sniffKind(fetched.bytes, fetched.contentType, fetched.fileName)
+  const name = fetched.fileName || String(meta.name)
+  return fromBytes(fetched.fileName ? { ...linkMeta, file_name: fetched.fileName } : linkMeta, kind, fetched.bytes, name, attachFiles)
+}
+
+// Text, Word, Excel and PowerPoint files become extracted_text for every provider. PDFs and images
+// go to Claude as files when attachFiles is set; the proxy path still gets only their metadata.
+function readAttachment(supabaseAdmin: SupabaseClient, item: Attachment, attachFiles: boolean): Promise<ReadResult> {
+  const meta = {
+    type: item.type || 'unknown',
+    name: item.name || item.title || item.url || 'Untitled attachment',
+    mime: item.mime || null,
+    size: item.size || null,
+    url: item.type === 'link' ? item.url : null,
+    storage_path: getStoragePath(item),
+  }
+  return item.type === 'link' && item.url
+    ? readLink(item.url, meta, attachFiles)
+    : readUpload(supabaseAdmin, item, meta, attachFiles)
 }
 
 function buildPrompt(snapshot: Record<string, unknown>) {
   return [
     'You are an evidence assessment assistant for corporate action plan grading.',
     'Compare target evidence requirements with submitted evidence. Be strict, practical, and concise.',
-    'Attachments marked attached_to_message are the PDFs and images placed before this text; extracted_text holds the content of text and Office files. Judge the evidence by what these files actually contain, and say which file supports or contradicts each finding.',
+    'Attachments marked attached_to_message are the PDFs and images placed before this text, whether uploaded or downloaded from a link. extracted_text holds the content of text and Office files, of shared Google Docs, Sheets and Slides, and of SharePoint files; for a Google Drive folder it lists only the file names. Judge the evidence by what these files actually contain, and say which file supports or contradicts each finding.',
     'Return JSON only with keys: summary, evidence_match_score, recommended_score_min, recommended_score_max, recommended_verdict, missing_evidence, risks_or_inconsistencies, follow_up_questions, confidence, limitations, rationale.',
     'recommended_verdict must be one of: approve, revision, carry_over, fail.',
     'AI is advisory only; do not claim authenticity certainty.',
@@ -371,24 +377,39 @@ serve(async (req) => {
     if (provider !== 'anthropic' && !aiUrl) throw new Error('Missing AI proxy URL. Configure it in Settings or Supabase secret AI_PROXY_URL')
     const aiKey = await resolveApiKey(companyId, provider)
 
-    const attachments = Array.isArray(plan.attachments) ? plan.attachments.slice(0, MAX_ATTACHMENTS) : []
+    const allAttachments: Attachment[] = Array.isArray(plan.attachments) ? plan.attachments : []
+    const attachments = allAttachments.slice(0, MAX_ATTACHMENTS)
+    // Older plans keep their evidence link only in outcome_link; newer ones copy the first attachment there.
+    const outcomeLink = String(plan.outcome_link || '').trim()
+    if (outcomeLink && attachments.length < MAX_ATTACHMENTS && !allAttachments.some((item) => item?.url?.trim() === outcomeLink)) {
+      attachments.push({ type: 'link', url: outcomeLink, title: 'Outcome link' })
+    }
+
+    // Read in parallel: each link can take up to its own download deadline.
+    const results = await Promise.all(attachments.map((item) => readAttachment(supabaseAdmin, item, provider === 'anthropic').catch((error) => ({
+      entry: {
+        type: item?.type || 'unknown',
+        name: item?.name || item?.title || item?.url || 'Untitled attachment',
+        mime: item?.mime || null,
+        size: item?.size || null,
+        extracted_text: null,
+        limitation: `Attachment could not be processed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      },
+    } as ReadResult))))
+
     const analyzedAttachments: Record<string, unknown>[] = []
     const files: AttachedFile[] = []
-    for (const item of attachments) {
-      try {
-        const { entry, file } = await readAttachment(supabaseAdmin, item, provider === 'anthropic')
-        analyzedAttachments.push(entry)
-        if (file) files.push(file)
-      } catch (error) {
-        analyzedAttachments.push({
-          type: item?.type || 'unknown',
-          name: item?.name || item?.title || item?.url || 'Untitled attachment',
-          mime: item?.mime || null,
-          size: item?.size || null,
-          extracted_text: null,
-          limitation: `Attachment could not be processed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        })
+    let attachedBytes = 0
+    for (const { entry, file } of results) {
+      analyzedAttachments.push(entry)
+      if (!file) continue
+      const bytes = Math.ceil(file.data.length * 3 / 4)
+      if (attachedBytes + bytes > MAX_TOTAL_ATTACHED_BYTES) {
+        Object.assign(entry, { attached_to_message: false, limitation: `Not read: the files before it already fill the ${MAX_TOTAL_ATTACHED_BYTES / 1048576} MB one AI request can carry.` })
+        continue
       }
+      attachedBytes += bytes
+      files.push(file)
     }
 
     const attachmentLimitations = Array.isArray(plan.attachments) && plan.attachments.length > MAX_ATTACHMENTS

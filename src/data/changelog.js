@@ -13,6 +13,18 @@
 
 export const CHANGELOG = [
   {
+    version: '1.29.0',
+    date: '2026-11-18',
+    title: 'AI Membaca Link Google Drive dan SharePoint',
+    changes: [
+      { type: 'feature', description: 'AI Evidence Assessment kini membuka link Google Sheets, Google Slides, Google Docs dan file Google Drive yang dibagikan "Anyone with the link", lalu menilai isinya seperti file yang di-upload' },
+      { type: 'feature', description: 'Link file SharePoint "Anyone with the link" (Word, Excel, PowerPoint, PDF, gambar) kini diunduh dan dibaca oleh AI' },
+      { type: 'feature', description: 'Untuk link folder Google Drive, AI membaca daftar nama, jenis dan tanggal file di dalamnya, sehingga bisa menilai apakah evidence yang diminta ada di folder tersebut' },
+      { type: 'improvement', description: 'Bila link tidak bisa dibuka, catatan Limitations menyebut alasannya: perlu login, link OneDrive pribadi, folder SharePoint, download diblokir, file lebih dari 10 MB, atau file sudah dihapus. Dengan begitu PIC tahu cara membagikan ulang evidence-nya' },
+      { type: 'improvement', description: 'Link evidence lama yang hanya tersimpan di kolom Proof of Evidence kini ikut dibaca' },
+    ],
+  },
+  {
     version: '1.28.0',
     date: '2026-11-18',
     title: 'AI Membaca Isi File Evidence',
